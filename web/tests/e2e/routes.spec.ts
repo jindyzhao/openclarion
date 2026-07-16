@@ -1544,8 +1544,9 @@ test("settings overview route renders the alert operations configuration graph",
   await expect(page.getByLabel("Next setup stage")).toContainText(
     "Suggest room keeps an operator handoff step",
   );
-  await expect(page.getByLabel("Next setup stage")).toContainText(
-    "medium priority",
+  await expect(page.getByTestId("settings-next-priority")).toHaveAttribute(
+    "data-priority",
+    "medium",
   );
   await expect(page.getByLabel("Retained proof targets")).toContainText(
     "Policy replay",
@@ -1579,16 +1580,16 @@ test("settings overview route renders the alert operations configuration graph",
     "Primary Prometheus",
   );
   await expect(page.getByLabel("Active workflow topology")).toContainText(
-    "review",
+    "Review",
   );
   await expect(
     page.getByLabel("Selected alert workflow topology"),
   ).toContainText("AI room");
   const ingestionReadiness = page.getByLabel("Alert ingestion readiness");
   await expect(ingestionReadiness).toContainText("Alert ingestion readiness");
-  await expect(ingestionReadiness).toContainText("review");
-  await expect(ingestionReadiness).toContainText("prometheus");
-  await expect(ingestionReadiness).toContainText("suggest_room");
+  await expect(ingestionReadiness).toContainText("Review");
+  await expect(ingestionReadiness).toContainText("Prometheus");
+  await expect(ingestionReadiness).toContainText("Suggest room");
   await expect(ingestionReadiness).toContainText("Active alert tools");
   await expect(ingestionReadiness).toContainText("Metric evidence");
   await expect(

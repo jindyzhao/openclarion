@@ -588,12 +588,12 @@ export function notificationChannelAIProofReadiness(
   const readiness = notificationChannelAIRoomReadiness(channel);
   const requiredContentKinds =
     notificationChannelAIRequiredTestContentKinds(channel);
-  if (readiness.status === "blocked") {
+  if (readiness.status !== "ready") {
     return {
       detail: readiness.detail,
       label: readiness.label,
       missingContentKinds: requiredContentKinds,
-      status: "blocked",
+      status: readiness.status,
     };
   }
   if (requiredContentKinds.length === 0) {

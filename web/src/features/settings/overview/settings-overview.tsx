@@ -33,7 +33,7 @@ import {
 } from "antd";
 import type { TableColumnsType } from "antd";
 import { useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   useCallback,
   useEffect,
@@ -125,13 +125,18 @@ import {
   type CurrentRBACAuthorizationState,
 } from "../rbac-capabilities";
 import {
+  channelToFormState,
   notificationChannelEditHref,
   notificationChannelAIProofReadiness,
+  notificationChannelCredentialReadiness,
   notificationChannelEnterpriseWeChatRolloutReadiness,
   notificationChannelLaunchHref,
   notificationChannelTestProofBundleFromResults,
 } from "../notification-channels/format";
-import type { NotificationChannelProfile } from "../notification-channels/types";
+import type {
+  NotificationChannelProfile,
+  NotificationChannelTestContentKind,
+} from "../notification-channels/types";
 import { reportWorkflowPolicyLaunchHref } from "../report-workflow-policies/format";
 import type { ReportWorkflowPolicy } from "../report-workflow-policies/types";
 import { reportWorkflowScheduleLaunchHref } from "../report-workflow-schedules/format";
@@ -178,12 +183,16 @@ type SettingsOverviewProps = {
   workflowSchedules: ReportWorkflowSchedule[];
 };
 
+export type SettingsOverviewTranslator = ReturnType<
+  typeof useTranslations<"SettingsOverview">
+>;
+
 type Stage = {
   count: number | null;
   countLabel: string;
   href: string;
   icon: ReactNode;
-  key: string;
+  key: "sources" | "grouping" | "tools" | "channels" | "workflow" | "schedules";
   title: string;
 };
 
@@ -290,9 +299,7 @@ export type AutoDiagnosisProofHistory = {
 type DiagnosisAuthProbeFormValues = DiagnosisAuthInputValues;
 
 type DiagnosisAuthProbeLocalFailure =
-  | "backend_readiness"
-  | "browser_session"
-  | "credentials";
+  "backend_readiness" | "browser_session" | "credentials";
 
 type DiagnosisAuthProbeResult = DiagnosisAuthBackendCheck & {
   localFailure?: DiagnosisAuthProbeLocalFailure;
@@ -386,13 +393,6 @@ export type SettingsCurrentRBACAccessSummary = {
   subject: string;
 };
 
-export type SettingsWeComAppCallbackGuidance = {
-  detail: string;
-  envVar: string;
-  label: string;
-  value: string;
-};
-
 export type SettingsLDAPConfigurationGuidance = {
   detail: string;
   envVar: string;
@@ -414,6 +414,8 @@ export function SettingsOverview({
   workflowPolicies,
   workflowSchedules,
 }: SettingsOverviewProps) {
+  const locale = useLocale();
+  const t = useTranslations("SettingsOverview");
   const authT = useTranslations("DiagnosisAuth");
   const searchParams = useSearchParams();
   const clientReady = useClientReady();
@@ -424,6 +426,8 @@ export function SettingsOverview({
   const currentRBACAccess = settingsCurrentRBACAccessSummary(
     currentRBACAuthorization.state,
     currentRBACAuthorization.isChecking,
+    t,
+    locale,
   );
   const focusTarget = searchParams.get("focus") ?? "";
   const weComAuthError = diagnosisRoomWeComAuthErrorSearchParam(searchParams);
@@ -529,51 +533,51 @@ export function SettingsOverview({
   const stages: Stage[] = [
     {
       count: counts.alertSources,
-      countLabel: "profiles",
+      countLabel: t("stages.profiles"),
       href: "/settings/alert-sources",
       icon: <ApiOutlined aria-hidden="true" />,
       key: "sources",
-      title: "Alert sources",
+      title: t("stages.alertSources"),
     },
     {
       count: counts.groupingPolicies,
-      countLabel: "policies",
+      countLabel: t("stages.policies"),
       href: "/settings/grouping-policies",
       icon: <PartitionOutlined aria-hidden="true" />,
       key: "grouping",
-      title: "Grouping",
+      title: t("stages.grouping"),
     },
     {
       count: counts.diagnosisToolTemplates,
-      countLabel: "templates",
+      countLabel: t("stages.templates"),
       href: "/settings/diagnosis-tool-templates",
       icon: <ToolOutlined aria-hidden="true" />,
       key: "tools",
-      title: "Diagnosis tools",
+      title: t("stages.diagnosisTools"),
     },
     {
       count: counts.notificationChannels,
-      countLabel: "channels",
+      countLabel: t("stages.channels"),
       href: "/settings/notification-channels",
       icon: <BellOutlined aria-hidden="true" />,
       key: "channels",
-      title: "Notifications",
+      title: t("stages.notifications"),
     },
     {
       count: counts.workflowPolicies,
-      countLabel: "policies",
+      countLabel: t("stages.policies"),
       href: "/settings/report-workflow-policies",
       icon: <BranchesOutlined aria-hidden="true" />,
       key: "workflow",
-      title: "Workflow policies",
+      title: t("stages.workflowPolicies"),
     },
     {
       count: counts.workflowSchedules,
-      countLabel: "schedules",
+      countLabel: t("stages.schedules"),
       href: "/settings/report-workflow-schedules",
       icon: <CalendarOutlined aria-hidden="true" />,
       key: "schedules",
-      title: "Schedules",
+      title: t("stages.schedulesTitle"),
     },
   ];
   const nextStageIndex = stages.findIndex(
@@ -596,60 +600,73 @@ export function SettingsOverview({
       latestAutoDiagnosisProofHistoryForSource(
         alerts,
         topology.alertSource?.id ?? null,
+        t,
       ),
-    [alerts, topology.alertSource?.id],
+    [alerts, t, topology.alertSource?.id],
   );
   const autoDiagnosisProofHistories = useMemo(
-    () => autoDiagnosisProofHistoriesForAlerts(alerts, 5),
-    [alerts],
+    () => autoDiagnosisProofHistoriesForAlerts(alerts, t, 5),
+    [alerts, t],
   );
-  const topologyActions = workflowTopologyActions(topology);
+  const topologyActions = workflowTopologyActions(topology, t, locale);
   const nextTopologyAction = topologyActions[0] ?? null;
   const nextSetup =
     nextStage === null && nextTopologyAction !== null
       ? {
-          actionLabel: "Open",
+          actionLabel: t("actions.open"),
           detail: nextTopologyAction.detail,
           href: nextTopologyAction.href,
+          priority: nextTopologyAction.priority,
           tagColor: actionPriorityColor(nextTopologyAction.priority),
-          tagLabel: `${nextTopologyAction.priority} priority`,
+          tagLabel: t(`priority.${nextTopologyAction.priority}`),
           title: nextTopologyAction.title,
         }
       : nextStage === null
         ? {
             actionLabel: "",
-            detail:
-              "Run and retain live proof against the configured alert source, workflow, LLM, and notification path.",
+            detail: t("nextSetup.retainedProofDetail"),
             href: "",
+            priority: null,
             tagColor: "gold",
-            tagLabel: "Proof pending",
-            title: "Retained live proof",
+            tagLabel: t("nextSetup.proofPending"),
+            title: t("nextSetup.retainedProofTitle"),
           }
         : {
-            actionLabel: "Configure",
-            detail: `Create or verify ${nextStage.title.toLowerCase()} before continuing the alert operations graph.`,
+            actionLabel: t("actions.configure"),
+            detail: t("nextSetup.configureDetail", { stage: nextStage.title }),
             href: nextStage.href,
+            priority: null,
             tagColor: "gold",
-            tagLabel: "Needs setup",
+            tagLabel: t("status.needsSetup"),
             title: nextStage.title,
           };
   const proofTargets = workflowProofTargets(
     topology,
+    t,
+    locale,
     autoDiagnosisProofHistory,
   );
   const liveProofReadiness = workflowLiveProofReadiness(
     topology,
+    t,
+    locale,
     diagnosisAuthProof,
   );
-  const localAccessReadiness = settingsLocalAccessReadiness({
+  const localAccessReadiness = settingsLocalAccessReadiness(
+    {
     directoryDepartments,
     directorySyncRuns,
     directoryUsers,
     rbacAssignments,
-  });
+    },
+    t,
+    locale,
+  );
   const integrationReadiness = workflowIntegrationReadiness(
     topology,
     authT,
+    t,
+    locale,
     diagnosisAuthProof,
     localAccessReadiness,
     currentRBACAccess,
@@ -659,23 +676,23 @@ export function SettingsOverview({
     <div className="stack">
       <section className="panel">
         <div className="panel-header">
-          <h2>Configuration graph</h2>
+          <h2>{t("configuration.title")}</h2>
         </div>
         <div className="panel-body settings-overview-flow">
           <Steps
-            aria-label="Alert operations configuration sequence"
+            aria-label={t("configuration.sequence")}
             className="settings-overview-steps"
             current={currentStep}
             items={[
               ...stages.map((stage, index) => ({
                 icon: stage.icon,
                 status: stepStatus(stage.count, index, currentStep),
-                title: shortStageTitle(stage.title),
+                title: shortStageTitle(stage.key, t),
               })),
               {
                 icon: <PlayCircleOutlined />,
                 status: allConfigurationPresent ? "process" : "wait",
-                title: "Proof",
+                title: t("stages.proof"),
               },
             ]}
             responsive={false}
@@ -685,21 +702,35 @@ export function SettingsOverview({
       </section>
 
       <section
-        aria-label="Next setup stage"
+        aria-label={t("nextSetup.ariaLabel")}
         className="panel settings-overview-next"
       >
         <div>
-          <Typography.Text className="muted">Next setup</Typography.Text>
+          <Typography.Text className="muted">
+            {t("nextSetup.label")}
+          </Typography.Text>
           <Typography.Title level={2}>{nextSetup.title}</Typography.Title>
           <Typography.Paragraph className="settings-overview-next-copy">
             {nextSetup.detail}
           </Typography.Paragraph>
         </div>
         {nextSetup.href === "" ? (
-          <Tag color={nextSetup.tagColor}>{nextSetup.tagLabel}</Tag>
+          <Tag
+            color={nextSetup.tagColor}
+            data-priority={nextSetup.priority ?? undefined}
+            data-testid="settings-next-priority"
+          >
+            {nextSetup.tagLabel}
+          </Tag>
         ) : (
           <Space wrap>
-            <Tag color={nextSetup.tagColor}>{nextSetup.tagLabel}</Tag>
+            <Tag
+              color={nextSetup.tagColor}
+              data-priority={nextSetup.priority ?? undefined}
+              data-testid="settings-next-priority"
+            >
+              {nextSetup.tagLabel}
+            </Tag>
             <Button
               href={nextSetup.href}
               icon={<RadarChartOutlined />}
@@ -731,7 +762,7 @@ export function SettingsOverview({
       <LiveProofReadinessPanel readiness={liveProofReadiness} />
       <AutoDiagnosisProofHistoryPanel histories={autoDiagnosisProofHistories} />
 
-      <Row aria-label="Retained proof targets" gutter={[16, 16]}>
+      <Row aria-label={t("proofTargets.ariaLabel")} gutter={[16, 16]}>
         {proofTargets.map((target) => (
           <Col key={target.key} lg={12} xs={24}>
             <Card
@@ -747,12 +778,12 @@ export function SettingsOverview({
                 <Space direction="vertical" size={10}>
                   <Space wrap>
                     <Tag color={proofTargetStatusColor(target.status)}>
-                      {proofTargetStatusLabel(target.status)}
+                      {proofTargetStatusLabel(target.status, t)}
                     </Tag>
                     {allConfigurationPresent ? (
-                      <Tag color="gold">Configuration present</Tag>
+                      <Tag color="gold">{t("status.configurationPresent")}</Tag>
                     ) : (
-                      <Tag>Waiting for graph</Tag>
+                      <Tag>{t("status.waitingForGraph")}</Tag>
                     )}
                   </Space>
                   <Typography.Paragraph className="settings-overview-proof-copy">
@@ -761,7 +792,9 @@ export function SettingsOverview({
                 </Space>
                 <div
                   className="settings-overview-proof-tags"
-                  aria-label={`${target.title} evidence`}
+                  aria-label={t("proofTargets.evidenceAriaLabel", {
+                    target: target.title,
+                  })}
                 >
                   {target.evidence.map((item) => (
                     <Tag key={item}>{item}</Tag>
@@ -781,7 +814,7 @@ export function SettingsOverview({
         ))}
       </Row>
 
-      <Row aria-label="Settings surfaces" gutter={[16, 16]}>
+      <Row aria-label={t("settingsSurfaces")} gutter={[16, 16]}>
         {stages.map((stage) => (
           <Col key={stage.key} lg={8} md={12} xs={24}>
             <Card
@@ -791,7 +824,7 @@ export function SettingsOverview({
               <div className="settings-overview-card-body">
                 <div>
                   <div className="settings-overview-count">
-                    {formatCount(stage.count)}
+                    {formatCount(stage.count, locale)}
                   </div>
                   <Typography.Text className="muted">
                     {stage.countLabel}
@@ -805,21 +838,21 @@ export function SettingsOverview({
                 icon={<RadarChartOutlined />}
                 type="default"
               >
-                Open
+                {t("actions.open")}
               </Button>
             </Card>
           </Col>
         ))}
       </Row>
 
-      <Row aria-label="Access control surface" gutter={[16, 16]}>
+      <Row aria-label={t("access.ariaLabel")} gutter={[16, 16]}>
         <Col lg={8} md={12} xs={24}>
           <Card
             className="settings-overview-card"
             title={
               <CardTitle
                 icon={<AuditOutlined aria-hidden="true" />}
-                title="Directory & RBAC"
+                title={t("access.title")}
               />
             }
           >
@@ -828,9 +861,12 @@ export function SettingsOverview({
                 <div className="settings-overview-count">
                   {formatCount(
                     counts.rbacAssignments ?? rbacAssignments.length,
+                    locale,
                   )}
                 </div>
-                <Typography.Text className="muted">rules</Typography.Text>
+                <Typography.Text className="muted">
+                  {t("access.rules")}
+                </Typography.Text>
               </div>
               <Space size={6} wrap>
                 <Tag
@@ -846,13 +882,15 @@ export function SettingsOverview({
                     settingsLocalAccessSyncStatus(localAccessReadiness),
                   )}
                 >
-                  {settingsLocalAccessSyncValue(localAccessReadiness)}
+                  {settingsLocalAccessSyncValue(localAccessReadiness, t)}
                 </Tag>
                 <Tag color={directoryUsers.length > 0 ? "green" : "gold"}>
-                  {directoryUsers.length} users
+                  {t("access.users", { count: directoryUsers.length })}
                 </Tag>
                 <Tag color={directoryDepartments.length > 0 ? "green" : "gold"}>
-                  {directoryDepartments.length} departments
+                  {t("access.departments", {
+                    count: directoryDepartments.length,
+                  })}
                 </Tag>
                 {currentRBACAccess.subject === "" ? null : (
                   <Tag>{currentRBACAccess.subject}</Tag>
@@ -892,50 +930,54 @@ export function SettingsOverview({
                 }
                 type={currentRBACAccess.needsSignIn ? "primary" : "default"}
               >
-                {currentRBACAccess.needsSignIn ? "Sign in with IAM" : "Open"}
+                {currentRBACAccess.needsSignIn
+                  ? t("actions.signInWithIAM")
+                  : t("actions.open")}
               </Button>
             </Space>
           </Card>
         </Col>
       </Row>
 
-      <Row aria-label="Settings action boundaries" gutter={[16, 16]}>
+      <Row aria-label={t("boundaries.ariaLabel")} gutter={[16, 16]}>
         <Col lg={8} xs={24}>
           <BoundaryPanel
             icon={<ExperimentOutlined />}
-            status="Bounded I/O"
-            title="Connection tests"
-            text="Source and channel tests stay behind backend action endpoints with sanitized results."
+            status={t("boundaries.connectionTests.status")}
+            title={t("boundaries.connectionTests.title")}
+            text={t("boundaries.connectionTests.detail")}
           />
         </Col>
         <Col lg={8} xs={24}>
           <BoundaryPanel
             icon={<AuditOutlined />}
-            status="No workflow start"
-            title="Previews"
-            text="Grouping and impact previews read bounded persisted samples without provider calls or workflow starts."
+            status={t("boundaries.previews.status")}
+            title={t("boundaries.previews.title")}
+            text={t("boundaries.previews.detail")}
           />
         </Col>
         <Col lg={8} xs={24}>
           <BoundaryPanel
             icon={<CheckCircleOutlined />}
-            status="External proof pending"
-            title="Replay and schedules"
-            text="Policy replay and scheduled delivery require retained live proof against operator-provided services."
+            status={t("boundaries.replay.status")}
+            title={t("boundaries.replay.title")}
+            text={t("boundaries.replay.detail")}
           />
         </Col>
       </Row>
 
       <Alert
         message={
-          allConfigurationPresent ? "Live proof gate" : "Configuration gate"
+          allConfigurationPresent
+            ? t("gate.liveProofTitle")
+            : t("gate.configurationTitle")
         }
         showIcon
         type={allConfigurationPresent ? "warning" : "info"}
         description={
           allConfigurationPresent
-            ? "Policy replay, Alertmanager auto-diagnosis, and scheduled-trigger acceptance still require retained proof against real PostgreSQL, Temporal, alert-source, LLM, and notification delivery inputs."
-            : "Retained proof targets activate only after the alert source, grouping, notification, workflow policy, and schedule objects exist server-side."
+            ? t("gate.liveProofDetail")
+            : t("gate.configurationDetail")
         }
       />
     </div>
@@ -947,15 +989,16 @@ function IntegrationReadinessPanel({
 }: {
   readiness: IntegrationReadiness;
 }) {
+  const t = useTranslations("SettingsOverview");
   return (
     <section
-      aria-label="Operator rollout readiness"
+      aria-label={t("integration.ariaLabel")}
       className="panel settings-overview-integration"
     >
       <div className="panel-header settings-overview-integration-header">
-        <h2>Operator rollout readiness</h2>
+        <h2>{t("integration.title")}</h2>
         <Tag color={proofTargetStatusColor(readiness.status)}>
-          {proofTargetStatusLabel(readiness.status)}
+          {proofTargetStatusLabel(readiness.status, t)}
         </Tag>
       </div>
       <div className="panel-body settings-overview-integration-body">
@@ -968,7 +1011,7 @@ function IntegrationReadinessPanel({
               <div>
                 <Space size={8} wrap>
                   <Tag color={proofTargetStatusColor(item.status)}>
-                    {proofTargetStatusLabel(item.status)}
+                    {proofTargetStatusLabel(item.status, t)}
                   </Tag>
                   <Typography.Text strong>{item.title}</Typography.Text>
                 </Space>
@@ -1067,6 +1110,7 @@ function DiagnosisAuthProbePanel({
   weComAuthError?: DiagnosisRoomWeComAuthError;
 }) {
   const authT = useTranslations("DiagnosisAuth");
+  const locale = useLocale();
   const [form] = Form.useForm<DiagnosisAuthProbeFormValues>();
   const [values, setValues] = useState<DiagnosisAuthProbeFormValues>({
     authMode: "session",
@@ -1145,7 +1189,7 @@ function DiagnosisAuthProbePanel({
   const weComAuthErrorDetail =
     weComAuthError === undefined
       ? null
-      : settingsWeComAuthErrorDetail(weComAuthError);
+      : settingsWeComAuthErrorDetail(weComAuthError, authT);
   const weComSetupReadiness = diagnosisAuthWeComSetupReadiness(
     backendStatus.status,
     authT,
@@ -1161,8 +1205,11 @@ function DiagnosisAuthProbePanel({
     backendStatus.loading,
     authT,
   );
-  const weComBrowserSessionReadiness =
-    settingsWeComBrowserSessionReadiness(browserSession);
+  const weComBrowserSessionReadiness = settingsWeComBrowserSessionReadiness(
+    browserSession,
+    authT,
+    locale,
+  );
   const authReadinessSummary = diagnosisAuthReadinessSummary(
     {
       backendReadiness,
@@ -1350,12 +1397,12 @@ function DiagnosisAuthProbePanel({
 
   return (
     <section
-      aria-label="Diagnosis auth readiness"
+      aria-label={authT("panel.ariaLabel")}
       className="panel settings-overview-auth"
       id={diagnosisAuthReadinessFocusTarget}
     >
       <div className="panel-header settings-overview-auth-header">
-        <h2>Diagnosis auth readiness</h2>
+        <h2>{authT("panel.title")}</h2>
         <Space size={6} wrap>
           <Tag color={authProbeReadinessColor(readiness.status)}>
             {diagnosisAuthInputReadinessStatusLabel(readiness.status, authT)}
@@ -1408,7 +1455,7 @@ function DiagnosisAuthProbePanel({
                 );
               }}
             >
-              <Form.Item label="Authentication" name="authMode">
+              <Form.Item label={authT("panel.authentication")} name="authMode">
                 <DiagnosisAuthModeSelector options={authModeOptions} />
               </Form.Item>
               {mode === "wecom" ? (
@@ -1430,22 +1477,18 @@ function DiagnosisAuthProbePanel({
                           icon={<LoginOutlined />}
                           type="primary"
                         >
-                          Sign in with IAM
+                          {authT("panel.signInWithIAM")}
                         </Button>
                       </Space>
                     }
                     description={
                       <Space direction="vertical" size={6}>
                         <Typography.Text>
-                          Enterprise WeChat browser login has been replaced by
-                          IAM OIDC. OpenClarion uses the IAM browser session for
-                          operator identity and keeps Enterprise WeChat for app
-                          messages, notification delivery, and diagnosis-room
-                          collaboration callbacks.
+                          {authT("panel.weComMigratedDetail")}
                         </Typography.Text>
                       </Space>
                     }
-                    message="Enterprise WeChat browser sign-in migrated"
+                    message={authT("panel.weComMigratedMessage")}
                     showIcon
                     type="warning"
                   />
@@ -1466,7 +1509,7 @@ function DiagnosisAuthProbePanel({
                           icon={<LoginOutlined />}
                           type="primary"
                         >
-                          Sign in with IAM
+                          {authT("panel.signInWithIAM")}
                         </Button>
                       ) : null}
                       <Button
@@ -1476,7 +1519,7 @@ function DiagnosisAuthProbePanel({
                         icon={<ReloadOutlined />}
                         onClick={onRefreshBrowserSession}
                       >
-                        Refresh session
+                        {authT("panel.refreshSession")}
                       </Button>
                       {browserSession.status?.authenticated === true ? (
                         <Button
@@ -1485,7 +1528,7 @@ function DiagnosisAuthProbePanel({
                           loading={browserSessionClearing}
                           onClick={onSignOutBrowserSession}
                         >
-                          Sign out
+                          {authT("panel.signOut")}
                         </Button>
                       ) : null}
                     </Space>
@@ -1494,20 +1537,29 @@ function DiagnosisAuthProbePanel({
                     browserSession,
                     authT,
                   )}
-                  message="OpenClarion browser session"
+                  message={authT("panel.browserSession")}
                   showIcon
                   type={diagnosisBrowserSessionStatusAlertType(browserSession)}
                 />
               ) : mode === "bearer" ? (
-                <Form.Item label="Bearer token" name="bearerToken">
+                <Form.Item
+                  label={authT("panel.bearerToken")}
+                  name="bearerToken"
+                >
                   <Input.Password autoComplete="off" />
                 </Form.Item>
               ) : (
                 <>
-                  <Form.Item label="LDAP username" name="ldapUsername">
+                  <Form.Item
+                    label={authT("panel.ldapUsername")}
+                    name="ldapUsername"
+                  >
                     <Input autoComplete="username" />
                   </Form.Item>
-                  <Form.Item label="LDAP password" name="ldapPassword">
+                  <Form.Item
+                    label={authT("panel.ldapPassword")}
+                    name="ldapPassword"
+                  >
                     <Input.Password autoComplete="current-password" />
                   </Form.Item>
                   <DiagnosisAuthLDAPSetupSummary
@@ -1524,7 +1576,7 @@ function DiagnosisAuthProbePanel({
                   loading={checking}
                   type="primary"
                 >
-                  Check auth
+                  {authT("panel.checkAuth")}
                 </Button>
                 <Button
                   disabled={checking}
@@ -1542,7 +1594,7 @@ function DiagnosisAuthProbePanel({
                   }}
                   type="default"
                 >
-                  Reset
+                  {authT("panel.reset")}
                 </Button>
               </Space>
             </Form>
@@ -1560,7 +1612,7 @@ function DiagnosisAuthProbePanel({
               />
               <Alert
                 description={diagnosisAuthStatusDetail(backendStatus, authT)}
-                message="Backend diagnosis auth wiring"
+                message={authT("panel.backendWiring")}
                 showIcon
                 type={diagnosisAuthStatusAlertType(backendStatus)}
               />
@@ -1574,7 +1626,7 @@ function DiagnosisAuthProbePanel({
                           icon={<LoginOutlined />}
                           type="primary"
                         >
-                          Sign in with IAM
+                          {authT("panel.signInWithIAM")}
                         </Button>
                       ) : null}
                       <Button
@@ -1584,7 +1636,7 @@ function DiagnosisAuthProbePanel({
                         icon={<ReloadOutlined />}
                         onClick={onRefreshBrowserSession}
                       >
-                        Refresh session
+                        {authT("panel.refreshSession")}
                       </Button>
                       {browserSession.status?.authenticated === true ? (
                         <Button
@@ -1593,7 +1645,7 @@ function DiagnosisAuthProbePanel({
                           loading={browserSessionClearing}
                           onClick={onSignOutBrowserSession}
                         >
-                          Sign out
+                          {authT("panel.signOut")}
                         </Button>
                       ) : null}
                     </Space>
@@ -1604,8 +1656,8 @@ function DiagnosisAuthProbePanel({
                   )}
                   message={
                     mode === "wecom"
-                      ? "Enterprise WeChat browser session"
-                      : "OpenClarion browser session"
+                      ? authT("panel.weComBrowserSession")
+                      : authT("panel.browserSession")
                   }
                   showIcon
                   type={diagnosisBrowserSessionStatusAlertType(browserSession)}
@@ -1618,8 +1670,7 @@ function DiagnosisAuthProbePanel({
                 type={diagnosisAuthRolloutAlertType(rolloutReadiness.status)}
               />
               <Typography.Text type="secondary">
-                Credential values are used only for this backend check request
-                and are not saved in OpenClarion settings.
+                {authT("panel.credentialsTransient")}
               </Typography.Text>
               <Typography.Text type="secondary">
                 {readiness.detail}
@@ -1631,6 +1682,7 @@ function DiagnosisAuthProbePanel({
                   readiness.mode,
                   displayedResult,
                   authT,
+                  locale,
                 )}
                 size="small"
               />
@@ -1641,6 +1693,7 @@ function DiagnosisAuthProbePanel({
                   rolloutReadiness,
                   backendStatus,
                   authT,
+                  locale,
                 )}
                 size="small"
               />
@@ -1950,17 +2003,18 @@ function diagnosisAuthProbeModeFromCheckMode(
 
 function diagnosisAuthBrowserSessionSourceValueLabel(
   mode: DiagnosisAuthStatus["mode"],
+  t: DiagnosisAuthTranslator,
 ): string {
   switch (mode) {
     case "ldap":
-      return "LDAP";
+      return t("provider.ldap");
     case "static":
-      return "static bearer auth";
+      return t("provider.staticBearerAuth");
     case "oidc":
-      return "IAM OIDC";
+      return t("provider.iamOIDC");
     case "unknown":
     case "none":
-      return "the configured backend provider";
+      return t("provider.configuredBackend");
   }
 }
 
@@ -1993,288 +2047,214 @@ function diagnosisAuthorizationFromProbeValues(
   });
 }
 
-export function settingsWeComAppCallbackURL(
-  origin: string | null,
-): string | null {
-  const normalizedOrigin = settingsNormalizedPublicOrigin(origin);
-  if (normalizedOrigin === null) {
-    return null;
-  }
-  return new URL(
-    "/api/v1/diagnosis/wecom/app-callback",
-    normalizedOrigin,
-  ).toString();
-}
-
-function settingsNormalizedPublicOrigin(origin: string | null): string | null {
-  const value = origin?.trim() ?? "";
-  if (value === "") {
-    return null;
-  }
-  try {
-    const parsed = new URL(value);
-    if (
-      parsed.username !== "" ||
-      parsed.password !== "" ||
-      parsed.search !== "" ||
-      parsed.hash !== "" ||
-      (parsed.protocol !== "https:" && parsed.protocol !== "http:")
-    ) {
-      return null;
-    }
-    return parsed.origin;
-  } catch {
-    return null;
-  }
-}
-
-export function settingsWeComAppCallbackGuidance(): SettingsWeComAppCallbackGuidance[] {
+export function settingsLDAPTransportGuidance(
+  t: DiagnosisAuthTranslator,
+): SettingsLDAPConfigurationGuidance[] {
   return [
     {
-      detail:
-        "Shared verification token configured on the Enterprise WeChat app message receiver. It is used with timestamp, nonce, and encrypted payload data to validate callback signatures.",
-      envVar: "OPENCLARION_WECOM_CALLBACK_TOKEN",
-      label: "Callback token",
-      value: "Signature verification",
-    },
-    {
-      detail:
-        "Base64 EncodingAESKey configured on the same Enterprise WeChat app message receiver. OpenClarion uses it to decrypt URL verification echoes and encrypted XML callbacks.",
-      envVar: "OPENCLARION_WECOM_CALLBACK_ENCODING_AES_KEY",
-      label: "Encoding AES key",
-      value: "Encrypted callback body",
-    },
-    {
-      detail:
-        "Receive ID checked after callback decryption. Leave unset only when the Enterprise WeChat Corp ID is the expected receive ID.",
-      envVar: "OPENCLARION_WECOM_CALLBACK_RECEIVE_ID",
-      label: "Receive ID",
-      value: "Corp or app receive ID",
-    },
-  ];
-}
-
-export function settingsLDAPTransportGuidance(): SettingsLDAPConfigurationGuidance[] {
-  return [
-    {
-      detail:
-        "Directory endpoint. Prefer ldaps://; ldap:// requires StartTLS unless plaintext is explicitly allowed for local development.",
+      detail: t("guidance.ldap.transport.url.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_URL",
-      label: "LDAP URL",
-      value: "Directory endpoint",
+      label: t("guidance.ldap.transport.url.label"),
+      value: t("guidance.ldap.transport.url.value"),
     },
     {
-      detail:
-        "Upgrades ldap:// connections before service bind, search, and user bind.",
+      detail: t("guidance.ldap.transport.startTLS.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_START_TLS",
-      label: "StartTLS",
-      value: "Encrypted ldap:// transport",
+      label: t("guidance.ldap.transport.startTLS.label"),
+      value: t("guidance.ldap.transport.startTLS.value"),
     },
     {
-      detail:
-        "Explicit local-only plaintext allowance. Keep unset for production rollout.",
+      detail: t("guidance.ldap.transport.plaintext.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_ALLOW_INSECURE_PLAINTEXT",
-      label: "Plaintext allowance",
-      value: "Development fallback",
+      label: t("guidance.ldap.transport.plaintext.label"),
+      value: t("guidance.ldap.transport.plaintext.value"),
     },
   ];
 }
 
-export function settingsLDAPDirectorySearchGuidance(): SettingsLDAPConfigurationGuidance[] {
+export function settingsLDAPDirectorySearchGuidance(
+  t: DiagnosisAuthTranslator,
+): SettingsLDAPConfigurationGuidance[] {
   return [
     {
-      detail:
-        "Search root used to locate the operator entry before the user bind.",
+      detail: t("guidance.ldap.search.baseDN.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_BASE_DN",
-      label: "Base DN",
-      value: "Search root",
+      label: t("guidance.ldap.search.baseDN.label"),
+      value: t("guidance.ldap.search.baseDN.value"),
     },
     {
-      detail:
-        "Optional service account DN used for the initial directory search.",
+      detail: t("guidance.ldap.search.bindDN.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_BIND_DN",
-      label: "Bind DN",
-      value: "Search account",
+      label: t("guidance.ldap.search.bindDN.label"),
+      value: t("guidance.ldap.search.bindDN.value"),
     },
     {
-      detail:
-        "Optional service account password. Configure only together with the bind DN.",
+      detail: t("guidance.ldap.search.bindPassword.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD",
-      label: "Bind password",
-      value: "Search credential",
+      label: t("guidance.ldap.search.bindPassword.label"),
+      value: t("guidance.ldap.search.bindPassword.value"),
     },
     {
-      detail:
-        "LDAP filter template. Use {username} for the escaped login name.",
+      detail: t("guidance.ldap.search.userFilter.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_USER_FILTER",
-      label: "User filter",
-      value: "User lookup",
+      label: t("guidance.ldap.search.userFilter.label"),
+      value: t("guidance.ldap.search.userFilter.value"),
     },
     {
-      detail:
-        "Optional attribute used as the OpenClarion subject. Leave unset to use the entry DN.",
+      detail: t("guidance.ldap.search.subjectAttribute.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_SUBJECT_ATTRIBUTE",
-      label: "Subject attribute",
-      value: "Principal subject",
+      label: t("guidance.ldap.search.subjectAttribute.label"),
+      value: t("guidance.ldap.search.subjectAttribute.value"),
     },
   ];
 }
 
-export function settingsLDAPRoleMappingGuidance(): SettingsLDAPConfigurationGuidance[] {
+export function settingsLDAPRoleMappingGuidance(
+  t: DiagnosisAuthTranslator,
+): SettingsLDAPConfigurationGuidance[] {
   return [
     {
-      detail:
-        "LDAP attribute read from the matched user entry to evaluate owner/admin mapping values.",
+      detail: t("guidance.ldap.roles.attribute.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_ROLE_ATTRIBUTE",
-      label: "Role attribute",
-      value: "Directory role source",
+      label: t("guidance.ldap.roles.attribute.label"),
+      value: t("guidance.ldap.roles.attribute.value"),
     },
     {
-      detail: "Role attribute values that grant OpenClarion owner access.",
+      detail: t("guidance.ldap.roles.ownerValues.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_OWNER_ROLE_VALUES",
-      label: "Owner role values",
-      value: "Owner mapping",
+      label: t("guidance.ldap.roles.ownerValues.label"),
+      value: t("guidance.ldap.roles.ownerValues.value"),
     },
     {
-      detail: "Role attribute values that grant OpenClarion admin access.",
+      detail: t("guidance.ldap.roles.adminValues.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_ADMIN_ROLE_VALUES",
-      label: "Admin role values",
-      value: "Admin mapping",
+      label: t("guidance.ldap.roles.adminValues.label"),
+      value: t("guidance.ldap.roles.adminValues.value"),
     },
     {
-      detail:
-        "Fallback OpenClarion roles for every authenticated LDAP user. Use only for controlled pilots or local checks.",
+      detail: t("guidance.ldap.roles.defaultRoles.detail"),
       envVar: "OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES",
-      label: "Default roles",
-      value: "Fallback role mapping",
+      label: t("guidance.ldap.roles.defaultRoles.label"),
+      value: t("guidance.ldap.roles.defaultRoles.value"),
     },
   ];
 }
 
 export function settingsWeComBrowserSessionReadiness(
   browserSession: DiagnosisBrowserSessionState,
+  t: DiagnosisAuthTranslator,
+  locale: string,
 ): SettingsWeComBrowserSessionReadiness {
   if (browserSession.loading) {
     return {
-      detail:
-        "Checking whether this browser already has an OpenClarion session before Enterprise WeChat rollout proof.",
+      detail: t("weComSession.loading.detail"),
       items: [
         {
-          detail: "OpenClarion is checking the current browser session.",
+          detail: t("weComSession.loading.sessionDetail"),
           key: "session",
-          label: "Session",
+          label: t("weComSession.field.session"),
           status: "loading",
-          value: "Checking",
+          value: t("roleStatus.loadingLabel"),
         },
         {
-          detail:
-            "Provider source is available after the browser session check finishes.",
+          detail: t("weComSession.loading.providerDetail"),
           key: "provider",
-          label: "Provider",
+          label: t("weComSession.field.provider"),
           status: "loading",
-          value: "Checking",
+          value: t("roleStatus.loadingLabel"),
         },
         {
-          detail:
-            "Local RBAC authorization can be evaluated after the browser session identity check finishes.",
+          detail: t("weComSession.loading.roleDetail"),
           key: "role",
-          label: "Role",
+          label: t("weComSession.field.role"),
           status: "loading",
-          value: "Checking",
+          value: t("roleStatus.loadingLabel"),
         },
         {
-          detail:
-            "Operator subject is available after the browser session check finishes.",
+          detail: t("weComSession.loading.subjectDetail"),
           key: "subject",
-          label: "Subject",
+          label: t("weComSession.field.subject"),
           status: "loading",
-          value: "Checking",
+          value: t("roleStatus.loadingLabel"),
         },
       ],
-      label: "WeCom session check running",
+      label: t("weComSession.loading.label"),
       status: "loading",
     };
   }
   if (browserSession.status === null) {
     const detail =
-      browserSession.message.trim() ||
-      "OpenClarion browser session status is unavailable.";
+      browserSession.message.trim() || t("weComSession.unavailable.detail");
     return {
       detail,
       items: [
         {
           detail,
           key: "session",
-          label: "Session",
+          label: t("weComSession.field.session"),
           status: "unavailable",
-          value: "Unavailable",
+          value: t("roleStatus.unavailableLabel"),
         },
         {
-          detail:
-            "Provider source cannot be evaluated until the browser session endpoint responds.",
+          detail: t("weComSession.unavailable.providerDetail"),
           key: "provider",
-          label: "Provider",
+          label: t("weComSession.field.provider"),
           status: "unavailable",
-          value: "Unavailable",
+          value: t("roleStatus.unavailableLabel"),
         },
         {
-          detail:
-            "Local RBAC authorization cannot be evaluated until the browser session endpoint responds.",
+          detail: t("weComSession.unavailable.roleDetail"),
           key: "role",
-          label: "Role",
+          label: t("weComSession.field.role"),
           status: "unavailable",
-          value: "Unavailable",
+          value: t("roleStatus.unavailableLabel"),
         },
         {
-          detail:
-            "Operator subject cannot be evaluated until the browser session endpoint responds.",
+          detail: t("weComSession.unavailable.subjectDetail"),
           key: "subject",
-          label: "Subject",
+          label: t("weComSession.field.subject"),
           status: "unavailable",
-          value: "Unavailable",
+          value: t("roleStatus.unavailableLabel"),
         },
       ],
-      label: "WeCom session unavailable",
+      label: t("weComSession.unavailable.label"),
       status: "unavailable",
     };
   }
   if (!browserSession.status.authenticated) {
     return {
-      detail:
-        "Enterprise WeChat browser login has been replaced by IAM OIDC. Sign in with IAM before accepting OpenClarion browser-session proof.",
+      detail: t("weComSession.signedOut.detail"),
       items: [
         {
-          detail: "No OpenClarion browser session is active.",
+          detail: t("weComSession.signedOut.sessionDetail"),
           key: "session",
-          label: "Session",
+          label: t("weComSession.field.session"),
           status: "blocked",
-          value: "Not signed in",
+          value: t("settings.summary.notSignedIn"),
         },
         {
-          detail:
-            "Enterprise WeChat identity is required for WeCom rollout proof.",
+          detail: t("weComSession.signedOut.providerDetail"),
           key: "provider",
-          label: "Provider",
+          label: t("weComSession.field.provider"),
           status: "blocked",
-          value: "Enterprise WeChat required",
+          value: t("weComSession.signedOut.providerValue"),
         },
         {
-          detail:
-            "Local RBAC authorization is checked after Enterprise WeChat sign-in.",
+          detail: t("weComSession.signedOut.roleDetail"),
           key: "role",
-          label: "Role",
+          label: t("weComSession.field.role"),
           status: "blocked",
-          value: "RBAC pending",
+          value: t("weComSession.signedOut.roleValue"),
         },
         {
-          detail: "No operator subject is available before sign-in.",
+          detail: t("weComSession.signedOut.subjectDetail"),
           key: "subject",
-          label: "Subject",
+          label: t("weComSession.field.subject"),
           status: "unavailable",
-          value: "Not available",
+          value: t("weComSession.notAvailable"),
         },
       ],
-      label: "WeCom session required",
+      label: t("weComSession.signedOut.label"),
       status: "blocked",
     };
   }
@@ -2282,52 +2262,51 @@ export function settingsWeComBrowserSessionReadiness(
   const session = browserSession.status;
   const providerValue = diagnosisAuthBrowserSessionSourceValueLabel(
     session.mode,
+    t,
   );
-  const subject = session.subject.trim() || "Not reported";
+  const subject = session.subject.trim() || t("roleStatus.notReportedLabel");
   const roles =
-    session.roles.length === 0 ? "No roles" : session.roles.join(", ");
-  const providerReady = false;
+    session.roles.length === 0
+      ? t("common.noRoles")
+      : new Intl.ListFormat(locale, {
+          style: "long",
+          type: "conjunction",
+        }).format(session.roles);
   const status: SettingsWeComReadinessStatus = "blocked";
   return {
     checkedAt: session.checked_at,
-    detail:
-      "Enterprise WeChat browser login has been replaced by IAM OIDC. Use the active IAM browser session for OpenClarion authorization and keep Enterprise WeChat only for app messages and notifications.",
+    detail: t("weComSession.authenticated.detail"),
     items: [
       {
-        detail: providerReady
-          ? "The active browser session was created by Enterprise WeChat."
-          : "OpenClarion no longer accepts Enterprise WeChat as a browser session provider.",
+        detail: t("weComSession.authenticated.migratedSessionDetail"),
         key: "session",
-        label: "Session",
+        label: t("weComSession.field.session"),
         status,
-        value: `${providerValue} session`,
+        value: t("settings.summary.sourceSession", { source: providerValue }),
       },
       {
-        detail: providerReady
-          ? "Enterprise WeChat is the source provider for this browser session."
-          : "Use IAM OIDC sign-in for browser authentication. Enterprise WeChat remains available for app messages and notification delivery.",
+        detail: t("weComSession.authenticated.migratedProviderDetail"),
         key: "provider",
-        label: "Provider",
-        status: providerReady ? "ready" : "blocked",
+        label: t("weComSession.field.provider"),
+        status: "blocked",
         value: providerValue,
       },
       {
-        detail:
-          "Identity is verified. Diagnosis room permissions are assigned in OpenClarion local RBAC, not by provider role mapping.",
+        detail: t("weComSession.authenticated.roleDetail"),
         key: "role",
-        label: "Role",
+        label: t("weComSession.field.role"),
         status: "ready",
         value: roles,
       },
       {
-        detail: "Subject returned by the active browser session.",
+        detail: t("weComSession.authenticated.subjectDetail"),
         key: "subject",
-        label: "Subject",
+        label: t("weComSession.field.subject"),
         status: "ready",
         value: subject,
       },
     ],
-    label: "WeCom browser session replaced",
+    label: t("weComSession.authenticated.label"),
     status,
   };
 }
@@ -2337,6 +2316,8 @@ function DiagnosisAuthWeComSessionSummary({
 }: {
   readiness: SettingsWeComBrowserSessionReadiness;
 }) {
+  const authT = useTranslations("DiagnosisAuth");
+  const locale = useLocale();
   return (
     <Alert
       description={
@@ -2348,7 +2329,7 @@ function DiagnosisAuthWeComSessionSummary({
                 <Space direction="vertical" size={4}>
                   <Space size={6} wrap>
                     <Tag color={settingsWeComReadinessStatusColor(item.status)}>
-                      {settingsWeComReadinessStatusLabel(item.status)}
+                      {settingsWeComReadinessStatusLabel(item.status, authT)}
                     </Tag>
                     <Typography.Text>{item.value}</Typography.Text>
                   </Space>
@@ -2361,7 +2342,9 @@ function DiagnosisAuthWeComSessionSummary({
           </Descriptions>
           {readiness.checkedAt === undefined ? null : (
             <Typography.Text type="secondary">
-              Checked at {readiness.checkedAt}
+              {authT("probe.checkedAtText", {
+                checkedAt: formatDateTime(readiness.checkedAt, locale),
+              })}
             </Typography.Text>
           )}
         </Space>
@@ -2377,36 +2360,44 @@ function diagnosisAuthProbeDescriptions(
   mode: DiagnosisAuthMode,
   result: DiagnosisAuthProbeResult | null,
   t: DiagnosisAuthTranslator,
+  locale: string,
 ) {
   if (result === null) {
     return [
       {
         key: "mode",
-        label: "Mode",
-        children: authProbeModeLabel(mode),
+        label: t("probe.field.mode"),
+        children: authProbeModeLabel(mode, t),
       },
       {
         key: "result",
-        label: "Backend check",
-        children: "Not checked",
+        label: t("probe.field.backendCheck"),
+        children: t("probe.notChecked"),
       },
     ];
   }
   const roles =
-    result.roles.length === 0 ? "no roles" : result.roles.join(", ");
+    result.roles.length === 0
+      ? t("common.noRoles")
+      : new Intl.ListFormat(locale, {
+          style: "long",
+          type: "conjunction",
+        }).format(result.roles);
   return [
     {
       key: "mode",
-      label: "Mode",
-      children: authProbeModeLabel(result.mode),
+      label: t("probe.field.mode"),
+      children: authProbeModeLabel(result.mode, t),
     },
     {
       key: "status",
-      label: "Backend check",
+      label: t("probe.field.backendCheck"),
       children: (
         <Space size={6} wrap>
           <Tag color={result.status === "success" ? "green" : "red"}>
-            {result.status === "success" ? "Success" : "Failed"}
+            {result.status === "success"
+              ? t("probe.success")
+              : t("ui.backendStatus.failed")}
           </Tag>
           <Typography.Text
             type={result.status === "success" ? "secondary" : "danger"}
@@ -2418,35 +2409,36 @@ function diagnosisAuthProbeDescriptions(
     },
     {
       key: "subject",
-      label: "Subject",
-      children: result.subject === "" ? "Not available" : result.subject,
+      label: t("probe.field.subject"),
+      children:
+        result.subject === "" ? t("probe.notAvailable") : result.subject,
     },
     {
       key: "roles",
-      label: "Roles",
+      label: t("probe.field.roles"),
       children: roles,
     },
     {
       key: "role-authorized",
-      label: "Provider role metadata",
+      label: t("probe.field.providerRoleMetadata"),
       children:
         (result.roleAuthorized ?? diagnosisAuthProbeResultAuthorized(result))
-          ? "Reported"
-          : "Not required",
+          ? t("probe.reported")
+          : t("probe.notRequired"),
     },
     {
       key: "checked-at",
-      label: "Checked at",
-      children: result.checkedAt?.trim() || "Not available",
+      label: t("probe.field.checkedAt"),
+      children:
+        result.checkedAt === undefined || result.checkedAt.trim() === ""
+          ? t("probe.notAvailable")
+          : formatDateTime(result.checkedAt, locale),
     },
   ];
 }
 
 export function diagnosisAuthProbeResultDetail(
-  result: Pick<
-    DiagnosisAuthProbeResult,
-    "localFailure" | "message" | "status"
-  >,
+  result: Pick<DiagnosisAuthProbeResult, "localFailure" | "message" | "status">,
   t: DiagnosisAuthTranslator,
 ): string {
   if (result.message.trim() !== "") {
@@ -2471,42 +2463,45 @@ function diagnosisAuthRolloutDescriptions(
   readiness: DiagnosisAuthRolloutReadiness,
   backendStatus: DiagnosisAuthStatusState,
   t: DiagnosisAuthTranslator,
+  locale: string,
 ) {
   return [
     {
       key: "required-provider",
-      label: "Required provider",
-      children: "LDAP or Enterprise WeChat authentication",
+      label: t("probe.field.requiredProvider"),
+      children: t("probe.requiredProviderValue"),
     },
     {
       key: "backend-provider",
-      label: "Backend provider",
+      label: t("probe.field.backendProvider"),
       children: diagnosisAuthStatusLabel(backendStatus, t),
     },
     {
       key: "supported-modes",
-      label: "Supported modes",
+      label: t("probe.field.supportedModes"),
       children: (
         <DiagnosisAuthSupportedModesSummary status={backendStatus.status} />
       ),
     },
     {
       key: "proof-mode",
-      label: "Checked mode",
-      children: authProbeModeLabel(readiness.mode),
+      label: t("probe.field.checkedMode"),
+      children: authProbeModeLabel(readiness.mode, t),
     },
     {
       key: "owner-admin",
-      label: "Provider roles",
+      label: t("probe.field.providerRoles"),
       children: (
         <Tag color={readiness.roleAuthorized === true ? "green" : "gold"}>
-          {readiness.roleAuthorized === true ? "Reported" : "Optional"}
+          {readiness.roleAuthorized === true
+            ? t("probe.reported")
+            : t("probe.optional")}
         </Tag>
       ),
     },
     {
       key: "backend-role-mapping",
-      label: "Backend mapping",
+      label: t("probe.field.backendMapping"),
       children: (
         <DiagnosisAuthRoleMappingSummary
           loading={backendStatus.loading}
@@ -2516,7 +2511,7 @@ function diagnosisAuthRolloutDescriptions(
     },
     {
       key: "role-mapping-guidance",
-      label: "Role mapping",
+      label: t("probe.field.roleMapping"),
       children: (
         <Typography.Text type="secondary">
           {diagnosisAuthRoleMappingGuidance(readiness, t)}
@@ -2525,7 +2520,7 @@ function diagnosisAuthRolloutDescriptions(
     },
     {
       key: "rollout-decision",
-      label: "Rollout decision",
+      label: t("probe.field.rolloutDecision"),
       children: (
         <Space size={6} wrap>
           <Tag color={diagnosisAuthRolloutTagColor(readiness.status)}>
@@ -2533,7 +2528,7 @@ function diagnosisAuthRolloutDescriptions(
           </Tag>
           <Typography.Text type="secondary">
             {readiness.subject === ""
-              ? "No subject checked"
+              ? t("probe.noSubjectChecked")
               : readiness.subject}
           </Typography.Text>
         </Space>
@@ -2541,8 +2536,11 @@ function diagnosisAuthRolloutDescriptions(
     },
     {
       key: "checked-at",
-      label: "Checked at",
-      children: readiness.checkedAt?.trim() || "Not available",
+      label: t("probe.field.checkedAt"),
+      children:
+        readiness.checkedAt === undefined || readiness.checkedAt.trim() === ""
+          ? t("probe.notAvailable")
+          : formatDateTime(readiness.checkedAt, locale),
     },
   ];
 }
@@ -2635,19 +2633,19 @@ function DiagnosisAuthLDAPSetupSummary({
                 </Space>
               </Descriptions.Item>
             ))}
-            <Descriptions.Item label="Transport envs">
+            <Descriptions.Item label={authT("guidance.ldap.group.transport")}>
               <DiagnosisAuthLDAPConfigurationGuidanceValue
-                items={settingsLDAPTransportGuidance()}
+                items={settingsLDAPTransportGuidance(authT)}
               />
             </Descriptions.Item>
-            <Descriptions.Item label="Directory search envs">
+            <Descriptions.Item label={authT("guidance.ldap.group.search")}>
               <DiagnosisAuthLDAPConfigurationGuidanceValue
-                items={settingsLDAPDirectorySearchGuidance()}
+                items={settingsLDAPDirectorySearchGuidance(authT)}
               />
             </Descriptions.Item>
-            <Descriptions.Item label="Role mapping envs">
+            <Descriptions.Item label={authT("guidance.ldap.group.roles")}>
               <DiagnosisAuthLDAPConfigurationGuidanceValue
-                items={settingsLDAPRoleMappingGuidance()}
+                items={settingsLDAPRoleMappingGuidance(authT)}
               />
             </Descriptions.Item>
           </Descriptions>
@@ -2723,43 +2721,38 @@ function DiagnosisAuthWeComSetupSummary({
 
 export function settingsWeComAuthErrorDetail(
   error: DiagnosisRoomWeComAuthError,
+  t: DiagnosisAuthTranslator,
 ): { description: string; message: string } {
   switch (error) {
     case "wecom_entry_unavailable":
       return {
-        description:
-          "Enterprise WeChat browser login has been replaced by IAM OIDC. Sign in with IAM, then retry the diagnosis-room action.",
-        message: "Enterprise WeChat login entry was not available.",
+        description: t("weComError.entryUnavailable.description"),
+        message: t("weComError.entryUnavailable.message"),
       };
     case "wecom_auth_failed":
       return {
-        description:
-          "Enterprise WeChat returned to OpenClarion, but the backend could not establish a diagnosis identity. Check the Enterprise WeChat application configuration, then run Check auth again.",
-        message: "Enterprise WeChat authentication was not accepted.",
+        description: t("weComError.authFailed.description"),
+        message: t("weComError.authFailed.message"),
       };
     case "wecom_role_unauthorized":
       return {
-        description:
-          "Enterprise WeChat identified the operator, but OpenClarion local RBAC did not grant diagnosis room access. OpenClarion cleared any previous browser session; assign the operator to the right local role, then sign in again.",
-        message: "Enterprise WeChat identity is not authorized locally.",
+        description: t("weComError.roleUnauthorized.description"),
+        message: t("weComError.roleUnauthorized.message"),
       };
     case "wecom_callback_failed":
       return {
-        description:
-          "OpenClarion could not complete the Enterprise WeChat callback. Check the Enterprise WeChat application configuration and callback endpoint.",
-        message: "Enterprise WeChat callback could not be completed.",
+        description: t("weComError.callbackFailed.description"),
+        message: t("weComError.callbackFailed.message"),
       };
     case "wecom_callback_missing":
       return {
-        description:
-          "Enterprise WeChat browser login has been replaced by IAM OIDC. Sign in with IAM, then retry the diagnosis-room action.",
-        message: "Enterprise WeChat callback was incomplete.",
+        description: t("weComError.callbackMissing.description"),
+        message: t("weComError.callbackMissing.message"),
       };
     case "wecom_login_failed":
       return {
-        description:
-          "OpenClarion could not start Enterprise WeChat login. Check the Enterprise WeChat app credentials, redirect URI, and provider endpoint reachability.",
-        message: "Enterprise WeChat login could not be started.",
+        description: t("weComError.loginFailed.description"),
+        message: t("weComError.loginFailed.message"),
       };
   }
 }
@@ -2797,18 +2790,19 @@ function settingsWeComReadinessStatusColor(
 
 function settingsWeComReadinessStatusLabel(
   status: SettingsWeComReadinessStatus,
+  t: DiagnosisAuthTranslator,
 ): string {
   switch (status) {
     case "ready":
-      return "Ready";
+      return t("ui.ready");
     case "review":
-      return "Review";
+      return t("settings.summary.reviewStatus");
     case "blocked":
-      return "Blocked";
+      return t("ui.blocked");
     case "loading":
-      return "Loading";
+      return t("roleStatus.loadingLabel");
     case "unavailable":
-      return "Unavailable";
+      return t("roleStatus.unavailableLabel");
   }
 }
 
@@ -2884,7 +2878,11 @@ function DiagnosisAuthSupportedModesSummary({
   const authT = useTranslations("DiagnosisAuth");
   const items = diagnosisAuthBackendModeDisplayItems(status, authT);
   if (items.length === 0) {
-    return <Typography.Text type="secondary">None reported</Typography.Text>;
+    return (
+      <Typography.Text type="secondary">
+        {authT("roleStatus.notReportedLabel")}
+      </Typography.Text>
+    );
   }
   return (
     <Space size={6} wrap>
@@ -2941,29 +2939,35 @@ function diagnosisAuthRolloutStatusLabel(
   }
 }
 
-function authProbeModeLabel(mode: DiagnosisAuthMode): string {
+function authProbeModeLabel(
+  mode: DiagnosisAuthMode,
+  t: DiagnosisAuthTranslator,
+): string {
   switch (mode) {
     case "ldap":
-      return "LDAP basic auth";
+      return t("probe.mode.ldap");
     case "bearer":
-      return "Bearer token";
+      return t("probe.mode.bearer");
     case "session":
-      return "OpenClarion browser session";
+      return t("probe.mode.session");
     case "wecom":
-      return "Enterprise WeChat authentication";
+      return t("probe.mode.weCom");
   }
 }
 
-function authProbeModeValueLabel(mode: DiagnosisAuthMode): string {
+function authProbeModeValueLabel(
+  mode: DiagnosisAuthMode,
+  t: DiagnosisAuthTranslator,
+): string {
   switch (mode) {
     case "ldap":
-      return "LDAP";
+      return t("ui.modeLDAP");
     case "bearer":
-      return "Bearer";
+      return t("ui.modeBearer");
     case "session":
-      return "Browser session";
+      return t("ui.modeSession");
     case "wecom":
-      return "Enterprise WeChat";
+      return t("provider.weCom");
   }
 }
 
@@ -3000,10 +3004,7 @@ export function diagnosisAuthProbeModeFromBackendStatus(
   status: DiagnosisAuthStatus | null,
 ): DiagnosisAuthMode | null {
   const supportedModes = status?.supported_modes ?? [];
-  if (
-    supportedModes.includes("oidc") ||
-    supportedModes.includes("ldap")
-  ) {
+  if (supportedModes.includes("oidc") || supportedModes.includes("ldap")) {
     return "session";
   }
   if (supportedModes.includes("static")) {
@@ -3206,7 +3207,8 @@ function diagnosisOIDCBFFReadinessValue(
   return t("settings.oidcMissingCount", { count: readiness.missing.length });
 }
 
-export function settingsLocalAccessReadiness({
+export function settingsLocalAccessReadiness(
+  {
   directoryDepartments,
   directorySyncRuns,
   directoryUsers,
@@ -3216,61 +3218,80 @@ export function settingsLocalAccessReadiness({
   directorySyncRuns?: readonly DirectorySyncRun[];
   directoryUsers: readonly DirectoryUser[];
   rbacAssignments: readonly RBACAssignment[];
-}): SettingsLocalAccessReadiness {
+  },
+  t: SettingsOverviewTranslator,
+  locale: string,
+): SettingsLocalAccessReadiness {
   const activeUsers = directoryUsers.filter((user) => user.active).length;
   const enabledAssignments = rbacAssignments.filter(
     (assignment) => assignment.enabled,
   ).length;
-  const syncItem = settingsDirectorySyncReadinessItem(directorySyncRuns);
+  const syncItem = settingsDirectorySyncReadinessItem(
+    t,
+    locale,
+    directorySyncRuns,
+  );
   const items: SettingsLocalAccessReadinessItem[] = [
     ...(syncItem === null ? [] : [syncItem]),
     {
       detail:
         activeUsers > 0
-          ? "Local IAM directory projection contains active operators for attribution, pickers, and user-scoped RBAC."
-          : "Local IAM directory projection has no active users. Run directory sync before accepting diagnosis-room authorization readiness.",
+          ? t("localAccess.users.readyDetail")
+          : t("localAccess.users.blockedDetail"),
       key: "directory-users",
-      label: "Directory users",
+      label: t("localAccess.users.label"),
       status: activeUsers > 0 ? "ready" : "blocked",
       value:
         activeUsers === directoryUsers.length
-          ? `${activeUsers} active`
-          : `${activeUsers}/${directoryUsers.length} active`,
+          ? t("localAccess.users.allActive", { count: activeUsers })
+          : t("localAccess.users.activeRatio", {
+              active: activeUsers,
+              total: directoryUsers.length,
+            }),
     },
     {
       detail:
         directoryDepartments.length > 0
-          ? "Local IAM department projection is available for department-scoped RBAC and collaboration context."
-          : "No local department projection is available yet. User-scoped RBAC can still work, but department-scoped collaboration should be reviewed.",
+          ? t("localAccess.departments.readyDetail")
+          : t("localAccess.departments.reviewDetail"),
       key: "directory-departments",
-      label: "Departments",
+      label: t("localAccess.departments.label"),
       status: directoryDepartments.length > 0 ? "ready" : "review",
-      value: `${directoryDepartments.length} departments`,
+      value: t("localAccess.departments.value", {
+        count: directoryDepartments.length,
+      }),
     },
     {
       detail:
         enabledAssignments > 0
-          ? "OpenClarion has enabled local RBAC assignments for diagnosis-room authorization."
-          : "No enabled local RBAC assignments exist. Bootstrap admins are only an emergency path; persist RBAC assignments before rollout.",
+          ? t("localAccess.assignments.readyDetail")
+          : t("localAccess.assignments.blockedDetail"),
       key: "rbac-assignments",
-      label: "RBAC rules",
+      label: t("localAccess.assignments.label"),
       status: enabledAssignments > 0 ? "ready" : "blocked",
       value:
         enabledAssignments === rbacAssignments.length
-          ? `${enabledAssignments} enabled`
-          : `${enabledAssignments}/${rbacAssignments.length} enabled`,
+          ? t("localAccess.assignments.allEnabled", {
+              count: enabledAssignments,
+            })
+          : t("localAccess.assignments.enabledRatio", {
+              enabled: enabledAssignments,
+              total: rbacAssignments.length,
+            }),
     },
   ];
   const status = diagnosisAuthSummaryStatus(items);
   return {
-    detail: settingsLocalAccessReadinessDetail(status, items),
+    detail: settingsLocalAccessReadinessDetail(status, items, t),
     items,
-    label: settingsLocalAccessReadinessLabel(status),
+    label: settingsLocalAccessReadinessLabel(status, t),
     status,
   };
 }
 
 function settingsDirectorySyncReadinessItem(
+  t: SettingsOverviewTranslator,
+  locale: string,
   directorySyncRuns?: readonly DirectorySyncRun[],
 ): SettingsLocalAccessReadinessItem | null {
   if (directorySyncRuns === undefined) {
@@ -3279,46 +3300,43 @@ function settingsDirectorySyncReadinessItem(
   const latestRun = latestDirectorySyncRun(directorySyncRuns);
   if (latestRun === null) {
     return {
-      detail:
-        "No retained IAM directory sync run is available. Run a full sync before accepting local access readiness.",
+      detail: t("localAccess.sync.noRunsDetail"),
       key: "directory-sync",
-      label: "Directory sync",
+      label: t("localAccess.sync.label"),
       status: "review",
-      value: "No runs",
+      value: t("localAccess.sync.noRuns"),
     };
   }
-  const syncedAt = formatDateTime(latestRun.synced_at);
+  const syncedAt = formatDateTime(latestRun.synced_at, locale);
   const status: string = latestRun.status;
   if (status === "succeeded") {
     return {
-      detail:
-        "Latest IAM directory sync succeeded, so local user and department projections have a retained sync record.",
+      detail: t("localAccess.sync.succeededDetail"),
       key: "directory-sync",
-      label: "Directory sync",
+      label: t("localAccess.sync.label"),
       status: "ready",
-      value: `Succeeded ${syncedAt}`,
+      value: t("localAccess.sync.succeededValue", { date: syncedAt }),
     };
   }
   if (status === "failed") {
     const reason =
       latestRun.failure_code.trim() === ""
-        ? "unknown failure"
+        ? t("localAccess.sync.unknownFailure")
         : latestRun.failure_code.trim();
     return {
-      detail: `Latest IAM directory sync failed with ${reason}. Fix sync before accepting local access readiness.`,
+      detail: t("localAccess.sync.failedDetail", { reason }),
       key: "directory-sync",
-      label: "Directory sync",
+      label: t("localAccess.sync.label"),
       status: "blocked",
-      value: `Failed ${syncedAt}`,
+      value: t("localAccess.sync.failedValue", { date: syncedAt }),
     };
   }
   return {
-    detail:
-      "Latest IAM directory sync has an unknown status. Review sync history before accepting local access readiness.",
+    detail: t("localAccess.sync.unknownDetail"),
     key: "directory-sync",
-    label: "Directory sync",
+    label: t("localAccess.sync.label"),
     status: "review",
-    value: `${status} ${syncedAt}`,
+    value: t("localAccess.sync.unknownValue", { date: syncedAt, status }),
   };
 }
 
@@ -3354,40 +3372,41 @@ function settingsLocalAccessSyncStatus(
 
 function settingsLocalAccessSyncValue(
   readiness: SettingsLocalAccessReadiness,
+  t: SettingsOverviewTranslator,
 ): string {
   return (
     readiness.items.find((item) => item.key === "directory-sync")?.value ??
-    "Sync not loaded"
+    t("localAccess.sync.notLoaded")
   );
 }
 
 function settingsLocalAccessReadinessDetail(
   status: ProofReadinessStatus,
   items: readonly SettingsLocalAccessReadinessItem[],
+  t: SettingsOverviewTranslator,
 ): string {
   if (status === "ready") {
-    return "Local directory projection and RBAC assignments are ready for diagnosis-room authorization.";
+    return t("localAccess.readyDetail");
   }
   const item =
     items.find((candidate) => candidate.status === status) ??
     items.find((candidate) => candidate.status !== "ready");
-  return (
-    item?.detail ?? "Review local directory projection and RBAC readiness."
-  );
+  return item?.detail ?? t("localAccess.reviewDetail");
 }
 
 function settingsLocalAccessReadinessLabel(
   status: ProofReadinessStatus,
+  t: SettingsOverviewTranslator,
 ): string {
   switch (status) {
     case "ready":
-      return "Local access ready";
+      return t("localAccess.status.ready");
     case "review":
-      return "Local access review";
+      return t("localAccess.status.review");
     case "pending":
-      return "Local access pending";
+      return t("localAccess.status.pending");
     case "blocked":
-      return "Local access blocked";
+      return t("localAccess.status.blocked");
   }
 }
 
@@ -3397,21 +3416,20 @@ function diagnosisLocalAccessSummaryValue(
   const assignment = readiness.items.find(
     (item) => item.key === "rbac-assignments",
   );
-  return (
-    assignment?.value ?? settingsLocalAccessReadinessLabel(readiness.status)
-  );
+  return assignment?.value ?? readiness.label;
 }
 
 export function settingsCurrentRBACAccessSummary(
   state: CurrentRBACAuthorizationState,
   isChecking: boolean,
+  t: SettingsOverviewTranslator,
+  locale: string,
 ): SettingsCurrentRBACAccessSummary {
   if (isChecking || state.kind === "loading") {
     return {
-      detail:
-        "Checking the signed-in operator's local RBAC decisions through the browser session.",
+      detail: t("currentAccess.checkingDetail"),
       items: [],
-      label: "Current access pending",
+      label: t("currentAccess.status.pending"),
       needsSignIn: false,
       status: "pending",
       subject: "",
@@ -3420,13 +3438,11 @@ export function settingsCurrentRBACAccessSummary(
   if (state.kind === "error") {
     const needsSignIn = currentRBACAuthorizationNeedsSignIn(state);
     return {
-      detail: needsSignIn
-        ? "Sign in with IAM before checking local directory and RBAC permissions."
-        : state.message,
+      detail: needsSignIn ? t("currentAccess.signInDetail") : state.message,
       items: [],
       label: needsSignIn
-        ? "Current access sign-in"
-        : "Current access unavailable",
+        ? t("currentAccess.status.signIn")
+        : t("currentAccess.status.unavailable"),
       needsSignIn,
       status: needsSignIn ? "blocked" : "review",
       subject: "",
@@ -3435,22 +3451,29 @@ export function settingsCurrentRBACAccessSummary(
   const activeDirectoryProfile = state.directoryUsers.some(
     (user) => user.active && user.subject === state.subject,
   );
-  const accessItems = settingsCurrentRBACAccessItems(state);
+  const accessItems = settingsCurrentRBACAccessItems(state, t);
   const items: SettingsCurrentRBACAccessItem[] = [
     {
       key: "directory-profile",
-      label: "Profile",
+      label: t("currentAccess.profile.label"),
       status: activeDirectoryProfile ? "ready" : "review",
-      value: activeDirectoryProfile ? "Synced" : "Not synced",
+      value: activeDirectoryProfile
+        ? t("currentAccess.profile.synced")
+        : t("currentAccess.profile.notSynced"),
     },
     ...accessItems,
   ];
   const deniedItems = accessItems.filter((item) => item.status !== "ready");
   if (deniedItems.length > 0) {
     return {
-      detail: `Current subject is signed in, but ${deniedItems.map((item) => item.label).join(", ")} is denied by local RBAC.`,
+      detail: t("currentAccess.deniedDetail", {
+        permissions: new Intl.ListFormat(locale, {
+          style: "long",
+          type: "conjunction",
+        }).format(deniedItems.map((item) => item.label)),
+      }),
       items,
-      label: "Current access limited",
+      label: t("currentAccess.status.limited"),
       needsSignIn: false,
       status: "review",
       subject: state.subject,
@@ -3458,20 +3481,18 @@ export function settingsCurrentRBACAccessSummary(
   }
   if (!activeDirectoryProfile) {
     return {
-      detail:
-        "Current subject is authorized, but no active local directory profile is synced for attribution and department-scoped RBAC.",
+      detail: t("currentAccess.profileReviewDetail"),
       items,
-      label: "Current access review",
+      label: t("currentAccess.status.review"),
       needsSignIn: false,
       status: "review",
       subject: state.subject,
     };
   }
   return {
-    detail:
-      "Current subject has the settings overview capabilities and an active local directory profile.",
+    detail: t("currentAccess.readyDetail"),
     items,
-    label: "Current access ready",
+    label: t("currentAccess.status.ready"),
     needsSignIn: false,
     status: "ready",
     subject: state.subject,
@@ -3480,30 +3501,32 @@ export function settingsCurrentRBACAccessSummary(
 
 function settingsCurrentRBACAccessItems(
   state: Extract<CurrentRBACAuthorizationState, { kind: "ready" }>,
+  t: SettingsOverviewTranslator,
 ): SettingsCurrentRBACAccessItem[] {
   return settingsOverviewRBACAuthorizationChecks.map((check) => {
     const allowed = state.allowed[check.key] === true;
     return {
       key: check.key,
-      label: settingsCurrentRBACAccessItemLabel(check.key),
+      label: settingsCurrentRBACAccessItemLabel(check.key, t),
       status: allowed ? "ready" : "blocked",
-      value: allowed ? "Allowed" : "Denied",
+      value: allowed ? t("currentAccess.allowed") : t("currentAccess.denied"),
     };
   });
 }
 
-function settingsCurrentRBACAccessItemLabel(key: string): string {
+function settingsCurrentRBACAccessItemLabel(
+  key: (typeof settingsOverviewRBACAuthorizationChecks)[number]["key"],
+  t: SettingsOverviewTranslator,
+): string {
   switch (key) {
     case "directory-read":
-      return "Directory read";
+      return t("currentAccess.permissions.directoryRead");
     case "directory-sync":
-      return "Directory sync";
+      return t("currentAccess.permissions.directorySync");
     case "rbac-manage":
-      return "RBAC manage";
+      return t("currentAccess.permissions.rbacManage");
     case "operations-read":
-      return "Operations read";
-    default:
-      return key;
+      return t("currentAccess.permissions.operationsRead");
   }
 }
 
@@ -3694,6 +3717,7 @@ function diagnosisAuthSummarySessionItem(
   }
   const source = diagnosisAuthBrowserSessionSourceValueLabel(
     browserSession.status.mode,
+    t,
   );
   if (mode === "wecom") {
     return {
@@ -3952,21 +3976,23 @@ function diagnosisBrowserSessionStatusAlertType(
 }
 
 function WorkflowTopologyPanel({ topology }: { topology: WorkflowTopology }) {
+  const locale = useLocale();
+  const t = useTranslations("SettingsOverview");
   const hasPolicy = topology.policy !== null;
-  const steps = workflowTopologySteps(topology);
+  const steps = workflowTopologySteps(topology, t, locale);
   const firstUnready = steps.findIndex((step) => step.status !== "finish");
   const current = firstUnready === -1 ? steps.length : firstUnready;
-  const actions = workflowTopologyActions(topology);
+  const actions = workflowTopologyActions(topology, t, locale);
 
   return (
     <section
-      aria-label="Active workflow topology"
+      aria-label={t("topology.ariaLabel")}
       className="panel settings-overview-topology"
     >
       <div className="panel-header settings-overview-topology-header">
-        <h2>Active workflow topology</h2>
+        <h2>{t("topology.title")}</h2>
         <Tag color={topologyStatusColor(topology.status)}>
-          {topology.status}
+          {topologyStatusLabel(topology.status, t)}
         </Tag>
       </div>
       <div className="panel-body settings-overview-topology-body">
@@ -3974,7 +4000,7 @@ function WorkflowTopologyPanel({ topology }: { topology: WorkflowTopology }) {
           <>
             <div className="settings-overview-topology-flow">
               <Steps
-                aria-label="Selected alert workflow topology"
+                aria-label={t("topology.sequence")}
                 className="settings-overview-topology-steps"
                 current={current}
                 items={steps}
@@ -3985,15 +4011,15 @@ function WorkflowTopologyPanel({ topology }: { topology: WorkflowTopology }) {
             <Descriptions
               bordered
               column={{ lg: 3, md: 2, sm: 1, xs: 1 }}
-              items={workflowTopologyDescriptions(topology)}
+              items={workflowTopologyDescriptions(topology, t, locale)}
               size="small"
             />
             <TopologyActionList actions={actions} />
           </>
         ) : (
           <Alert
-            message="No workflow policy"
-            description="Create a workflow policy after configuring an alert source and grouping policy."
+            message={t("topology.noPolicyTitle")}
+            description={t("topology.noPolicyDetail")}
             showIcon
             type="info"
           />
@@ -4004,11 +4030,12 @@ function WorkflowTopologyPanel({ topology }: { topology: WorkflowTopology }) {
 }
 
 function TopologyActionList({ actions }: { actions: TopologyAction[] }) {
+  const t = useTranslations("SettingsOverview");
   if (actions.length === 0) {
     return (
       <Alert
-        message="Topology ready"
-        description="The selected workflow chain is ready for retained live proof."
+        message={t("topology.readyTitle")}
+        description={t("topology.readyDetail")}
         showIcon
         type="success"
       />
@@ -4017,12 +4044,12 @@ function TopologyActionList({ actions }: { actions: TopologyAction[] }) {
 
   return (
     <section
-      aria-label="Next topology actions"
+      aria-label={t("topology.actionsAriaLabel")}
       className="settings-overview-action-list"
     >
       <div className="settings-overview-action-header">
-        <Typography.Text strong>Next topology actions</Typography.Text>
-        <Tag>{actions.length} open</Tag>
+        <Typography.Text strong>{t("topology.actionsTitle")}</Typography.Text>
+        <Tag>{t("topology.openActions", { count: actions.length })}</Tag>
       </div>
       <div className="settings-overview-action-grid">
         {actions.map((action) => (
@@ -4030,7 +4057,7 @@ function TopologyActionList({ actions }: { actions: TopologyAction[] }) {
             <div>
               <Space size={8} wrap>
                 <Tag color={actionPriorityColor(action.priority)}>
-                  {action.priority}
+                  {t(`priorityLabel.${action.priority}`)}
                 </Tag>
                 <Typography.Text strong>{action.title}</Typography.Text>
               </Space>
@@ -4043,7 +4070,7 @@ function TopologyActionList({ actions }: { actions: TopologyAction[] }) {
               icon={<RadarChartOutlined />}
               type={action.priority === "high" ? "primary" : "default"}
             >
-              Open
+              {t("actions.open")}
             </Button>
           </div>
         ))}
@@ -4059,7 +4086,9 @@ function AlertIngestionReadinessPanel({
   autoDiagnosisProofHistory: AutoDiagnosisProofHistory | null;
   topology: WorkflowTopology;
 }) {
-  const stages = alertIngestionStages(topology);
+  const locale = useLocale();
+  const t = useTranslations("SettingsOverview");
+  const stages = alertIngestionStages(topology, t);
   const firstUnready = stages.findIndex((stage) => stage.status !== "finish");
   const current = firstUnready === -1 ? stages.length : firstUnready;
   const activeAlertTools = topology.activeAlertTools.length;
@@ -4078,22 +4107,26 @@ function AlertIngestionReadinessPanel({
     : "review";
   const webhookProof = alertIngestionWebhookProofReadiness(
     topology,
+    t,
+    locale,
     autoDiagnosisProofHistory,
   );
 
   return (
     <section
-      aria-label="Alert ingestion readiness"
+      aria-label={t("ingestion.ariaLabel")}
       className="panel settings-overview-ingestion"
     >
       <div className="panel-header settings-overview-ingestion-header">
-        <h2>Alert ingestion readiness</h2>
-        <Tag color={topologyStatusColor(status)}>{status}</Tag>
+        <h2>{t("ingestion.title")}</h2>
+        <Tag color={topologyStatusColor(status)}>
+          {topologyStatusLabel(status, t)}
+        </Tag>
       </div>
       <div className="panel-body settings-overview-ingestion-body">
         <div className="settings-overview-ingestion-path">
           <Steps
-            aria-label="Alert to AI room configuration path"
+            aria-label={t("ingestion.sequence")}
             className="settings-overview-ingestion-steps"
             current={current}
             items={stages}
@@ -4101,12 +4134,16 @@ function AlertIngestionReadinessPanel({
             size="small"
           />
         </div>
-        <Row aria-label="Alert ingestion counters" gutter={[12, 12]}>
+        <Row aria-label={t("ingestion.countersAriaLabel")} gutter={[12, 12]}>
           <ReadinessCounter
             href="/settings/alert-sources"
-            label="Intake source"
+            label={t("ingestion.counters.intake")}
             status={intakeStatus}
-            value={topology.alertSource?.kind ?? "missing"}
+            value={
+              topology.alertSource === null
+                ? t("status.missing")
+                : sourceKindLabel(topology.alertSource.kind, t)
+            }
           />
           <ReadinessCounter
             href={
@@ -4117,13 +4154,13 @@ function AlertIngestionReadinessPanel({
                     sourceID: topology.alertSource?.id ?? null,
                   })
             }
-            label="Active alert tools"
+            label={t("ingestion.counters.alertTools")}
             status={activeAlertTools > 0 ? "ready" : "review"}
             value={activeAlertTools}
           />
           <ReadinessCounter
             href={metricEvidenceConfigurationHref(topology)}
-            label="Metric evidence"
+            label={t("ingestion.counters.metricEvidence")}
             status={metricTools > 0 ? "ready" : "review"}
             value={metricTools}
           />
@@ -4136,13 +4173,17 @@ function AlertIngestionReadinessPanel({
                     sourceID: topology.alertSource?.id ?? null,
                   })
             }
-            label="AI handoff"
+            label={t("ingestion.counters.aiHandoff")}
             status={handoffStatus}
-            value={topology.policy?.diagnosis_follow_up ?? "missing"}
+            value={
+              topology.policy === null
+                ? t("status.missing")
+                : diagnosisFollowUpLabel(topology.policy.diagnosis_follow_up, t)
+            }
           />
           <ReadinessCounter
             href={webhookProof.href}
-            label="Webhook proof"
+            label={t("ingestion.counters.webhookProof")}
             status={webhookProof.status}
             value={webhookProof.value}
           />
@@ -4157,6 +4198,7 @@ function LiveProofReadinessPanel({
 }: {
   readiness: LiveProofReadiness;
 }) {
+  const t = useTranslations("SettingsOverview");
   const firstUnready = readiness.items.findIndex(
     (item) => item.status !== "ready",
   );
@@ -4164,13 +4206,13 @@ function LiveProofReadinessPanel({
 
   return (
     <section
-      aria-label="Live proof readiness"
+      aria-label={t("liveProof.ariaLabel")}
       className="panel settings-overview-live-proof"
     >
       <div className="panel-header settings-overview-live-proof-header">
-        <h2>Live proof readiness</h2>
+        <h2>{t("liveProof.title")}</h2>
         <Tag color={proofTargetStatusColor(readiness.status)}>
-          {proofTargetStatusLabel(readiness.status)}
+          {proofTargetStatusLabel(readiness.status, t)}
         </Tag>
       </div>
       <div className="panel-body settings-overview-live-proof-body">
@@ -4179,7 +4221,7 @@ function LiveProofReadinessPanel({
         </Typography.Paragraph>
         <div className="settings-overview-live-proof-steps-wrap">
           <Steps
-            aria-label="Replay to notification proof path"
+            aria-label={t("liveProof.sequence")}
             className="settings-overview-live-proof-steps"
             current={current}
             items={readiness.items.map((item) => ({
@@ -4200,7 +4242,7 @@ function LiveProofReadinessPanel({
             children: (
               <Space direction="vertical" size={4}>
                 <Tag color={proofTargetStatusColor(item.status)}>
-                  {proofTargetStatusLabel(item.status)}
+                  {proofTargetStatusLabel(item.status, t)}
                 </Tag>
                 <Typography.Text strong>{item.value}</Typography.Text>
                 <Typography.Text type="secondary">
@@ -4221,6 +4263,8 @@ function AutoDiagnosisProofHistoryPanel({
 }: {
   histories: AutoDiagnosisProofHistory[];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("SettingsOverview");
   const columns: TableColumnsType<AutoDiagnosisProofHistory> = [
     {
       key: "alert",
@@ -4228,87 +4272,93 @@ function AutoDiagnosisProofHistoryPanel({
         <Space direction="vertical" size={4}>
           <Typography.Text strong>{history.alertName}</Typography.Text>
           <Space size={[6, 6]} wrap>
-            <Tag>alert #{history.alertID}</Tag>
-            <Tag>snapshot #{history.snapshotID}</Tag>
+            <Tag>{t("history.alertTag", { id: history.alertID })}</Tag>
+            <Tag>{t("history.snapshotTag", { id: history.snapshotID })}</Tag>
           </Space>
         </Space>
       ),
-      title: "Alert",
+      title: t("history.columns.alert"),
       width: 260,
     },
     {
       key: "coverage",
-      render: (_, history) => (
+      render: (_, history) => {
+        const coverage = localizedNotificationCoverage(history.coverage, t);
+        return (
         <Space direction="vertical" size={4}>
           <Tag color={proofTargetStatusColor(history.coverage.status)}>
-            {history.coverage.label}
+              {coverage.label}
           </Tag>
           <Typography.Text type="secondary">
-            {history.coverage.readyCount}/{history.coverage.requiredCount}{" "}
-            phase(s)
+              {t("history.phaseCount", {
+                ready: history.coverage.readyCount,
+                required: history.coverage.requiredCount,
+              })}
           </Typography.Text>
         </Space>
-      ),
-      title: "Coverage",
+        );
+      },
+      title: t("history.columns.coverage"),
       width: 170,
     },
     {
       key: "phases",
       render: (_, history) => (
         <Space size={[4, 4]} wrap>
-          {history.coverage.phases.map((phase) => (
+          {localizedNotificationCoverage(history.coverage, t).phases.map(
+            (phase) => (
             <Tag
               color={diagnosisNotificationDeliveryCoveragePhaseColor(
                 phase.status,
               )}
               key={phase.key}
             >
-              {phase.label}: {phase.status}
+                {phase.label}: {notificationPhaseStatusLabel(phase.status, t)}
             </Tag>
-          ))}
+            ),
+          )}
         </Space>
       ),
-      title: "AI Notification Phases",
+      title: t("history.columns.phases"),
     },
     {
       dataIndex: "occurredAt",
       key: "occurredAt",
-      render: (value: string) => formatDateTime(value),
-      title: "Latest",
+      render: (value: string) => formatDateTime(value, locale),
+      title: t("history.columns.latest"),
       width: 190,
     },
     {
       key: "action",
       render: (_, history) => (
         <Button href={history.href} size="small" type="link">
-          Review timeline
+          {t("actions.reviewTimeline")}
         </Button>
       ),
-      title: "Action",
+      title: t("history.columns.action"),
       width: 140,
     },
   ];
 
   return (
     <section
-      aria-label="Recent auto-diagnosis proof history"
+      aria-label={t("history.ariaLabel")}
       className="panel settings-overview-auto-proof-history"
     >
       <div className="panel-header settings-overview-live-proof-header">
-        <h2>Recent Auto-Diagnosis Proof</h2>
+        <h2>{t("history.title")}</h2>
         <Tag color={histories.length > 0 ? "blue" : "default"}>
-          {histories.length} retained
+          {t("history.retained", { count: histories.length })}
         </Tag>
       </div>
       <div className="panel-body settings-overview-live-proof-body">
         <Typography.Paragraph className="settings-overview-proof-copy">
-          Recent AlertmanagerWebhookAutoDiagnosis rooms with retained Enterprise
-          WeChat AI notification coverage.
+          {t("history.detail")}
         </Typography.Paragraph>
         <Table<AutoDiagnosisProofHistory>
           columns={columns}
           dataSource={histories}
-          locale={{ emptyText: "No retained auto-diagnosis proof history yet" }}
+          locale={{ emptyText: t("history.empty") }}
           pagination={false}
           rowKey={(history) =>
             `${history.alertID}:${history.snapshotID}:${history.roomSessionID}`
@@ -4332,13 +4382,16 @@ function ReadinessCounter({
   status: WorkflowTopology["status"];
   value: number | string;
 }) {
+  const t = useTranslations("SettingsOverview");
   return (
     <Col lg={6} sm={12} xs={24}>
       <a className="settings-overview-ingestion-counter" href={href}>
         <span className="settings-overview-ingestion-value">{value}</span>
         <span className="settings-overview-ingestion-footer">
           <Typography.Text className="muted">{label}</Typography.Text>
-          <Tag color={topologyStatusColor(status)}>{status}</Tag>
+          <Tag color={topologyStatusColor(status)}>
+            {topologyStatusLabel(status, t)}
+          </Tag>
         </span>
       </a>
     </Col>
@@ -4439,6 +4492,7 @@ export function buildWorkflowTopology({
 
 function alertIngestionStages(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
 ): WorkflowTopologyStep[] {
   const activeAlertTools = topology.activeAlertTools.length;
   const metricTools = topology.metricTools.length;
@@ -4452,38 +4506,47 @@ function alertIngestionStages(
   );
   return [
     {
-      title: "Intake",
+      title: t("ingestion.steps.intake.title"),
       description:
         topology.alertSource === null
-          ? "Missing source"
+          ? t("status.missingSource")
           : autoRoomBlocked
-            ? "Auto room requires Alertmanager"
-            : `${topology.alertSource.kind} source`,
+            ? t("ingestion.steps.intake.requiresAlertmanager")
+            : t("ingestion.steps.intake.source", {
+                kind: sourceKindLabel(topology.alertSource.kind, t),
+              }),
       status:
         topology.alertSource?.enabled && !autoRoomBlocked ? "finish" : "error",
     },
     {
-      title: "Alerts",
-      description: `${activeAlertTools} active alert tools`,
+      title: t("ingestion.steps.alerts.title"),
+      description: t("ingestion.steps.alerts.detail", {
+        count: activeAlertTools,
+      }),
       status: activeAlertTools > 0 ? "finish" : "wait",
     },
     {
-      title: "Metrics",
-      description: `${metricTools} metric tools`,
+      title: t("ingestion.steps.metrics.title"),
+      description: t("ingestion.steps.metrics.detail", {
+        count: metricTools,
+      }),
       status: metricTools > 0 ? "finish" : "wait",
     },
     {
-      title: "AI room",
-      description: topology.policy?.diagnosis_follow_up ?? "No policy",
+      title: t("ingestion.steps.aiRoom.title"),
+      description:
+        topology.policy === null
+          ? t("status.noPolicy")
+          : diagnosisFollowUpLabel(topology.policy.diagnosis_follow_up, t),
       status: autoRoomReady ? "finish" : "wait",
     },
     {
-      title: "Replay",
+      title: t("ingestion.steps.replay.title"),
       description: autoRoomReady
-        ? "Automatic diagnosis ready"
+        ? t("ingestion.steps.replay.ready")
         : topology.policy?.enabled
-          ? "Policy enabled"
-          : "Policy draft",
+          ? t("ingestion.steps.replay.policyEnabled")
+          : t("ingestion.steps.replay.policyDraft"),
       status:
         autoRoomReady &&
         topology.groupingPolicy?.enabled &&
@@ -4562,6 +4625,8 @@ function isMetricTool(tool: DiagnosisToolTemplate["tool"]): boolean {
 
 export function workflowTopologyActions(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
 ): TopologyAction[] {
   const actions: TopologyAction[] = [];
 
@@ -4569,9 +4634,8 @@ export function workflowTopologyActions(
     return [
       {
         key: "create-policy",
-        title: "Create automatic diagnosis workflow",
-        detail:
-          "Bind an Alertmanager source, grouping, and Enterprise WeChat delivery settings before replaying alert windows.",
+        title: t("topology.actions.createPolicy.title"),
+        detail: t("topology.actions.createPolicy.detail"),
         href: reportWorkflowPolicyLaunchHref({
           intent: "create-auto-room-policy",
         }),
@@ -4583,9 +4647,8 @@ export function workflowTopologyActions(
   if (!topology.policy.enabled) {
     actions.push({
       key: "enable-policy",
-      title: "Enable workflow policy",
-      detail:
-        "The selected workflow policy is still a draft and will not be used for replay or schedule proof.",
+      title: t("topology.actions.enablePolicy.title"),
+      detail: t("topology.actions.enablePolicy.detail"),
       href: "/settings/report-workflow-policies",
       priority: "high",
     });
@@ -4593,9 +4656,8 @@ export function workflowTopologyActions(
   if (topology.alertSource === null || !topology.alertSource.enabled) {
     actions.push({
       key: "alert-source",
-      title: "Review alert source",
-      detail:
-        "The selected workflow needs an enabled alert source before alert windows can be replayed.",
+      title: t("topology.actions.alertSource.title"),
+      detail: t("topology.actions.alertSource.detail"),
       href: "/settings/alert-sources",
       priority: "high",
     });
@@ -4603,9 +4665,8 @@ export function workflowTopologyActions(
   if (topology.groupingPolicy === null || !topology.groupingPolicy.enabled) {
     actions.push({
       key: "grouping",
-      title: "Review grouping policy",
-      detail:
-        "The selected workflow needs an enabled grouping policy to build incident groups.",
+      title: t("topology.actions.grouping.title"),
+      detail: t("topology.actions.grouping.detail"),
       href:
         topology.groupingPolicy === null
           ? groupingPolicyLaunchHref({ intent: "default-alert-grouping" })
@@ -4616,9 +4677,8 @@ export function workflowTopologyActions(
   if (!isAIRoomFollowUp(topology.policy.diagnosis_follow_up)) {
     actions.push({
       key: "room-follow-up",
-      title: "Enable AI room follow-up",
-      detail:
-        "Set diagnosis follow-up to auto room when webhook alerts should start the consultation workflow automatically.",
+      title: t("topology.actions.roomFollowUp.title"),
+      detail: t("topology.actions.roomFollowUp.detail"),
       href: reportWorkflowPolicyLaunchHref({
         intent: "enable-ai-room-follow-up",
         sourceID: topology.alertSource?.id ?? null,
@@ -4629,9 +4689,8 @@ export function workflowTopologyActions(
   if (topology.policy.diagnosis_follow_up === "suggest_room") {
     actions.push({
       key: "auto-room-follow-up",
-      title: "Use auto room for webhook handoff",
-      detail:
-        "Suggest room keeps an operator handoff step; auto room is required for Alertmanager webhook alerts to start AI consultation automatically.",
+      title: t("topology.actions.autoRoomFollowUp.title"),
+      detail: t("topology.actions.autoRoomFollowUp.detail"),
       href: reportWorkflowPolicyLaunchHref({
         intent: "auto-room-follow-up",
         sourceID: topology.alertSource?.id ?? null,
@@ -4642,9 +4701,8 @@ export function workflowTopologyActions(
   if (autoRoomWebhookBlocked(topology.policy, topology.alertSource)) {
     actions.push({
       key: "auto-room-alertmanager-source",
-      title: "Bind an Alertmanager webhook source",
-      detail:
-        "Automatic diagnosis room starts require an enabled Alertmanager-compatible webhook source. Keep Thanos Rule for active-alert evidence and use Alertmanager for webhook intake.",
+      title: t("topology.actions.alertmanagerSource.title"),
+      detail: t("topology.actions.alertmanagerSource.detail"),
       href: alertSourceLaunchHref({ intent: "alertmanager-source" }),
       priority: "high",
     });
@@ -4652,9 +4710,8 @@ export function workflowTopologyActions(
   if (topology.activeAlertTools.length === 0) {
     actions.push({
       key: "active-alert-tool",
-      title: "Enable active alert tool",
-      detail:
-        "Enable an active_alerts template on the workflow alert source so the AI room can inspect current alerts.",
+      title: t("topology.actions.activeAlertTool.title"),
+      detail: t("topology.actions.activeAlertTool.detail"),
       href: diagnosisToolTemplateLaunchHref({
         intent: "active-alert-tool",
         sourceID: topology.alertSource?.id ?? null,
@@ -4670,9 +4727,8 @@ export function workflowTopologyActions(
     if (enabledMetricSources.length > 0) {
       actions.push({
         key: "metric-evidence-tool",
-        title: "Enable metric evidence",
-        detail:
-          "Enable a Prometheus-compatible metric_query or metric_range_query template for evidence collection.",
+        title: t("topology.actions.metricEvidence.title"),
+        detail: t("topology.actions.metricEvidence.detail"),
         href: diagnosisToolTemplateLaunchHref({
           intent: "metric-evidence-tool",
           sourceID: metricSourceID,
@@ -4682,18 +4738,16 @@ export function workflowTopologyActions(
     } else if (topology.metricSources.length > 0) {
       actions.push({
         key: "enable-prometheus-metric-source",
-        title: "Enable Prometheus metric source",
-        detail:
-          "A Prometheus-compatible source exists as a draft; enable and test it before adding metric evidence tools.",
+        title: t("topology.actions.enableMetricSource.title"),
+        detail: t("topology.actions.enableMetricSource.detail"),
         href: "/settings/alert-sources",
         priority: "medium",
       });
     } else {
       actions.push({
         key: "thanos-metric-source",
-        title: "Create Thanos metric source",
-        detail:
-          "Metric evidence needs an enabled Thanos Query or Prometheus-compatible source before range or instant queries can be configured.",
+        title: t("topology.actions.createMetricSource.title"),
+        detail: t("topology.actions.createMetricSource.detail"),
         href: alertSourceLaunchHref({ intent: "thanos-source" }),
         priority: "medium",
       });
@@ -4705,9 +4759,8 @@ export function workflowTopologyActions(
   ) {
     actions.push({
       key: "notification-channel",
-      title: "Enable AI delivery channel",
-      detail:
-        "The selected notification channel is bound but disabled, so AI update and report delivery proof cannot complete.",
+      title: t("topology.actions.enableChannel.title"),
+      detail: t("topology.actions.enableChannel.detail"),
       href: notificationChannelAutoRoomEditHref(
         topology,
         topology.notificationChannel.id,
@@ -4721,9 +4774,8 @@ export function workflowTopologyActions(
   ) {
     actions.push({
       key: "notification-channel-bind",
-      title: "Bind Enterprise WeChat AI delivery",
-      detail:
-        "Auto room proof requires an enabled Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes.",
+      title: t("topology.actions.bindChannel.title"),
+      detail: t("topology.actions.bindChannel.detail"),
       href: notificationChannelAutoRoomLaunchHref(topology),
       priority: "high",
     });
@@ -4738,8 +4790,10 @@ export function workflowTopologyActions(
   ) {
     actions.push({
       key: "notification-channel-scope",
-      title: "Review AI delivery channel scopes",
-      detail: `The selected notification channel is missing ${missingDeliveryScopes.join(", ")} scope before this workflow can deliver AI updates, close notifications, and reports.`,
+      title: t("topology.actions.channelScopes.title"),
+      detail: t("topology.actions.channelScopes.detail", {
+        scopes: localizedDeliveryScopeList(missingDeliveryScopes, t, locale),
+      }),
       href: notificationChannelAutoRoomEditHref(
         topology,
         topology.notificationChannel.id,
@@ -4752,9 +4806,8 @@ export function workflowTopologyActions(
   ) {
     actions.push({
       key: "notification-channel-kind",
-      title: "Switch AI delivery to Enterprise WeChat",
-      detail:
-        "Auto room proof requires an Enterprise WeChat channel; generic webhook delivery cannot start the operator handoff path.",
+      title: t("topology.actions.channelKind.title"),
+      detail: t("topology.actions.channelKind.detail"),
       href: notificationChannelAutoRoomLaunchHref(topology),
       priority: "high",
     });
@@ -4762,9 +4815,8 @@ export function workflowTopologyActions(
   if (topology.activeSchedule === null) {
     actions.push({
       key: "create-schedule",
-      title: "Create workflow schedule",
-      detail:
-        "Add a schedule when the workflow needs retained scheduled proof instead of manual replay only.",
+      title: t("topology.actions.createSchedule.title"),
+      detail: t("topology.actions.createSchedule.detail"),
       href: reportWorkflowScheduleLaunchHref({
         intent: "create-schedule",
         policyID: topology.policy.id,
@@ -4774,9 +4826,8 @@ export function workflowTopologyActions(
   } else if (!topology.activeSchedule.enabled) {
     actions.push({
       key: "enable-schedule",
-      title: "Enable workflow schedule",
-      detail:
-        "The schedule exists as a draft; enable it after replay proof is accepted.",
+      title: t("topology.actions.enableSchedule.title"),
+      detail: t("topology.actions.enableSchedule.detail"),
       href: "/settings/report-workflow-schedules",
       priority: "low",
     });
@@ -4789,9 +4840,8 @@ export function workflowTopologyActions(
   ) {
     actions.push({
       key: "impact-preview",
-      title: "Run impact preview",
-      detail:
-        "Preview recent alert grouping before replaying a workflow window.",
+      title: t("topology.actions.impactPreview.title"),
+      detail: t("topology.actions.impactPreview.detail"),
       href: "/settings/report-workflow-policies",
       priority: "low",
     });
@@ -4853,54 +4903,68 @@ function notificationChannelAutoRoomEditHref(
 
 export function workflowProofTargets(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
   autoDiagnosisProofHistory: AutoDiagnosisProofHistory | null = null,
 ): ProofTarget[] {
-  const replayTarget = workflowReplayProofTarget(topology);
+  const replayTarget = workflowReplayProofTarget(topology, t, locale);
   const autoDiagnosisTarget = workflowAlertmanagerAutoDiagnosisProofTarget(
     topology,
+    t,
+    locale,
     autoDiagnosisProofHistory,
   );
-  const scheduleTarget = workflowScheduleProofTarget(topology);
+  const scheduleTarget = workflowScheduleProofTarget(topology, t, locale);
   return [replayTarget, autoDiagnosisTarget, scheduleTarget];
 }
 
 export function alertIngestionWebhookProofReadiness(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
   proofHistory: AutoDiagnosisProofHistory | null = null,
 ): AlertIngestionWebhookProofReadiness {
   const target = workflowAlertmanagerAutoDiagnosisProofTarget(
     topology,
+    t,
+    locale,
     proofHistory,
   );
   if (proofHistory === null) {
     return {
       href: target.actionHref,
       status: target.status === "blocked" ? "blocked" : "review",
-      value: "missing",
+      value: t("status.missing"),
     };
   }
   return {
     href: target.actionHref,
     status: proofReadinessStatusForTopology(target.status),
-    value: proofHistory.coverage.label,
+    value: localizedNotificationCoverage(proofHistory.coverage, t).label,
   };
 }
 
 export function latestAutoDiagnosisProofHistory(
   alerts: AlertEventSummary[],
+  t: SettingsOverviewTranslator,
 ): AutoDiagnosisProofHistory | null {
-  return autoDiagnosisProofHistoriesForAlerts(alerts, 1)[0] ?? null;
+  return autoDiagnosisProofHistoriesForAlerts(alerts, t, 1)[0] ?? null;
 }
 
 export function latestAutoDiagnosisProofHistoryForSource(
   alerts: AlertEventSummary[],
   alertSourceProfileID: number | null,
+  t: SettingsOverviewTranslator,
 ): AutoDiagnosisProofHistory | null {
   if (alertSourceProfileID === null || alertSourceProfileID <= 0) {
     return null;
   }
   return (
-    autoDiagnosisProofHistoriesForAlerts(alerts, Number.MAX_SAFE_INTEGER).find(
+    autoDiagnosisProofHistoriesForAlerts(
+      alerts,
+      t,
+      Number.MAX_SAFE_INTEGER,
+    ).find(
       (history) => history.alertSourceProfileID === alertSourceProfileID,
     ) ?? null
   );
@@ -4908,6 +4972,7 @@ export function latestAutoDiagnosisProofHistoryForSource(
 
 export function autoDiagnosisProofHistoriesForAlerts(
   alerts: AlertEventSummary[],
+  t: SettingsOverviewTranslator,
   limit = 5,
 ): AutoDiagnosisProofHistory[] {
   const histories: AutoDiagnosisProofHistory[] = [];
@@ -4926,7 +4991,7 @@ export function autoDiagnosisProofHistoriesForAlerts(
           alert.created_at;
         histories.push({
           alertID: alert.id,
-          alertName: alertProofDisplayName(alert),
+          alertName: alertProofDisplayName(alert, t),
           alertSourceProfileID: alert.alert_source_profile_id,
           coverage: diagnosisNotificationDeliveryCoverage(timeline),
           href: diagnosisRoomAnchorHref({
@@ -4969,11 +5034,14 @@ function latestNotificationOccurredAt(
   return "";
 }
 
-function alertProofDisplayName(alert: AlertEventSummary): string {
+function alertProofDisplayName(
+  alert: AlertEventSummary,
+  t: SettingsOverviewTranslator,
+): string {
   return (
     alert.labels.alertname?.trim() ||
     alert.annotations.summary?.trim() ||
-    `alert #${alert.id}`
+    t("history.alertFallback", { id: alert.id })
   );
 }
 
@@ -4984,32 +5052,34 @@ function timestampSortValue(value: string): number {
 
 export function workflowLiveProofReadiness(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
   diagnosisAuthProof: DiagnosisAuthLiveProof = defaultDiagnosisAuthLiveProof(),
 ): LiveProofReadiness {
-  const replayTarget = workflowReplayProofTarget(topology);
-  const scheduleTarget = workflowScheduleProofTarget(topology);
+  const replayTarget = workflowReplayProofTarget(topology, t, locale);
+  const scheduleTarget = workflowScheduleProofTarget(topology, t, locale);
   const items: LiveProofReadinessItem[] = [
     {
       detail: replayTarget.detail,
       key: "policy-replay",
       status: replayTarget.status,
-      title: "Replay",
+      title: t("liveProof.items.replay"),
       value: replayTarget.actionLabel,
     },
-    workflowAIDiagnosisProofItem(topology),
-    workflowDiagnosisAuthProofItem(diagnosisAuthProof),
-    workflowNotificationProofItem(topology),
+    workflowAIDiagnosisProofItem(topology, t),
+    workflowDiagnosisAuthProofItem(diagnosisAuthProof, t),
+    workflowNotificationProofItem(topology, t, locale),
     {
       detail: scheduleTarget.detail,
       key: "scheduled-trigger",
       status: scheduleTarget.status,
-      title: "Schedule",
+      title: t("liveProof.items.schedule"),
       value: scheduleTarget.actionLabel,
     },
   ];
   const status = aggregateProofReadiness(items.map((item) => item.status));
   return {
-    detail: liveProofReadinessDetail(status),
+    detail: liveProofReadinessDetail(status, t),
     items,
     status,
   };
@@ -5017,27 +5087,30 @@ export function workflowLiveProofReadiness(
 
 export function workflowIntegrationReadiness(
   topology: WorkflowTopology,
-  t: DiagnosisAuthTranslator,
+  authT: DiagnosisAuthTranslator,
+  t: SettingsOverviewTranslator,
+  locale: string,
   diagnosisAuthProof: DiagnosisAuthLiveProof = defaultDiagnosisAuthLiveProof(),
   localAccessReadiness?: SettingsLocalAccessReadiness,
   currentRBACAccess?: SettingsCurrentRBACAccessSummary,
 ): IntegrationReadiness {
   const items: IntegrationReadinessItem[] = [
-    workflowOperatorAuthReadinessItem(diagnosisAuthProof, t),
+    workflowOperatorAuthReadinessItem(diagnosisAuthProof, authT, t),
     ...(localAccessReadiness === undefined
       ? []
       : [
           workflowLocalAccessReadinessItem(
             localAccessReadiness,
+            t,
             currentRBACAccess,
           ),
         ]),
-    workflowEnterpriseWeChatReadinessItem(topology),
-    workflowAlertmanagerAutoRoomReadinessItem(topology),
+    workflowEnterpriseWeChatReadinessItem(topology, t, locale),
+    workflowAlertmanagerAutoRoomReadinessItem(topology, t),
   ];
   const status = aggregateProofReadiness(items.map((item) => item.status));
   return {
-    detail: integrationReadinessDetail(status),
+    detail: integrationReadinessDetail(status, t),
     items,
     status,
   };
@@ -5045,17 +5118,20 @@ export function workflowIntegrationReadiness(
 
 function workflowLocalAccessReadinessItem(
   readiness: SettingsLocalAccessReadiness,
+  t: SettingsOverviewTranslator,
   currentRBACAccess?: SettingsCurrentRBACAccessSummary,
 ): IntegrationReadinessItem {
   if (currentRBACAccess === undefined) {
     return {
       actionHref: "/settings/directory-rbac",
       actionLabel:
-        readiness.status === "ready" ? "Review access" : "Fix access",
+        readiness.status === "ready"
+          ? t("actions.reviewAccess")
+          : t("actions.fixAccess"),
       detail: readiness.detail,
       key: "local-access",
       status: readiness.status,
-      title: "Local access",
+      title: t("integration.localAccess.title"),
       value: diagnosisLocalAccessSummaryValue(readiness),
     };
   }
@@ -5069,21 +5145,21 @@ function workflowLocalAccessReadinessItem(
   const detail = currentAccessBlocked
     ? currentRBACAccess.detail
     : readiness.status === "ready"
-      ? "Local directory projection, RBAC assignments, and current operator access are ready for diagnosis-room authorization."
+      ? t("integration.localAccess.readyDetail")
       : readiness.detail;
   return {
     actionHref: currentRBACAccess.needsSignIn
       ? settingsDirectoryRBACLoginHref
       : "/settings/directory-rbac",
     actionLabel: currentRBACAccess.needsSignIn
-      ? "Sign in"
+      ? t("actions.signIn")
       : status === "ready"
-        ? "Review access"
-        : "Fix access",
+        ? t("actions.reviewAccess")
+        : t("actions.fixAccess"),
     detail,
     key: "local-access",
     status,
-    title: "Local access",
+    title: t("integration.localAccess.title"),
     value:
       currentRBACAccess.subject === ""
         ? currentRBACAccess.label
@@ -5093,61 +5169,66 @@ function workflowLocalAccessReadinessItem(
 
 function workflowOperatorAuthReadinessItem(
   proof: DiagnosisAuthLiveProof,
-  t: DiagnosisAuthTranslator,
+  authT: DiagnosisAuthTranslator,
+  t: SettingsOverviewTranslator,
 ): IntegrationReadinessItem {
   const actionHref = "#diagnosis-auth-readiness";
-  const readiness = diagnosisAuthRolloutReadiness(proof, t);
+  const readiness = diagnosisAuthRolloutReadiness(proof, authT);
   if (readiness.status === "ready") {
     return {
       actionHref,
-      actionLabel: "Review auth",
-      detail:
-        readiness.detail ||
-        "Operator identity is verified against the running backend. Diagnosis room permissions are enforced by OpenClarion local RBAC.",
+      actionLabel: t("actions.reviewAuth"),
+      detail: readiness.detail || t("integration.operatorAuth.readyDetail"),
       key: "operator-auth",
       status: "ready",
-      title: "Operator auth",
+      title: t("integration.operatorAuth.title"),
       value:
         readiness.subject === ""
-          ? `${authProbeModeValueLabel(readiness.mode)} verified`
+          ? t("integration.operatorAuth.verified", {
+              mode: authProbeModeValueLabel(readiness.mode, authT),
+            })
           : readiness.subject,
     };
   }
   if (readiness.status === "review") {
     return {
       actionHref,
-      actionLabel: "Check SSO",
+      actionLabel: t("actions.checkSSO"),
       detail: readiness.detail,
       key: "operator-auth",
       status: "review",
-      title: "Operator auth",
-      value: `${authProbeModeValueLabel(readiness.mode)} verified`,
+      title: t("integration.operatorAuth.title"),
+      value: t("integration.operatorAuth.verified", {
+        mode: authProbeModeValueLabel(readiness.mode, authT),
+      }),
     };
   }
   if (readiness.status === "blocked") {
     return {
       actionHref,
-      actionLabel: "Fix auth",
+      actionLabel: t("actions.fixAuth"),
       detail: readiness.detail,
       key: "operator-auth",
       status: "blocked",
-      title: "Operator auth",
-      value: "Blocked",
+      title: t("integration.operatorAuth.title"),
+      value: t("status.blocked"),
     };
   }
   return {
     actionHref,
-    actionLabel: "Check auth",
+    actionLabel: t("actions.checkAuth"),
     detail: readiness.detail,
     key: "operator-auth",
     status: "pending",
-    title: "Operator auth",
-    value: "Not checked",
+    title: t("integration.operatorAuth.title"),
+    value: t("status.notChecked"),
   };
 }
 
 function workflowEnterpriseWeChatReadinessItem(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
 ): IntegrationReadinessItem {
   const actionHref = notificationChannelAutoRoomLaunchHref(topology);
   if (topology.policy === null) {
@@ -5155,25 +5236,23 @@ function workflowEnterpriseWeChatReadinessItem(
       actionHref: reportWorkflowPolicyLaunchHref({
         intent: "create-auto-room-policy",
       }),
-      actionLabel: "Create policy",
-      detail:
-        "Create an auto-room workflow policy before binding Enterprise WeChat delivery.",
+      actionLabel: t("actions.createPolicy"),
+      detail: t("integration.weCom.noPolicyDetail"),
       key: "enterprise-wechat",
       status: "blocked",
-      title: "Enterprise WeChat",
-      value: "No policy",
+      title: t("integration.weCom.title"),
+      value: t("status.noPolicy"),
     };
   }
   if (topology.notificationChannel === null) {
     return {
       actionHref,
-      actionLabel: "Bind channel",
-      detail:
-        "Bind an Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes.",
+      actionLabel: t("actions.bindChannel"),
+      detail: t("integration.weCom.noChannelDetail"),
       key: "enterprise-wechat",
       status: "blocked",
-      title: "Enterprise WeChat",
-      value: "No channel",
+      title: t("integration.weCom.title"),
+      value: t("status.noChannel"),
     };
   }
   if (!topology.notificationChannel.enabled) {
@@ -5182,24 +5261,22 @@ function workflowEnterpriseWeChatReadinessItem(
         topology,
         topology.notificationChannel.id,
       ),
-      actionLabel: "Enable channel",
-      detail:
-        "Enable the bound Enterprise WeChat channel before live AI notification proof.",
+      actionLabel: t("actions.enableChannel"),
+      detail: t("integration.weCom.disabledDetail"),
       key: "enterprise-wechat",
       status: "blocked",
-      title: "Enterprise WeChat",
+      title: t("integration.weCom.title"),
       value: topology.notificationChannel.name,
     };
   }
   if (topology.notificationChannel.kind !== "wecom") {
     return {
       actionHref,
-      actionLabel: "Switch channel",
-      detail:
-        "Automatic diagnosis rollout requires Enterprise WeChat; generic webhook proof is not enough.",
+      actionLabel: t("actions.switchChannel"),
+      detail: t("integration.weCom.wrongKindDetail"),
       key: "enterprise-wechat",
       status: "blocked",
-      title: "Enterprise WeChat",
+      title: t("integration.weCom.title"),
       value: topology.notificationChannel.name,
     };
   }
@@ -5213,11 +5290,13 @@ function workflowEnterpriseWeChatReadinessItem(
         topology,
         topology.notificationChannel.id,
       ),
-      actionLabel: "Review scopes",
-      detail: `Add ${missingScopes.join(", ")} scope before accepting Enterprise WeChat rollout.`,
+      actionLabel: t("actions.reviewScopes"),
+      detail: t("integration.weCom.missingScopesDetail", {
+        scopes: localizedDeliveryScopeList(missingScopes, t, locale),
+      }),
       key: "enterprise-wechat",
       status: "blocked",
-      title: "Enterprise WeChat",
+      title: t("integration.weCom.title"),
       value: topology.notificationChannel.name,
     };
   }
@@ -5227,12 +5306,11 @@ function workflowEnterpriseWeChatReadinessItem(
         intent: "auto-room-follow-up",
         sourceID: topology.alertSource?.id ?? null,
       }),
-      actionLabel: "Use auto room",
-      detail:
-        "Enterprise WeChat is bound, but the workflow still needs auto_room follow-up for automatic AI consultation.",
+      actionLabel: t("actions.useAutoRoom"),
+      detail: t("integration.weCom.followUpDetail"),
       key: "enterprise-wechat",
       status: "review",
-      title: "Enterprise WeChat",
+      title: t("integration.weCom.title"),
       value: topology.notificationChannel.name,
     };
   }
@@ -5245,11 +5323,18 @@ function workflowEnterpriseWeChatReadinessItem(
         topology,
         topology.notificationChannel.id,
       ),
-      actionLabel: "Test channel",
-      detail: rolloutReadiness.detail,
+      actionLabel:
+        rolloutReadiness.status === "blocked"
+          ? t("actions.fixChannel")
+          : t("actions.testChannel"),
+      detail: localizedNotificationProofGapDetail(
+        rolloutReadiness,
+        t,
+        locale,
+      ),
       key: "enterprise-wechat",
       status: rolloutReadiness.status === "blocked" ? "blocked" : "review",
-      title: "Enterprise WeChat",
+      title: t("integration.weCom.title"),
       value: topology.notificationChannel.name,
     };
   }
@@ -5258,42 +5343,40 @@ function workflowEnterpriseWeChatReadinessItem(
       topology,
       topology.notificationChannel.id,
     ),
-    actionLabel: "Review channel",
-    detail:
-      "Enterprise WeChat has the required scopes and AI diagnosis plus close notification sample proof.",
+    actionLabel: t("actions.reviewChannel"),
+    detail: t("integration.weCom.readyDetail"),
     key: "enterprise-wechat",
     status: "ready",
-    title: "Enterprise WeChat",
+    title: t("integration.weCom.title"),
     value: topology.notificationChannel.name,
   };
 }
 
 function workflowAlertmanagerAutoRoomReadinessItem(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
 ): IntegrationReadinessItem {
   if (topology.policy === null) {
     return {
       actionHref: reportWorkflowPolicyLaunchHref({
         intent: "create-auto-room-policy",
       }),
-      actionLabel: "Create policy",
-      detail:
-        "Create an auto-room workflow policy before Alertmanager can start AI diagnosis.",
+      actionLabel: t("actions.createPolicy"),
+      detail: t("integration.autoRoom.noPolicyDetail"),
       key: "alertmanager-auto-room",
       status: "blocked",
-      title: "Alertmanager auto-room",
-      value: "No policy",
+      title: t("integration.autoRoom.title"),
+      value: t("status.noPolicy"),
     };
   }
   if (!topology.policy.enabled) {
     return {
       actionHref: "/settings/report-workflow-policies",
-      actionLabel: "Enable policy",
-      detail:
-        "Enable the workflow policy before Alertmanager webhook deliveries can start AI rooms.",
+      actionLabel: t("actions.enablePolicy"),
+      detail: t("integration.autoRoom.disabledPolicyDetail"),
       key: "alertmanager-auto-room",
       status: "blocked",
-      title: "Alertmanager auto-room",
+      title: t("integration.autoRoom.title"),
       value: topology.policy.name,
     };
   }
@@ -5303,36 +5386,33 @@ function workflowAlertmanagerAutoRoomReadinessItem(
         intent: "auto-room-follow-up",
         sourceID: topology.alertSource?.id ?? null,
       }),
-      actionLabel: "Use auto room",
-      detail:
-        "Switch diagnosis follow-up to auto_room so Alertmanager webhook alerts start AI consultation automatically.",
+      actionLabel: t("actions.useAutoRoom"),
+      detail: t("integration.autoRoom.followUpDetail"),
       key: "alertmanager-auto-room",
       status: "review",
-      title: "Alertmanager auto-room",
-      value: topology.policy.diagnosis_follow_up,
+      title: t("integration.autoRoom.title"),
+      value: diagnosisFollowUpLabel(topology.policy.diagnosis_follow_up, t),
     };
   }
   if (topology.alertSource === null || !topology.alertSource.enabled) {
     return {
       actionHref: alertSourceLaunchHref({ intent: "alertmanager-source" }),
-      actionLabel: "Review source",
-      detail:
-        "Bind an enabled Alertmanager-compatible source before webhook alerts can start AI diagnosis.",
+      actionLabel: t("actions.reviewSource"),
+      detail: t("integration.autoRoom.noSourceDetail"),
       key: "alertmanager-auto-room",
       status: "blocked",
-      title: "Alertmanager auto-room",
-      value: "No source",
+      title: t("integration.autoRoom.title"),
+      value: t("status.noSource"),
     };
   }
   if (topology.alertSource.kind !== "alertmanager") {
     return {
       actionHref: alertSourceLaunchHref({ intent: "alertmanager-source" }),
-      actionLabel: "Switch source",
-      detail:
-        "Auto-room webhook handoff requires an Alertmanager-compatible source, not a Prometheus metric source.",
+      actionLabel: t("actions.switchSource"),
+      detail: t("integration.autoRoom.wrongSourceDetail"),
       key: "alertmanager-auto-room",
       status: "blocked",
-      title: "Alertmanager auto-room",
+      title: t("integration.autoRoom.title"),
       value: topology.alertSource.name,
     };
   }
@@ -5351,135 +5431,141 @@ function workflowAlertmanagerAutoRoomReadinessItem(
             ? topology.alertSource.id
             : metricEvidenceToolLaunchSourceID(topology),
       }),
-      actionLabel: "Review tools",
-      detail:
-        "Add active alert and metric evidence tools before accepting automatic AI diagnosis rollout.",
+      actionLabel: t("actions.reviewTools"),
+      detail: t("integration.autoRoom.toolsDetail"),
       key: "alertmanager-auto-room",
       status: "review",
-      title: "Alertmanager auto-room",
-      value: `${topology.activeAlertTools.length} alert / ${topology.metricTools.length} metric`,
+      title: t("integration.autoRoom.title"),
+      value: t("integration.autoRoom.toolCounts", {
+        alerts: topology.activeAlertTools.length,
+        metrics: topology.metricTools.length,
+      }),
     };
   }
   return {
     actionHref: "/settings/report-workflow-policies",
-    actionLabel: "Review workflow",
-    detail:
-      "Enabled Alertmanager auto-room policy has alert and metric evidence tools ready for assistant-message plus final-conclusion proof.",
+    actionLabel: t("actions.reviewWorkflow"),
+    detail: t("integration.autoRoom.readyDetail"),
     key: "alertmanager-auto-room",
     status: "ready",
-    title: "Alertmanager auto-room",
+    title: t("integration.autoRoom.title"),
     value: topology.alertSource.name,
   };
 }
 
-function integrationReadinessDetail(status: ProofReadinessStatus): string {
+function integrationReadinessDetail(
+  status: ProofReadinessStatus,
+  t: SettingsOverviewTranslator,
+): string {
   switch (status) {
     case "ready":
-      return "Operator auth, Enterprise WeChat delivery, and Alertmanager auto-room handoff are ready for assistant-message plus final-conclusion live proof.";
+      return t("integration.detail.ready");
     case "review":
-      return "Core wiring is present, but at least one production rollout item still needs review before multi-step AI notification proof.";
+      return t("integration.detail.review");
     case "pending":
-      return "Configuration is not blocked, but at least one rollout item still needs a live check.";
+      return t("integration.detail.pending");
     case "blocked":
-      return "Resolve blocked operator auth, Enterprise WeChat, or Alertmanager auto-room prerequisites before live proof.";
+      return t("integration.detail.blocked");
   }
 }
 
 function workflowDiagnosisAuthProofItem(
   proof: DiagnosisAuthLiveProof,
+  t: SettingsOverviewTranslator,
 ): LiveProofReadinessItem {
-  const modeLabel = authProbeModeLabel(proof.mode);
-  const modeValue = authProbeModeValueLabel(proof.mode);
+  const modeLabel = settingsAuthModeLabel(proof.mode, t);
+  const modeValue = modeLabel;
   switch (proof.status) {
     case "verified":
       return {
-        detail: proof.detail || `Backend diagnosis auth accepted ${modeLabel}.`,
+        detail:
+          proof.detail ||
+          t("liveProof.auth.acceptedDetail", { mode: modeLabel }),
         key: "diagnosis-auth",
         status: "ready",
-        title: "Auth",
-        value: proof.subject === "" ? `${modeValue} verified` : proof.subject,
+        title: t("liveProof.items.auth"),
+        value:
+          proof.subject === ""
+            ? t("liveProof.auth.verified", { mode: modeValue })
+            : proof.subject,
       };
     case "failed":
     case "blocked":
       return {
         detail:
-          proof.detail ||
-          `Resolve ${modeLabel} diagnosis auth before live proof.`,
+          proof.detail || t("liveProof.auth.failedDetail", { mode: modeLabel }),
         key: "diagnosis-auth",
         status: "blocked",
-        title: "Auth",
-        value: `${modeValue} failed`,
+        title: t("liveProof.items.auth"),
+        value: t("liveProof.auth.failed", { mode: modeValue }),
       };
     case "checking":
       return {
-        detail: "Backend diagnosis auth check is still running.",
+        detail: t("liveProof.auth.checkingDetail"),
         key: "diagnosis-auth",
         status: "pending",
-        title: "Auth",
-        value: `${modeValue} checking`,
+        title: t("liveProof.items.auth"),
+        value: t("liveProof.auth.checking", { mode: modeValue }),
       };
     case "needs_check":
     case "pending":
       return {
         detail:
           proof.detail ||
-          `Run Check auth with ${modeLabel} before accepting live proof.`,
+          t("liveProof.auth.notCheckedDetail", { mode: modeLabel }),
         key: "diagnosis-auth",
         status: "pending",
-        title: "Auth",
-        value: `${modeValue} not checked`,
+        title: t("liveProof.items.auth"),
+        value: t("liveProof.auth.notChecked", { mode: modeValue }),
       };
   }
   return {
-    detail: `Run Check auth with ${modeLabel} before accepting live proof.`,
+    detail: t("liveProof.auth.notCheckedDetail", { mode: modeLabel }),
     key: "diagnosis-auth",
     status: "pending",
-    title: "Auth",
-    value: `${modeValue} not checked`,
+    title: t("liveProof.items.auth"),
+    value: t("liveProof.auth.notChecked", { mode: modeValue }),
   };
 }
 
 function workflowAIDiagnosisProofItem(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
 ): LiveProofReadinessItem {
   if (topology.policy === null) {
     return {
-      detail:
-        "Create and enable an auto-room workflow policy before AI diagnosis proof can run.",
+      detail: t("liveProof.ai.noPolicyDetail"),
       key: "ai-diagnosis",
       status: "blocked",
-      title: "AI diagnosis",
-      value: "No policy",
+      title: t("liveProof.items.aiDiagnosis"),
+      value: t("status.noPolicy"),
     };
   }
   if (topology.status === "blocked") {
     return {
-      detail:
-        "Resolve blocked workflow topology before AI diagnosis proof can run.",
+      detail: t("liveProof.ai.blockedDetail"),
       key: "ai-diagnosis",
       status: "blocked",
-      title: "AI diagnosis",
-      value: topology.policy.diagnosis_follow_up,
+      title: t("liveProof.items.aiDiagnosis"),
+      value: diagnosisFollowUpLabel(topology.policy.diagnosis_follow_up, t),
     };
   }
   if (topology.policy.diagnosis_follow_up === "disabled") {
     return {
-      detail:
-        "Enable auto_room follow-up before replay can start AI diagnosis rooms.",
+      detail: t("liveProof.ai.disabledDetail"),
       key: "ai-diagnosis",
       status: "blocked",
-      title: "AI diagnosis",
-      value: "Disabled",
+      title: t("liveProof.items.aiDiagnosis"),
+      value: t("followUp.disabled"),
     };
   }
   if (topology.policy.diagnosis_follow_up === "suggest_room") {
     return {
-      detail:
-        "Suggest room keeps an operator handoff; switch to auto_room for replay-driven AI diagnosis proof.",
+      detail: t("liveProof.ai.suggestRoomDetail"),
       key: "ai-diagnosis",
       status: "review",
-      title: "AI diagnosis",
-      value: "Operator handoff",
+      title: t("liveProof.items.aiDiagnosis"),
+      value: t("liveProof.ai.operatorHandoff"),
     };
   }
   if (
@@ -5487,50 +5573,52 @@ function workflowAIDiagnosisProofItem(
     topology.metricTools.length === 0
   ) {
     return {
-      detail:
-        "AI diagnosis proof needs active alert and metric evidence tools before replay.",
+      detail: t("liveProof.ai.toolsDetail"),
       key: "ai-diagnosis",
       status: "review",
-      title: "AI diagnosis",
-      value: `${topology.activeAlertTools.length} alert / ${topology.metricTools.length} metric`,
+      title: t("liveProof.items.aiDiagnosis"),
+      value: t("integration.autoRoom.toolCounts", {
+        alerts: topology.activeAlertTools.length,
+        metrics: topology.metricTools.length,
+      }),
     };
   }
   return {
-    detail:
-      "Auto-room replay can start AI diagnosis with alert and metric evidence tools.",
+    detail: t("liveProof.ai.readyDetail"),
     key: "ai-diagnosis",
     status: "ready",
-    title: "AI diagnosis",
-    value: "Auto room",
+    title: t("liveProof.items.aiDiagnosis"),
+    value: t("followUp.autoRoom"),
   };
 }
 
 function workflowNotificationProofItem(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
 ): LiveProofReadinessItem {
   if (topology.policy === null) {
     return {
-      detail:
-        "Create a workflow policy before notification proof can be evaluated.",
+      detail: t("liveProof.notification.noPolicyDetail"),
       key: "notification",
       status: "blocked",
-      title: "Notification",
-      value: "No policy",
+      title: t("liveProof.items.notification"),
+      value: t("status.noPolicy"),
     };
   }
   if (topology.notificationChannel === null) {
     return {
       detail:
         topology.policy.diagnosis_follow_up === "auto_room"
-          ? "Bind an Enterprise WeChat channel before accepting AI update notification proof."
-          : "Bind a report notification channel before accepting delivery proof.",
+          ? t("liveProof.notification.noAIChannelDetail")
+          : t("liveProof.notification.noReportChannelDetail"),
       key: "notification",
       status:
         topology.policy.diagnosis_follow_up === "auto_room"
           ? "blocked"
           : "pending",
-      title: "Notification",
-      value: "No channel",
+      title: t("liveProof.items.notification"),
+      value: t("status.noChannel"),
     };
   }
   const missingScopes = requiredDeliveryScopesMissing(
@@ -5539,20 +5627,34 @@ function workflowNotificationProofItem(
   );
   if (!topology.notificationChannel.enabled) {
     return {
-      detail:
-        "Enable the bound notification channel before live notification proof.",
+      detail: t("liveProof.notification.disabledDetail"),
       key: "notification",
       status: "blocked",
-      title: "Notification",
+      title: t("liveProof.items.notification"),
+      value: topology.notificationChannel.name,
+    };
+  }
+  if (
+    notificationChannelCredentialReadiness(
+      channelToFormState(topology.notificationChannel),
+    ).status !== "ready"
+  ) {
+    return {
+      detail: t("notificationProof.blockedDetail"),
+      key: "notification",
+      status: "blocked",
+      title: t("liveProof.items.notification"),
       value: topology.notificationChannel.name,
     };
   }
   if (missingScopes.length > 0) {
     return {
-      detail: `Add ${missingScopes.join(", ")} scope before live AI notification proof.`,
+      detail: t("liveProof.notification.missingScopesDetail", {
+        scopes: localizedDeliveryScopeList(missingScopes, t, locale),
+      }),
       key: "notification",
       status: "blocked",
-      title: "Notification",
+      title: t("liveProof.items.notification"),
       value: topology.notificationChannel.name,
     };
   }
@@ -5560,11 +5662,10 @@ function workflowNotificationProofItem(
     autoRoomChannelKindBlocked(topology.policy, topology.notificationChannel)
   ) {
     return {
-      detail:
-        "Switch the bound notification channel to Enterprise WeChat before attempting operator handoff proof.",
+      detail: t("liveProof.notification.wrongKindDetail"),
       key: "notification",
       status: "blocked",
-      title: "Notification",
+      title: t("liveProof.items.notification"),
       value: topology.notificationChannel.name,
     };
   }
@@ -5577,10 +5678,14 @@ function workflowNotificationProofItem(
     );
     if (proofReadiness.status !== "ready") {
       return {
-        detail: proofReadiness.detail,
+        detail: localizedNotificationProofGapDetail(
+          proofReadiness,
+          t,
+          locale,
+        ),
         key: "notification",
         status: proofReadiness.status === "blocked" ? "blocked" : "review",
-        title: "Notification",
+        title: t("liveProof.items.notification"),
         value: topology.notificationChannel.name,
       };
     }
@@ -5588,51 +5693,51 @@ function workflowNotificationProofItem(
   return {
     detail:
       topology.policy.diagnosis_follow_up === "auto_room"
-        ? "Enterprise WeChat channel scopes are ready for report, AI update, and close proof."
-        : "Notification channel scopes are ready for report delivery proof.",
+        ? t("liveProof.notification.autoRoomReadyDetail")
+        : t("liveProof.notification.reportReadyDetail"),
     key: "notification",
     status: "ready",
-    title: "Notification",
+    title: t("liveProof.items.notification"),
     value: topology.notificationChannel.name,
   };
 }
 
 function workflowAlertmanagerAutoDiagnosisProofTarget(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
   proofHistory: AutoDiagnosisProofHistory | null,
 ): ProofTarget {
   const evidence = [
-    "Alertmanager webhook",
+    t("proofTargets.evidence.alertmanagerWebhook"),
     "auto_room",
     "LLM",
-    "Assistant message",
-    "Final conclusion",
-    "Enterprise WeChat",
+    t("proofTargets.evidence.assistantMessage"),
+    t("proofTargets.evidence.finalConclusion"),
+    t("proofTargets.evidence.enterpriseWeChat"),
   ];
   if (topology.policy === null) {
     return {
       actionHref: reportWorkflowPolicyLaunchHref({
         intent: "create-auto-room-policy",
       }),
-      actionLabel: "Create Policy",
-      detail:
-        "Create and enable an auto-room workflow policy before retaining Alertmanager auto-diagnosis proof.",
+      actionLabel: t("actions.createPolicy"),
+      detail: t("proofTargets.autoDiagnosis.noPolicyDetail"),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: "blocked",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   if (!topology.policy.enabled) {
     return {
       actionHref: "/settings/report-workflow-policies",
-      actionLabel: "Enable Policy",
-      detail:
-        "Enable the auto-room workflow policy before Alertmanager webhook proof can start AI diagnosis.",
+      actionLabel: t("actions.enablePolicy"),
+      detail: t("proofTargets.autoDiagnosis.disabledPolicyDetail"),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: "blocked",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   if (topology.policy.diagnosis_follow_up !== "auto_room") {
@@ -5641,40 +5746,37 @@ function workflowAlertmanagerAutoDiagnosisProofTarget(
         intent: "auto-room-follow-up",
         sourceID: topology.alertSource?.id ?? null,
       }),
-      actionLabel: "Use Auto Room",
-      detail:
-        "Switch diagnosis follow-up to auto_room before proving Alertmanager webhook to AI consultation delivery.",
+      actionLabel: t("actions.useAutoRoom"),
+      detail: t("proofTargets.autoDiagnosis.followUpDetail"),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status:
         topology.policy.diagnosis_follow_up === "disabled"
           ? "blocked"
           : "review",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   if (topology.alertSource === null || !topology.alertSource.enabled) {
     return {
       actionHref: alertSourceLaunchHref({ intent: "alertmanager-source" }),
-      actionLabel: "Review Source",
-      detail:
-        "Bind an enabled Alertmanager-compatible source before webhook proof can start automatic AI diagnosis.",
+      actionLabel: t("actions.reviewSource"),
+      detail: t("proofTargets.autoDiagnosis.noSourceDetail"),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: "blocked",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   if (topology.alertSource.kind !== "alertmanager") {
     return {
       actionHref: alertSourceLaunchHref({ intent: "alertmanager-source" }),
-      actionLabel: "Switch Source",
-      detail:
-        "Automatic diagnosis proof starts from an Alertmanager-compatible webhook source, not a Prometheus metric source.",
+      actionLabel: t("actions.switchSource"),
+      detail: t("proofTargets.autoDiagnosis.wrongSourceDetail"),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: "blocked",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   if (
@@ -5692,25 +5794,23 @@ function workflowAlertmanagerAutoDiagnosisProofTarget(
             ? topology.alertSource.id
             : metricEvidenceToolLaunchSourceID(topology),
       }),
-      actionLabel: "Review Tools",
-      detail:
-        "Add active alert and metric evidence tools before proving automatic AI diagnosis.",
+      actionLabel: t("actions.reviewTools"),
+      detail: t("proofTargets.autoDiagnosis.toolsDetail"),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: "review",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   if (topology.notificationChannel === null) {
     return {
       actionHref: notificationChannelAutoRoomLaunchHref(topology),
-      actionLabel: "Bind Channel",
-      detail:
-        "Bind an Enterprise WeChat channel before proving AI diagnosis update and final conclusion delivery.",
+      actionLabel: t("actions.bindChannel"),
+      detail: t("proofTargets.autoDiagnosis.noChannelDetail"),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: "blocked",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   if (!topology.notificationChannel.enabled) {
@@ -5719,25 +5819,23 @@ function workflowAlertmanagerAutoDiagnosisProofTarget(
         topology,
         topology.notificationChannel.id,
       ),
-      actionLabel: "Enable Channel",
-      detail:
-        "Enable the Enterprise WeChat channel before retaining auto-diagnosis notification proof.",
+      actionLabel: t("actions.enableChannel"),
+      detail: t("proofTargets.autoDiagnosis.disabledChannelDetail"),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: "blocked",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   if (topology.notificationChannel.kind !== "wecom") {
     return {
       actionHref: notificationChannelAutoRoomLaunchHref(topology),
-      actionLabel: "Switch Channel",
-      detail:
-        "Automatic AI diagnosis proof requires Enterprise WeChat, because generic webhook delivery does not prove operator handoff.",
+      actionLabel: t("actions.switchChannel"),
+      detail: t("proofTargets.autoDiagnosis.wrongChannelDetail"),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: "blocked",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   const missingScopes = requiredDeliveryScopesMissing(
@@ -5750,12 +5848,14 @@ function workflowAlertmanagerAutoDiagnosisProofTarget(
         topology,
         topology.notificationChannel.id,
       ),
-      actionLabel: "Review Scopes",
-      detail: `Add ${missingScopes.join(", ")} scope before retaining automatic AI notification proof.`,
+      actionLabel: t("actions.reviewScopes"),
+      detail: t("proofTargets.autoDiagnosis.missingScopesDetail", {
+        scopes: localizedDeliveryScopeList(missingScopes, t, locale),
+      }),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: "blocked",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   const rolloutReadiness = notificationChannelEnterpriseWeChatRolloutReadiness([
@@ -5767,18 +5867,26 @@ function workflowAlertmanagerAutoDiagnosisProofTarget(
         topology,
         topology.notificationChannel.id,
       ),
-      actionLabel: "Test Channel",
-      detail: rolloutReadiness.detail,
+      actionLabel:
+        rolloutReadiness.status === "blocked"
+          ? t("actions.fixChannel")
+          : t("actions.testChannel"),
+      detail: localizedNotificationProofGapDetail(
+        rolloutReadiness,
+        t,
+        locale,
+      ),
       evidence,
       key: "alertmanager-auto-diagnosis",
       status: rolloutReadiness.status === "blocked" ? "blocked" : "review",
-      title: "Alertmanager auto-diagnosis",
+      title: t("proofTargets.autoDiagnosis.title"),
     };
   }
   if (proofHistory !== null) {
     return workflowAlertmanagerAutoDiagnosisHistoryTarget(
       proofHistory,
       evidence,
+      t,
     );
   }
   return {
@@ -5786,37 +5894,42 @@ function workflowAlertmanagerAutoDiagnosisProofTarget(
       intent: "alertmanager-auto-diagnosis-proof",
       sourceID: topology.alertSource.id,
     }),
-    actionLabel: "Open Proof Path",
-    detail:
-      "Inputs are ready for retained Alertmanager webhook proof. Open the matching auto-room workflow, run bounded replay for retained proof, and use the live webhook smoke target for real Alertmanager ingress proof.",
+    actionLabel: t("actions.openProofPath"),
+    detail: t("proofTargets.autoDiagnosis.readyDetail"),
     evidence,
     key: "alertmanager-auto-diagnosis",
     status: "ready",
-    title: "Alertmanager auto-diagnosis",
+    title: t("proofTargets.autoDiagnosis.title"),
   };
 }
 
 function workflowAlertmanagerAutoDiagnosisHistoryTarget(
   proofHistory: AutoDiagnosisProofHistory,
   evidence: string[],
+  t: SettingsOverviewTranslator,
 ): ProofTarget {
   const status = autoDiagnosisProofHistoryTargetStatus(proofHistory.coverage);
+  const coverage = localizedNotificationCoverage(proofHistory.coverage, t);
   return {
     actionHref: proofHistory.href,
     actionLabel:
       proofHistory.coverage.status === "ready"
-        ? "Review Proof"
-        : "Review Delivery",
-    detail: `Latest retained auto-diagnosis proof for ${proofHistory.alertName} in room ${proofHistory.roomSessionID}: ${proofHistory.coverage.detail}`,
+        ? t("actions.reviewProof")
+        : t("actions.reviewDelivery"),
+    detail: t("proofTargets.autoDiagnosis.historyDetail", {
+      alert: proofHistory.alertName,
+      detail: coverage.detail,
+      room: proofHistory.roomSessionID,
+    }),
     evidence: [
       ...evidence,
-      `alert #${proofHistory.alertID}`,
-      `snapshot #${proofHistory.snapshotID}`,
-      proofHistory.coverage.label,
+      t("history.alertTag", { id: proofHistory.alertID }),
+      t("history.snapshotTag", { id: proofHistory.snapshotID }),
+      coverage.label,
     ],
     key: "alertmanager-auto-diagnosis",
     status,
-    title: "Alertmanager auto-diagnosis",
+    title: t("proofTargets.autoDiagnosis.title"),
   };
 }
 
@@ -5835,84 +5948,87 @@ function autoDiagnosisProofHistoryTargetStatus(
   }
 }
 
-function workflowReplayProofTarget(topology: WorkflowTopology): ProofTarget {
+function workflowReplayProofTarget(
+  topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
+): ProofTarget {
   const evidence = [
     "PostgreSQL",
     "Temporal",
-    "Alert source",
-    "Tool template",
+    t("proofTargets.evidence.alertSource"),
+    t("proofTargets.evidence.toolTemplate"),
     "LLM",
-    "Notification",
+    t("proofTargets.evidence.notification"),
   ];
   if (topology.policy === null) {
     return {
       actionHref: "/settings/report-workflow-policies",
-      actionLabel: "Create Policy",
-      detail:
-        "Create and enable a workflow policy before retaining manual replay proof.",
+      actionLabel: t("actions.createPolicy"),
+      detail: t("proofTargets.replay.noPolicyDetail"),
       evidence,
       key: "policy-replay",
       status: "blocked",
-      title: "Policy replay",
+      title: t("proofTargets.replay.title"),
     };
   }
   if (topology.status === "blocked") {
-    const action = workflowTopologyActions(topology)[0] ?? null;
+    const action = workflowTopologyActions(topology, t, locale)[0] ?? null;
     return {
       actionHref: action?.href ?? "/settings/report-workflow-policies",
-      actionLabel: action === null ? "Open Workflow" : "Resolve",
-      detail:
-        action?.detail ??
-        "Resolve blocked workflow bindings before replay proof can run.",
+      actionLabel:
+        action === null ? t("actions.openWorkflow") : t("actions.resolve"),
+      detail: action?.detail ?? t("proofTargets.replay.blockedDetail"),
       evidence,
       key: "policy-replay",
       status: "blocked",
-      title: "Policy replay",
+      title: t("proofTargets.replay.title"),
     };
   }
   if (topology.status === "review") {
     return {
       actionHref: "/settings/report-workflow-policies",
-      actionLabel: "Review Replay",
-      detail:
-        "Review workflow warnings, run impact preview, then retain a bounded policy replay proof.",
+      actionLabel: t("actions.reviewReplay"),
+      detail: t("proofTargets.replay.reviewDetail"),
       evidence,
       key: "policy-replay",
       status: "review",
-      title: "Policy replay",
+      title: t("proofTargets.replay.title"),
     };
   }
   return {
     actionHref: "/settings/report-workflow-policies",
-    actionLabel: "Run Replay",
-    detail:
-      "Workflow bindings are ready for impact preview and retained policy replay proof.",
+    actionLabel: t("actions.runReplay"),
+    detail: t("proofTargets.replay.readyDetail"),
     evidence,
     key: "policy-replay",
     status: "ready",
-    title: "Policy replay",
+    title: t("proofTargets.replay.title"),
   };
 }
 
-function workflowScheduleProofTarget(topology: WorkflowTopology): ProofTarget {
+function workflowScheduleProofTarget(
+  topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
+): ProofTarget {
   const evidence = [
-    "Enabled schedule",
-    "Temporal action",
-    "Launcher workflow",
-    "Report delivery",
+    t("proofTargets.evidence.enabledSchedule"),
+    t("proofTargets.evidence.temporalAction"),
+    t("proofTargets.evidence.launcherWorkflow"),
+    t("proofTargets.evidence.reportDelivery"),
   ];
   if (topology.policy === null || topology.status === "blocked") {
-    const action = workflowTopologyActions(topology)[0] ?? null;
+    const action = workflowTopologyActions(topology, t, locale)[0] ?? null;
     return {
       actionHref: action?.href ?? "/settings/report-workflow-policies",
-      actionLabel: action === null ? "Open Workflow" : "Resolve",
-      detail:
-        action?.detail ??
-        "Resolve workflow blockers before scheduled-trigger proof can run.",
+      actionLabel:
+        action === null ? t("actions.openWorkflow") : t("actions.resolve"),
+      detail: action?.detail ?? t("proofTargets.schedule.blockedDetail"),
       evidence,
       key: "scheduled-trigger",
       status: "blocked",
-      title: "Scheduled trigger",
+      title: t("proofTargets.schedule.title"),
     };
   }
   if (topology.activeSchedule === null) {
@@ -5921,48 +6037,44 @@ function workflowScheduleProofTarget(topology: WorkflowTopology): ProofTarget {
         intent: "create-schedule",
         policyID: topology.policy.id,
       }),
-      actionLabel: "Create Schedule",
-      detail:
-        "Create a report workflow schedule after policy replay proof is accepted.",
+      actionLabel: t("actions.createSchedule"),
+      detail: t("proofTargets.schedule.noScheduleDetail"),
       evidence,
       key: "scheduled-trigger",
       status: "pending",
-      title: "Scheduled trigger",
+      title: t("proofTargets.schedule.title"),
     };
   }
   if (!topology.activeSchedule.enabled) {
     return {
       actionHref: "/settings/report-workflow-schedules",
-      actionLabel: "Enable Schedule",
-      detail:
-        "The selected schedule is still a draft; enable it after replay proof is accepted.",
+      actionLabel: t("actions.enableSchedule"),
+      detail: t("proofTargets.schedule.disabledDetail"),
       evidence,
       key: "scheduled-trigger",
       status: "review",
-      title: "Scheduled trigger",
+      title: t("proofTargets.schedule.title"),
     };
   }
   if (topology.status === "review") {
     return {
       actionHref: "/settings/report-workflow-schedules",
-      actionLabel: "Review Schedule",
-      detail:
-        "Schedule metadata is enabled, but workflow review items remain before retained scheduled proof.",
+      actionLabel: t("actions.reviewSchedule"),
+      detail: t("proofTargets.schedule.reviewDetail"),
       evidence,
       key: "scheduled-trigger",
       status: "review",
-      title: "Scheduled trigger",
+      title: t("proofTargets.schedule.title"),
     };
   }
   return {
     actionHref: "/settings/report-workflow-schedules",
-    actionLabel: "Review Schedule",
-    detail:
-      "An enabled schedule is ready for retained scheduled-trigger proof.",
+    actionLabel: t("actions.reviewSchedule"),
+    detail: t("proofTargets.schedule.readyDetail"),
     evidence,
     key: "scheduled-trigger",
     status: "ready",
-    title: "Scheduled trigger",
+    title: t("proofTargets.schedule.title"),
   };
 }
 
@@ -6011,6 +6123,8 @@ function topologyStatus(
 
 function workflowTopologySteps(
   topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
 ): WorkflowTopologyStep[] {
   const missingDeliveryScopes = requiredDeliveryScopesMissing(
     topology.policy,
@@ -6018,12 +6132,14 @@ function workflowTopologySteps(
   );
   return [
     {
-      title: "Source",
+      title: t("topology.steps.source.title"),
       description:
         topology.alertSource === null
-          ? "Missing source"
+          ? t("status.missingSource")
           : autoRoomWebhookBlocked(topology.policy, topology.alertSource)
-            ? `${topology.alertSource.name} is not Alertmanager`
+            ? t("topology.steps.source.notAlertmanager", {
+                source: topology.alertSource.name,
+              })
             : topology.alertSource.name,
       status:
         topology.alertSource?.enabled &&
@@ -6032,39 +6148,54 @@ function workflowTopologySteps(
           : "error",
     },
     {
-      title: "Grouping",
-      description: topology.groupingPolicy?.name ?? "Missing grouping",
+      title: t("topology.steps.grouping.title"),
+      description: topology.groupingPolicy?.name ?? t("status.missingGrouping"),
       status: topology.groupingPolicy?.enabled ? "finish" : "error",
     },
     {
-      title: "Evidence",
-      description: `${topology.activeAlertTools.length} active / ${topology.metricTools.length} metric`,
+      title: t("topology.steps.evidence.title"),
+      description: t("topology.steps.evidence.detail", {
+        alerts: topology.activeAlertTools.length,
+        metrics: topology.metricTools.length,
+      }),
       status:
         topology.activeAlertTools.length > 0 && topology.metricTools.length > 0
           ? "finish"
           : "wait",
     },
     {
-      title: "AI room",
-      description: topology.policy?.diagnosis_follow_up ?? "No policy",
+      title: t("topology.steps.aiRoom.title"),
+      description:
+        topology.policy === null
+          ? t("status.noPolicy")
+          : diagnosisFollowUpLabel(topology.policy.diagnosis_follow_up, t),
       status: autoRoomWebhookReady(topology.policy, topology.alertSource)
         ? "finish"
         : "wait",
     },
     {
-      title: "Delivery",
+      title: t("topology.steps.delivery.title"),
       description:
         topology.notificationChannel === null
           ? topology.policy?.diagnosis_follow_up === "auto_room"
-            ? "No Enterprise WeChat channel"
-            : "No report channel"
+            ? t("status.noWeComChannel")
+            : t("status.noReportChannel")
           : missingDeliveryScopes.length > 0
-            ? `${topology.notificationChannel.name} missing ${missingDeliveryScopes.join(", ")}`
+            ? t("topology.steps.delivery.missingScopes", {
+                channel: topology.notificationChannel.name,
+                scopes: localizedDeliveryScopeList(
+                  missingDeliveryScopes,
+                  t,
+                  locale,
+                ),
+              })
             : autoRoomChannelKindBlocked(
                   topology.policy,
                   topology.notificationChannel,
                 )
-              ? `${topology.notificationChannel.name} is not WeCom`
+              ? t("topology.steps.delivery.notWeCom", {
+                  channel: topology.notificationChannel.name,
+                })
               : topology.notificationChannel.name,
       status:
         topology.notificationChannel === null
@@ -6081,14 +6212,18 @@ function workflowTopologySteps(
             : "error",
     },
     {
-      title: "Schedule",
-      description: topology.activeSchedule?.name ?? "Manual replay",
+      title: t("topology.steps.schedule.title"),
+      description: topology.activeSchedule?.name ?? t("status.manualReplay"),
       status: topology.activeSchedule?.enabled ? "finish" : "wait",
     },
   ];
 }
 
-function workflowTopologyDescriptions(topology: WorkflowTopology) {
+function workflowTopologyDescriptions(
+  topology: WorkflowTopology,
+  t: SettingsOverviewTranslator,
+  locale: string,
+) {
   const missingDeliveryScopes = requiredDeliveryScopesMissing(
     topology.policy,
     topology.notificationChannel,
@@ -6096,38 +6231,41 @@ function workflowTopologyDescriptions(topology: WorkflowTopology) {
   return [
     {
       key: "policy",
-      label: "Policy",
-      children: topology.policy === null ? "None" : topology.policy.name,
+      label: t("topology.descriptions.policy"),
+      children:
+        topology.policy === null ? t("status.none") : topology.policy.name,
     },
     {
       key: "source",
-      label: "Alert source",
+      label: t("topology.descriptions.alertSource"),
       children:
         topology.alertSource === null
-          ? "Missing"
+          ? t("status.missing")
           : configLabel(
               topology.alertSource.name,
               topology.alertSource.enabled,
+              t,
             ),
     },
     {
       key: "grouping",
-      label: "Grouping",
+      label: t("topology.descriptions.grouping"),
       children:
         topology.groupingPolicy === null
-          ? "Missing"
+          ? t("status.missing")
           : configLabel(
               topology.groupingPolicy.name,
               topology.groupingPolicy.enabled,
+              t,
             ),
     },
     {
       key: "tools",
-      label: "Evidence tools",
+      label: t("topology.descriptions.evidenceTools"),
       children:
         topology.diagnosisTools.length === 0 ? (
           <Typography.Text type="secondary">
-            No enabled tools for selected source
+            {t("topology.descriptions.noTools")}
           </Typography.Text>
         ) : (
           <Space direction="vertical" size={4}>
@@ -6137,10 +6275,14 @@ function workflowTopologyDescriptions(topology: WorkflowTopology) {
                   topology.activeAlertTools.length > 0 ? "blue" : "default"
                 }
               >
-                Active alerts {topology.activeAlertTools.length}
+                {t("topology.descriptions.activeAlerts", {
+                  count: topology.activeAlertTools.length,
+                })}
               </Tag>
               <Tag color={topology.metricTools.length > 0 ? "cyan" : "default"}>
-                Metric evidence {topology.metricTools.length}
+                {t("topology.descriptions.metricEvidence", {
+                  count: topology.metricTools.length,
+                })}
               </Tag>
             </Space>
             <Space wrap>
@@ -6153,20 +6295,29 @@ function workflowTopologyDescriptions(topology: WorkflowTopology) {
     },
     {
       key: "channel",
-      label: "Delivery channel",
+      label: t("topology.descriptions.deliveryChannel"),
       children:
         topology.notificationChannel === null
           ? topology.policy?.diagnosis_follow_up === "auto_room"
-            ? "Missing Enterprise WeChat channel"
-            : "Optional"
+            ? t("status.missingWeComChannel")
+            : t("status.optional")
           : configLabel(
               missingDeliveryScopes.length > 0
-                ? `${topology.notificationChannel.name} missing ${missingDeliveryScopes.join(", ")}`
+                ? t("topology.steps.delivery.missingScopes", {
+                    channel: topology.notificationChannel.name,
+                    scopes: localizedDeliveryScopeList(
+                      missingDeliveryScopes,
+                      t,
+                      locale,
+                    ),
+                  })
                 : autoRoomChannelKindBlocked(
                       topology.policy,
                       topology.notificationChannel,
                     )
-                  ? `${topology.notificationChannel.name} is not WeCom`
+                  ? t("topology.steps.delivery.notWeCom", {
+                      channel: topology.notificationChannel.name,
+                    })
                   : topology.notificationChannel.name,
               topology.notificationChannel.enabled &&
                 missingDeliveryScopes.length === 0 &&
@@ -6174,17 +6325,19 @@ function workflowTopologyDescriptions(topology: WorkflowTopology) {
                   topology.policy,
                   topology.notificationChannel,
                 ),
+              t,
             ),
     },
     {
       key: "schedule",
-      label: "Schedule",
+      label: t("topology.descriptions.schedule"),
       children:
         topology.activeSchedule === null
-          ? "Manual replay"
+          ? t("status.manualReplay")
           : configLabel(
               topology.activeSchedule.name,
               topology.activeSchedule.enabled,
+              t,
             ),
     },
   ];
@@ -6217,7 +6370,7 @@ function autoRoomWebhookBlocked(
 function requiredDeliveryScopesMissing(
   policy: ReportWorkflowPolicy | null,
   channel: NotificationChannelProfile | null,
-): string[] {
+): NotificationChannelProfile["delivery_scopes"] {
   if (channel === null) {
     return [];
   }
@@ -6245,12 +6398,197 @@ function isAIRoomFollowUp(
   return mode === "suggest_room" || mode === "auto_room";
 }
 
-function configLabel(name: string, enabled: boolean) {
+function localizedDeliveryScopeList(
+  scopes: readonly NotificationChannelProfile["delivery_scopes"][number][],
+  t: SettingsOverviewTranslator,
+  locale: string,
+): string {
+  return new Intl.ListFormat(locale, {
+    style: "long",
+    type: "conjunction",
+  }).format(scopes.map((scope) => deliveryScopeLabel(scope, t)));
+}
+
+function deliveryScopeLabel(
+  scope: NotificationChannelProfile["delivery_scopes"][number],
+  t: SettingsOverviewTranslator,
+): string {
+  switch (scope) {
+    case "report":
+      return t("deliveryScopes.report");
+    case "diagnosis_consultation":
+      return t("deliveryScopes.consultation");
+    case "diagnosis_close":
+      return t("deliveryScopes.close");
+  }
+}
+
+function localizedNotificationProofGapDetail(
+  readiness: {
+    missingContentKinds: NotificationChannelTestContentKind[];
+    status: "blocked" | "pending" | "ready" | "review";
+  },
+  t: SettingsOverviewTranslator,
+  locale: string,
+): string {
+  if (readiness.status === "blocked") {
+    return t("notificationProof.blockedDetail");
+  }
+  if (readiness.missingContentKinds.length === 0) {
+    return t("notificationProof.reviewDetail");
+  }
+  const tests = new Intl.ListFormat(locale, {
+    style: "long",
+    type: "conjunction",
+  }).format(
+    readiness.missingContentKinds.map((kind) =>
+      notificationTestContentKindLabel(kind, t),
+    ),
+  );
+  return t("notificationProof.missingTestsDetail", { tests });
+}
+
+function notificationTestContentKindLabel(
+  kind: NotificationChannelTestContentKind,
+  t: SettingsOverviewTranslator,
+): string {
+  switch (kind) {
+    case "transport_sample":
+      return t("notificationProof.tests.transport");
+    case "ai_diagnosis_sample":
+      return t("notificationProof.tests.aiDiagnosis");
+    case "diagnosis_close_sample":
+      return t("notificationProof.tests.diagnosisClose");
+  }
+}
+
+function sourceKindLabel(
+  kind: AlertSourceProfile["kind"],
+  t: SettingsOverviewTranslator,
+): string {
+  switch (kind) {
+    case "alertmanager":
+      return t("sourceKinds.alertmanager");
+    case "prometheus":
+      return t("sourceKinds.prometheus");
+  }
+}
+
+function diagnosisFollowUpLabel(
+  mode: ReportWorkflowPolicy["diagnosis_follow_up"],
+  t: SettingsOverviewTranslator,
+): string {
+  switch (mode) {
+    case "disabled":
+      return t("followUp.disabled");
+    case "suggest_room":
+      return t("followUp.suggestRoom");
+    case "auto_room":
+      return t("followUp.autoRoom");
+  }
+}
+
+function settingsAuthModeLabel(
+  mode: DiagnosisAuthMode,
+  t: SettingsOverviewTranslator,
+): string {
+  switch (mode) {
+    case "bearer":
+      return t("authModes.bearer");
+    case "ldap":
+      return t("authModes.ldap");
+    case "wecom":
+      return t("authModes.weCom");
+    case "session":
+      return t("authModes.session");
+  }
+}
+
+function localizedNotificationCoverage(
+  coverage: DiagnosisNotificationDeliveryCoverage,
+  t: SettingsOverviewTranslator,
+) {
+  const phases = coverage.phases.map((phase) => ({
+    ...phase,
+    label: notificationPhaseLabel(phase.key, t),
+  }));
+  switch (coverage.status) {
+    case "ready":
+      return {
+        ...coverage,
+        detail: t("history.coverage.readyDetail"),
+        label: t("history.coverage.readyLabel"),
+        phases,
+      };
+    case "blocked":
+      return {
+        ...coverage,
+        detail: t("history.coverage.blockedDetail"),
+        label: t("history.coverage.blockedLabel"),
+        phases,
+      };
+    case "pending":
+      return {
+        ...coverage,
+        detail: t("history.coverage.pendingDetail"),
+        label: t("history.coverage.pendingLabel"),
+        phases,
+      };
+    case "review":
+      return {
+        ...coverage,
+        detail: t("history.coverage.reviewDetail", {
+          ready: coverage.readyCount,
+          required: coverage.requiredCount,
+        }),
+        label: t("history.coverage.reviewLabel"),
+        phases,
+      };
+  }
+}
+
+function notificationPhaseLabel(
+  key: DiagnosisNotificationDeliveryCoverage["phases"][number]["key"],
+  t: SettingsOverviewTranslator,
+): string {
+  switch (key) {
+    case "assistant_update":
+      return t("history.phases.assistantUpdate");
+    case "final_conclusion":
+      return t("history.phases.finalConclusion");
+    case "close":
+      return t("history.phases.close");
+  }
+}
+
+function notificationPhaseStatusLabel(
+  status: DiagnosisNotificationDeliveryCoverage["phases"][number]["status"],
+  t: SettingsOverviewTranslator,
+): string {
+  switch (status) {
+    case "delivered":
+      return t("history.phaseStatus.delivered");
+    case "failed":
+      return t("history.phaseStatus.failed");
+    case "missing":
+      return t("history.phaseStatus.missing");
+    case "pending":
+      return t("history.phaseStatus.pending");
+    case "unproven":
+      return t("history.phaseStatus.unproven");
+  }
+}
+
+function configLabel(
+  name: string,
+  enabled: boolean,
+  t: SettingsOverviewTranslator,
+) {
   return (
     <Space size={6} wrap>
       <Typography.Text>{name}</Typography.Text>
       <Tag color={enabled ? "green" : "default"}>
-        {enabled ? "Enabled" : "Draft"}
+        {enabled ? t("status.enabled") : t("status.draft")}
       </Tag>
     </Space>
   );
@@ -6267,6 +6605,20 @@ function topologyStatusColor(status: WorkflowTopology["status"]): string {
   }
 }
 
+function topologyStatusLabel(
+  status: WorkflowTopology["status"],
+  t: SettingsOverviewTranslator,
+): string {
+  switch (status) {
+    case "ready":
+      return t("topology.status.ready");
+    case "review":
+      return t("topology.status.review");
+    case "blocked":
+      return t("topology.status.blocked");
+  }
+}
+
 function actionPriorityColor(priority: TopologyAction["priority"]): string {
   switch (priority) {
     case "high":
@@ -6278,29 +6630,34 @@ function actionPriorityColor(priority: TopologyAction["priority"]): string {
   }
 }
 
-function formatCount(count: number | null): string {
+function formatCount(count: number | null, locale: string): string {
   if (count === null) {
     return "-";
   }
-  return count.toString();
+  return new Intl.NumberFormat(locale).format(count);
 }
 
 function isReadyCount(count: number | null): boolean {
   return count !== null && count > 0;
 }
 
-function shortStageTitle(title: string): string {
-  switch (title) {
-    case "Alert sources":
-      return "Source";
-    case "Workflow policies":
-      return "Policy";
-    case "Notifications":
-      return "Channel";
-    case "Schedules":
-      return "Schedule";
-    default:
-      return title;
+function shortStageTitle(
+  key: Stage["key"],
+  t: SettingsOverviewTranslator,
+): string {
+  switch (key) {
+    case "sources":
+      return t("stages.short.source");
+    case "workflow":
+      return t("stages.short.policy");
+    case "channels":
+      return t("stages.short.channel");
+    case "schedules":
+      return t("stages.short.schedule");
+    case "grouping":
+      return t("stages.grouping");
+    case "tools":
+      return t("stages.diagnosisTools");
   }
 }
 
@@ -6317,16 +6674,19 @@ function proofTargetStatusColor(status: ProofTarget["status"]): string {
   }
 }
 
-function proofTargetStatusLabel(status: ProofTarget["status"]): string {
+function proofTargetStatusLabel(
+  status: ProofTarget["status"],
+  t: SettingsOverviewTranslator,
+): string {
   switch (status) {
     case "ready":
-      return "Ready to run";
+      return t("status.readyToRun");
     case "review":
-      return "Review";
+      return t("status.review");
     case "pending":
-      return "Pending";
+      return t("status.pending");
     case "blocked":
-      return "Blocked";
+      return t("status.blocked");
   }
 }
 
@@ -6345,16 +6705,19 @@ function aggregateProofReadiness(
   return "ready";
 }
 
-function liveProofReadinessDetail(status: ProofReadinessStatus): string {
+function liveProofReadinessDetail(
+  status: ProofReadinessStatus,
+  t: SettingsOverviewTranslator,
+): string {
   switch (status) {
     case "ready":
-      return "Configuration is ready to run replay, AI diagnosis, auth, notification, and schedule proof.";
+      return t("liveProof.detail.ready");
     case "review":
-      return "Configuration can run part of the proof path, but AI handoff, auth, or notification proof still needs review.";
+      return t("liveProof.detail.review");
     case "pending":
-      return "Configuration has no blockers, but at least one proof target still needs to be created or run.";
+      return t("liveProof.detail.pending");
     case "blocked":
-      return "Resolve blocked workflow bindings before attempting retained live proof.";
+      return t("liveProof.detail.blocked");
   }
 }
 
@@ -6388,11 +6751,12 @@ function stepStatus(
 }
 
 function ReadinessTag({ count }: { count: number | null }) {
+  const t = useTranslations("SettingsOverview");
   if (count === null) {
-    return <Tag color="red">Unavailable</Tag>;
+    return <Tag color="red">{t("status.unavailable")}</Tag>;
   }
   if (count === 0) {
-    return <Tag color="gold">Needs setup</Tag>;
+    return <Tag color="gold">{t("status.needsSetup")}</Tag>;
   }
-  return <Tag color="green">Ready</Tag>;
+  return <Tag color="green">{t("status.ready")}</Tag>;
 }
