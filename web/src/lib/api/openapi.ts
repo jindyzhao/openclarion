@@ -123,7 +123,7 @@ export interface paths {
         put?: never;
         /**
          * Ingest an Alertmanager webhook payload
-         * @description Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts, applies resolved entries to matching AlertEvent rows, starts automatic diagnosis rooms only for firing alerts under enabled auto_room policies, and returns sanitized counters without starting report workflows.
+         * @description Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts, applies resolved entries to matching AlertEvent rows, starts automatic diagnosis rooms only for firing alerts under enabled auto_room policies, and returns sanitized counters without starting report workflows. Ingress for a non-default tenant requires bearer authentication on the selected alert-source profile.
          */
         post: operations["ingestAlertmanagerWebhook"];
         delete?: never;

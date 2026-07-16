@@ -15,6 +15,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -127,6 +128,11 @@ func (s *Service) Ingest(ctx context.Context, req Request) (Result, error) {
 	}
 	if err := validateProfile(profile); err != nil {
 		return Result{}, err
+	}
+	if identity, ok := tenancy.FromContext(ctx); ok &&
+		identity.ID != domain.DefaultTenantID &&
+		profile.AuthMode != domain.AlertSourceAuthModeBearer {
+		return Result{}, ErrUnauthorized
 	}
 	if err := s.authorize(ctx, profile, req.Authorization); err != nil {
 		return Result{}, err

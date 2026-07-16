@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -306,8 +307,9 @@ func TestIngestChecksBearerAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
+	ctx := tenantContext(t, 2, "platform")
 
-	_, err = service.Ingest(context.Background(), Request{
+	_, err = service.Ingest(ctx, Request{
 		ProfileID:     7,
 		Authorization: "Bearer wrong-token",
 		Body:          json.RawMessage(validWebhookPayload()),
@@ -319,7 +321,7 @@ func TestIngestChecksBearerAuthorization(t *testing.T) {
 		t.Fatalf("saved alerts after failed auth = %d, want 0", len(factory.alerts.saved))
 	}
 
-	result, err := service.Ingest(context.Background(), Request{
+	result, err := service.Ingest(ctx, Request{
 		ProfileID:     7,
 		Authorization: "Bearer expected-token",
 		Body:          json.RawMessage(validWebhookPayload()),
@@ -329,6 +331,44 @@ func TestIngestChecksBearerAuthorization(t *testing.T) {
 	}
 	if result.Ingested.Saved != 1 {
 		t.Fatalf("authorized stats = %+v", result.Ingested)
+	}
+}
+
+func TestIngestRejectsUnauthenticatedProfileOutsideDefaultTenant(t *testing.T) {
+	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
+	service, err := NewService(factory)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	_, err = service.Ingest(tenantContext(t, 2, "platform"), Request{
+		ProfileID: 7,
+		Body:      json.RawMessage(validWebhookPayload()),
+	})
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("Ingest err = %v, want ErrUnauthorized", err)
+	}
+	if len(factory.alerts.saved) != 0 {
+		t.Fatalf("saved alerts = %d, want 0", len(factory.alerts.saved))
+	}
+}
+
+func TestIngestAllowsUnauthenticatedProfileForDefaultTenant(t *testing.T) {
+	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
+	service, err := NewService(factory)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.Ingest(tenantContext(t, domain.DefaultTenantID, domain.DefaultTenantKey), Request{
+		ProfileID: 7,
+		Body:      json.RawMessage(validWebhookPayload()),
+	})
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if result.Ingested.Saved != 1 {
+		t.Fatalf("ingested stats = %+v, want one saved alert", result.Ingested)
 	}
 }
 
@@ -364,6 +404,15 @@ func TestIngestRejectsInvalidProfileState(t *testing.T) {
 			}
 		})
 	}
+}
+
+func tenantContext(t *testing.T, id domain.TenantID, key string) context.Context {
+	t.Helper()
+	ctx, err := tenancy.WithTenant(context.Background(), tenancy.Identity{ID: id, Key: key})
+	if err != nil {
+		t.Fatalf("WithTenant: %v", err)
+	}
+	return ctx
 }
 
 func TestDecodePayloadRejectsInvalidJSONShapes(t *testing.T) {
