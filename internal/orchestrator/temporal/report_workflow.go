@@ -344,7 +344,9 @@ func reportBatchWorkflowLegacy(ctx workflow.Context, input ReportBatchWorkflowIn
 }
 
 func reportBatchWorkflowWithPartialFanIn(ctx workflow.Context, input ReportBatchWorkflowInput) (ReportBatchWorkflowResult, error) {
-	childCtx := workflow.WithChildOptions(ctx, reportChildWorkflowOptions(workflow.GetInfo(ctx).TaskQueueName))
+	childOptions := reportChildWorkflowOptions(workflow.GetInfo(ctx).TaskQueueName)
+	childOptions.WaitForCancellation = true
+	childCtx := workflow.WithChildOptions(ctx, childOptions)
 	futures := make([]workflow.ChildWorkflowFuture, len(input.Items))
 	for i, item := range input.Items {
 		futures[i] = workflow.ExecuteChildWorkflow(childCtx, ReportFanOutWorkflow, ReportFanOutWorkflowInput{
@@ -357,9 +359,10 @@ func reportBatchWorkflowWithPartialFanIn(ctx workflow.Context, input ReportBatch
 	subReportIDs := make([]int64, 0, len(futures))
 	failedItems := make([]ReportBatchItemFailure, 0)
 	var cancellationErr error
+	settleCtx, _ := workflow.NewDisconnectedContext(ctx)
 	for i, future := range futures {
 		var result ReportFanOutWorkflowResult
-		if err := future.Get(ctx, &result); err != nil {
+		if err := future.Get(settleCtx, &result); err != nil {
 			if cancellationErr == nil && temporalsdk.IsCanceledError(err) {
 				cancellationErr = err
 			}
@@ -373,6 +376,9 @@ func reportBatchWorkflowWithPartialFanIn(ctx workflow.Context, input ReportBatch
 			continue
 		}
 		subReportIDs = append(subReportIDs, result.SubReportID)
+	}
+	if err := ctx.Err(); err != nil {
+		return ReportBatchWorkflowResult{}, err
 	}
 	if cancellationErr != nil {
 		return ReportBatchWorkflowResult{}, cancellationErr

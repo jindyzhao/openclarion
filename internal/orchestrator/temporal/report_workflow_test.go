@@ -362,6 +362,48 @@ func TestReportActivities_FinishReportTaskRejectsPromptIdentityDrift(t *testing.
 	}
 }
 
+func TestReportActivities_FinishReportTaskRejectsSubReportGroupIdentityDrift(t *testing.T) {
+	seed := seedDiagnosisTask(t, "report-task-subreport-identity")
+	provider := newReportLLMProvider()
+	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithLLMProvider(provider))
+	startedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	ctx := workflowTestContext(t)
+	ensured, err := activities.EnsureReportTask(ctx, temporalpkg.EnsureReportTaskInput{
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		WorkflowID:         "report-task-subreport-identity-workflow",
+		RunID:              "report-task-subreport-identity-run",
+		Scenario:           "cascade",
+		GroupIndex:         3,
+		StartedAt:          startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureReportTask: %v", err)
+	}
+	otherGroup, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		Scenario:           "cascade",
+		GroupIndex:         4,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSubReport other group: %v", err)
+	}
+	if _, err := activities.FinishReportTask(ctx, temporalpkg.FinishReportTaskInput{
+		DiagnosisTaskID:    ensured.DiagnosisTaskID,
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		Scenario:           "cascade",
+		GroupIndex:         3,
+		SubReportID:        otherGroup.SubReportID,
+		Status:             "succeeded",
+		FinishedAt:         startedAt.Add(15 * time.Second),
+	}); err == nil {
+		t.Fatal("FinishReportTask accepted a SubReport generated for another group")
+	}
+	task, _ := loadReportTaskLifecycle(t, domain.DiagnosisTaskID(ensured.DiagnosisTaskID), "subreport.started")
+	if task.Status != domain.DiagnosisStatusRunning || task.FinishedAt != nil {
+		t.Fatalf("SubReport identity mismatch mutated task = %+v", task)
+	}
+}
+
 func TestReportActivities_GenerateSubReportPersistsAndIsIdempotent(t *testing.T) {
 	seed := seedDiagnosisTask(t, "report-sub-activity")
 	provider := newReportLLMProvider()
@@ -1547,6 +1589,56 @@ func TestReportBatchWorkflow_EnforcesPartialFailurePolicy(t *testing.T) {
 				t.Fatalf("finalCalled = %t, want %t", finalCalled, tc.wantSucceeded)
 			}
 		})
+	}
+}
+
+func TestReportBatchWorkflow_WaitsForCancelledChildLifecycleCleanup(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	tw := suite.NewTestWorkflowEnvironment()
+	tw.RegisterWorkflow(temporalpkg.ReportFanOutWorkflow)
+
+	input := temporalpkg.ReportBatchWorkflowInput{
+		CorrelationKey: "window-cancelled",
+		Items: []temporalpkg.ReportBatchItem{
+			{EvidenceSnapshotID: 7, Scenario: "single_alert", GroupIndex: 0},
+		},
+	}
+	finished := make(chan temporalpkg.FinishReportTaskInput, 1)
+	tw.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.EnsureReportTaskInput) (temporalpkg.EnsureReportTaskResult, error) {
+			return temporalpkg.EnsureReportTaskResult{DiagnosisTaskID: got.EvidenceSnapshotID + 1000}, nil
+		},
+		activity.RegisterOptions{Name: "EnsureReportTask"},
+	)
+	tw.RegisterActivityWithOptions(
+		func(_ context.Context, _ temporalpkg.ReportFanOutWorkflowInput) (temporalpkg.ReportFanOutWorkflowResult, error) {
+			tw.CancelWorkflow()
+			return temporalpkg.ReportFanOutWorkflowResult{}, workflow.ErrCanceled
+		},
+		activity.RegisterOptions{Name: "GenerateSubReport"},
+	)
+	tw.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.FinishReportTaskInput) (temporalpkg.FinishReportTaskResult, error) {
+			finished <- got
+			return temporalpkg.FinishReportTaskResult{LifecycleEventID: got.DiagnosisTaskID + 2000}, nil
+		},
+		activity.RegisterOptions{Name: "FinishReportTask"},
+	)
+
+	tw.ExecuteWorkflow(temporalpkg.ReportBatchWorkflow, input)
+	if !tw.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if err := tw.GetWorkflowError(); err == nil || !strings.Contains(err.Error(), "canceled") {
+		t.Fatalf("workflow error = %v, want cancellation", err)
+	}
+	select {
+	case got := <-finished:
+		if got.DiagnosisTaskID != 1007 || got.Status != "cancelled" || got.SubReportID != 0 || got.FailureReason != "" {
+			t.Fatalf("cancelled finish input = %+v", got)
+		}
+	default:
+		t.Fatal("parent completed before the child persisted its cancelled lifecycle state")
 	}
 }
 

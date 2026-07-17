@@ -151,6 +151,14 @@ func (a *Activities) FinishReportTask(ctx context.Context, req FinishReportTaskI
 			if report.EvidenceSnapshotID != task.EvidenceSnapshotID || report.Scenario != strings.TrimSpace(req.Scenario) {
 				return fmt.Errorf("subreport %d does not match task snapshot/scenario: %w", report.ID, domain.ErrInvariantViolation)
 			}
+			expectedKey := reportprompt.SubReportIdempotencyKey(
+				task.EvidenceSnapshotID,
+				req.GroupIndex,
+				reportprompt.Scenario(strings.TrimSpace(req.Scenario)),
+			)
+			if report.IdempotencyKey != expectedKey {
+				return fmt.Errorf("subreport %d does not match task prompt identity: %w", report.ID, domain.ErrInvariantViolation)
+			}
 		}
 		finished, err := task.Finish(status, req.FinishedAt, strings.TrimSpace(req.FailureReason))
 		if err != nil {
