@@ -182,6 +182,10 @@ describe("diagnosis notification channel options", () => {
     ).toEqual({
       kind: "ready",
       missingContentKinds: [],
+      proof: {
+        aiDiagnosisCheckedAt: "2026-06-21T01:01:00Z",
+        diagnosisCloseCheckedAt: "2026-06-21T01:01:00Z",
+      },
       status: "ready",
     });
     expect(

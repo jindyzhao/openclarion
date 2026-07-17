@@ -14,17 +14,28 @@ export type DiagnosisNotificationChannelSetupAction = {
   kind: "empty" | "load-failed" | "not-ready" | "proof-review";
 };
 
-export type DiagnosisNotificationChannelProofSummary = {
-  kind:
-    | "load-failed"
-    | "not-selected"
-    | "not-found"
-    | "not-ready"
-    | "ready"
-    | "review";
-  missingContentKinds: NotificationChannelTestContentKind[];
-  status: "blocked" | "pending" | "ready" | "review";
-};
+type DiagnosisNotificationChannelProofSummaryKind =
+  | "load-failed"
+  | "not-selected"
+  | "not-found"
+  | "not-ready"
+  | "review";
+
+export type DiagnosisNotificationChannelProofSummary =
+  | {
+      kind: DiagnosisNotificationChannelProofSummaryKind;
+      missingContentKinds: NotificationChannelTestContentKind[];
+      status: "blocked" | "pending" | "review";
+    }
+  | {
+      kind: "ready";
+      missingContentKinds: [];
+      proof: {
+        aiDiagnosisCheckedAt: string;
+        diagnosisCloseCheckedAt: string;
+      };
+      status: "ready";
+    };
 
 export type DiagnosisNotificationChannelReadinessIssue =
   | "not-wecom"
@@ -180,11 +191,35 @@ export function diagnosisNotificationChannelProofSummary({
     channel,
     proofBundle,
   );
-  if (proofReadiness.status === "ready") {
+  const aiDiagnosisProof = proofBundle.ai_diagnosis_sample;
+  const diagnosisCloseProof = proofBundle.diagnosis_close_sample;
+  if (
+    proofReadiness.status === "ready" &&
+    aiDiagnosisProof !== undefined &&
+    diagnosisCloseProof !== undefined
+  ) {
     return {
       kind: "ready",
       missingContentKinds: [],
+      proof: {
+        aiDiagnosisCheckedAt: aiDiagnosisProof.checked_at,
+        diagnosisCloseCheckedAt: diagnosisCloseProof.checked_at,
+      },
       status: "ready",
+    };
+  }
+  if (proofReadiness.status === "ready") {
+    return {
+      kind: "review",
+      missingContentKinds: [
+        ...(aiDiagnosisProof === undefined
+          ? (["ai_diagnosis_sample"] as const)
+          : []),
+        ...(diagnosisCloseProof === undefined
+          ? (["diagnosis_close_sample"] as const)
+          : []),
+      ],
+      status: "review",
     };
   }
   return {

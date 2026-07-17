@@ -2771,7 +2771,7 @@
       "proofPendingDetail": "请选择具备当前 AI 诊断和关闭样例证明的企业微信渠道。",
       "proofPending": "渠道证明等待中",
       "proofChannelNotReady": "渠道尚未就绪",
-      "proofReadyDetail": "所选企业微信渠道具备当前 AI 诊断和关闭通知交付证明。",
+      "proofReadyDetail": "AI 诊断样例检查于 {aiDiagnosisCheckedAt}；诊断关闭样例检查于 {diagnosisCloseCheckedAt}。",
       "proofReady": "渠道证明已就绪",
       "proofReviewDetail": "依赖此渠道承载 AI 诊断室前，请在最新渠道更新后执行当前{kinds}测试。",
       "proofReview": "渠道证明需要审核"

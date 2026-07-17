@@ -8,6 +8,7 @@ import type {
   NotificationChannelProfile,
   NotificationChannelTestContentKind,
 } from "@/features/settings/notification-channels/types";
+import { formatDateTime } from "@/features/settings/format";
 
 import {
   diagnosisNotificationChannelCreateBlocker,
@@ -177,6 +178,7 @@ export function localizeDiagnosisNotificationChannelProofSummary(
     channels: NotificationChannelProfile[];
     failedToLoad?: boolean;
   },
+  locale: string,
   t: DiagnosisNotificationChannelTranslator,
 ): DiagnosisNotificationChannelProofSummary {
   const summary = diagnosisNotificationChannelProofSummary(input);
@@ -214,7 +216,16 @@ export function localizeDiagnosisNotificationChannelProofSummary(
     }
     case "ready":
       return {
-        detail: t("proofReadyDetail"),
+        detail: t("proofReadyDetail", {
+          aiDiagnosisCheckedAt: formatDateTime(
+            summary.proof.aiDiagnosisCheckedAt,
+            locale,
+          ),
+          diagnosisCloseCheckedAt: formatDateTime(
+            summary.proof.diagnosisCloseCheckedAt,
+            locale,
+          ),
+        }),
         label: t("proofReady"),
         status: summary.status,
       };

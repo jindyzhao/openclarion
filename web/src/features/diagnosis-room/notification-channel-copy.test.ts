@@ -68,6 +68,7 @@ describe("diagnosis notification channel copy", () => {
     );
     const summary = localizeDiagnosisNotificationChannelProofSummary(
       { channelID: 7, channels: [untested] },
+      "zh-CN",
       t,
     );
 
@@ -82,6 +83,35 @@ describe("diagnosis notification channel copy", () => {
         "依赖此渠道承载 AI 诊断室前，请在最新渠道更新后执行当前AI 诊断样例 / 诊断关闭样例测试。",
       label: "渠道证明需要审核",
       status: "review",
+    });
+  });
+
+  it("retains and localizes each ready proof timestamp", () => {
+    const ready = channel({
+      id: 8,
+      latest_test_results: [
+        {
+          ...channelTestResult(8, "wecom", "ai_diagnosis_sample"),
+          checked_at: "2026-07-16T00:01:00Z",
+        },
+        {
+          ...channelTestResult(8, "wecom", "diagnosis_close_sample"),
+          checked_at: "2026-07-16T00:02:00Z",
+        },
+      ],
+    });
+
+    expect(
+      localizeDiagnosisNotificationChannelProofSummary(
+        { channelID: 8, channels: [ready] },
+        "zh-CN",
+        t,
+      ),
+    ).toEqual({
+      detail:
+        "AI 诊断样例检查于 2026年7月16日 00:01；诊断关闭样例检查于 2026年7月16日 00:02。",
+      label: "渠道证明已就绪",
+      status: "ready",
     });
   });
 });

@@ -2771,7 +2771,7 @@
       "proofPendingDetail": "Select an Enterprise WeChat channel with current AI diagnosis and close sample proof.",
       "proofPending": "Channel proof pending",
       "proofChannelNotReady": "Channel is not ready",
-      "proofReadyDetail": "The selected Enterprise WeChat channel has current AI diagnosis and close notification delivery proof.",
+      "proofReadyDetail": "AI diagnosis sample checked at {aiDiagnosisCheckedAt}; diagnosis close sample checked at {diagnosisCloseCheckedAt}.",
       "proofReady": "Channel proof ready",
       "proofReviewDetail": "Run current {kinds} tests after the latest channel update before relying on this channel for AI diagnosis rooms.",
       "proofReview": "Channel proof needs review"

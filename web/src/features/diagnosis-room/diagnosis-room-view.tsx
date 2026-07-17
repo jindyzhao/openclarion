@@ -2083,9 +2083,11 @@ export function DiagnosisRoomView({
           channels: notificationChannels,
           failedToLoad: notificationChannelsQuery.data?.ok === false,
         },
+        locale,
         notificationChannelT,
       ),
     [
+      locale,
       notificationChannels,
       notificationChannelsQuery.data,
       notificationChannelT,
@@ -4831,7 +4833,7 @@ export function DiagnosisRoomView({
               description={
                 <FinalConclusionDetails
                   actionDisabledReason={submitTurnBlockReason}
-                  connected={canSubmitTurn}
+                  connected={connected}
                   directoryUsersBySubject={collaborationDirectoryUsersBySubject}
                   notificationDeliveryCoverage={
                     selectedNotificationDeliveryCoverage
@@ -4881,7 +4883,7 @@ export function DiagnosisRoomView({
             <DiagnosisReviewQueuePanel
               actionDisabledReason={submitTurnBlockReason}
               canConfirmConclusion={canConfirmConclusion}
-              connected={canSubmitTurn}
+              connectionOpen={connected}
               onOpenConnection={() =>
                 handleOpenConnectionControls({ returnToReviewQueue: true })
               }
@@ -5003,7 +5005,7 @@ export function DiagnosisRoomView({
             <DiagnosisReviewQueuePanel
               actionDisabledReason={submitTurnBlockReason}
               canConfirmConclusion={canConfirmConclusion}
-              connected={canSubmitTurn}
+              connectionOpen={connected}
               onOpenConnection={() =>
                 handleOpenConnectionControls({ returnToReviewQueue: true })
               }
@@ -5030,9 +5032,10 @@ export function DiagnosisRoomView({
               items={evidenceTimelineForDisplay(selectedLatestInsight)}
             />
             <OperatorEvidenceCollectionPanel
+              actionsEnabled={canSubmitTurn}
               alertContext={alertContext}
               clientReady={clientReady}
-              connected={canSubmitTurn}
+              connected={connected}
               form={operatorEvidenceForm}
               onRefreshTemplates={() => {
                 void diagnosisToolTemplateQuery.refetch();
@@ -5075,7 +5078,7 @@ export function DiagnosisRoomView({
           <DiagnosisReviewQueuePanel
             actionDisabledReason={submitTurnBlockReason}
             canConfirmConclusion={canConfirmConclusion}
-            connected={canSubmitTurn}
+            connectionOpen={connected}
             onOpenConnection={() =>
               handleOpenConnectionControls({ returnToReviewQueue: true })
             }
@@ -5155,7 +5158,7 @@ export function DiagnosisRoomView({
         {pendingSupplementalEvidence ? (
           <SupplementalEvidenceEntryPanel
             actionDisabledReason={submitTurnBlockReason}
-            connected={canSubmitTurn}
+            connected={connected}
             form={supplementalEvidenceForm}
             onClear={handleClearSupplementalEvidence}
             onSubmit={handleSubmitSupplementalEvidence}
@@ -5992,7 +5995,7 @@ function notificationChannelReviewHref(
 function DiagnosisReviewQueuePanel({
   actionDisabledReason,
   canConfirmConclusion,
-  connected,
+  connectionOpen,
   onConfirmConclusion,
   onOpenConnection,
   onRequestReassessment,
@@ -6004,7 +6007,7 @@ function DiagnosisReviewQueuePanel({
 }: {
   actionDisabledReason: string;
   canConfirmConclusion: boolean;
-  connected: boolean;
+  connectionOpen: boolean;
   onConfirmConclusion: () => void;
   onOpenConnection?: () => void;
   onRequestReassessment: () => void;
@@ -6058,7 +6061,7 @@ function DiagnosisReviewQueuePanel({
   );
   const rawActionGate = diagnosisReviewQueueActionGate({
     actionDisabledReason,
-    connected,
+    connected: connectionOpen,
   });
   const actionGate = localizeDiagnosisReviewQueueActionGate(
     rawActionGate,
@@ -6122,7 +6125,7 @@ function DiagnosisReviewQueuePanel({
           className="diagnosis-review-task-timeline"
           items={reviewQueueTaskProgressTimelineItems({
             canConfirmConclusion,
-            connected,
+            connected: connectionOpen,
             actionDisabledReason: rawActionGate.reason,
             items,
             onConfirmConclusion,
@@ -6232,7 +6235,7 @@ function DiagnosisReviewQueuePanel({
           <List.Item
             actions={reviewQueueActions(
               item,
-              connected,
+              connectionOpen,
               canConfirmConclusion,
               onUseFollowUp,
               onUseEvidencePlan,
@@ -7174,6 +7177,7 @@ function collaborationRoleColor(
 }
 
 function OperatorEvidenceCollectionPanel({
+  actionsEnabled,
   alertContext,
   clientReady,
   connected,
@@ -7184,6 +7188,7 @@ function OperatorEvidenceCollectionPanel({
   templates,
   templatesLoading,
 }: {
+  actionsEnabled: boolean;
   alertContext?: DiagnosisAlertContext;
   clientReady: boolean;
   connected: boolean;
@@ -7262,7 +7267,7 @@ function OperatorEvidenceCollectionPanel({
         />
       ) : null}
       <OperatorEvidenceRecommendationPanel
-        connected={connected}
+        actionsEnabled={actionsEnabled}
         form={form}
         recommendations={recommendations}
       />
@@ -7279,7 +7284,7 @@ function OperatorEvidenceCollectionPanel({
           <Select
             allowClear
             aria-label={t("operatorEvidenceTemplate")}
-            disabled={!connected}
+            disabled={!actionsEnabled}
             loading={templatesLoading}
             onChange={(value: number | undefined) => {
               applyOperatorEvidenceTemplate(form, templates, value, t);
@@ -7314,7 +7319,7 @@ function OperatorEvidenceCollectionPanel({
             <Select
               aria-label={t("operatorEvidenceTool")}
               className="diagnosis-operator-evidence-tool-select"
-              disabled={!connected}
+              disabled={!actionsEnabled}
               onChange={() => form.setFieldValue("selectedTemplateID", null)}
               options={[
                 { label: "active_alerts", value: "active_alerts" },
@@ -7334,7 +7339,7 @@ function OperatorEvidenceCollectionPanel({
               },
             ]}
           >
-            <Input disabled={!connected} />
+            <Input disabled={!actionsEnabled} />
           </Form.Item>
           <Form.Item
             label={t("templateID")}
@@ -7351,7 +7356,7 @@ function OperatorEvidenceCollectionPanel({
             ]}
           >
             <InputNumber
-              disabled={!connected}
+              disabled={!actionsEnabled}
               min={1}
               precision={0}
               style={{ width: "100%" }}
@@ -7372,7 +7377,7 @@ function OperatorEvidenceCollectionPanel({
             ]}
           >
             <InputNumber
-              disabled={!connected}
+              disabled={!actionsEnabled}
               min={1}
               precision={0}
               style={{ width: "100%" }}
@@ -7422,7 +7427,7 @@ function OperatorEvidenceCollectionPanel({
               ]}
             >
               <Input
-                disabled={!connected}
+                disabled={!actionsEnabled}
                 readOnly={selectedTemplateLocksQuery}
               />
             </Form.Item>
@@ -7451,7 +7456,7 @@ function OperatorEvidenceCollectionPanel({
                 ]}
               >
                 <InputNumber
-                  disabled={!connected}
+                  disabled={!actionsEnabled}
                   min={15}
                   precision={0}
                   style={{ width: "100%" }}
@@ -7479,7 +7484,7 @@ function OperatorEvidenceCollectionPanel({
                 ]}
               >
                 <InputNumber
-                  disabled={!connected}
+                  disabled={!actionsEnabled}
                   min={15}
                   precision={0}
                   style={{ width: "100%" }}
@@ -7498,7 +7503,7 @@ function OperatorEvidenceCollectionPanel({
             ]}
           >
             <InputNumber
-              disabled={!connected}
+              disabled={!actionsEnabled}
               min={1}
               precision={0}
               style={{ width: "100%" }}
@@ -7506,7 +7511,7 @@ function OperatorEvidenceCollectionPanel({
           </Form.Item>
         </div>
         <Button
-          disabled={!connected}
+          disabled={!actionsEnabled}
           htmlType="submit"
           icon={<PlayCircleOutlined />}
           type="primary"
@@ -7519,11 +7524,11 @@ function OperatorEvidenceCollectionPanel({
 }
 
 function OperatorEvidenceRecommendationPanel({
-  connected,
+  actionsEnabled,
   form,
   recommendations,
 }: {
-  connected: boolean;
+  actionsEnabled: boolean;
   form: FormInstance<OperatorEvidenceFormValues>;
   recommendations: OperatorEvidenceRecommendation[];
 }) {
@@ -7553,7 +7558,7 @@ function OperatorEvidenceRecommendationPanel({
           <List.Item
             actions={[
               <TooltipAction
-                disabled={!connected || !item.ready}
+                disabled={!actionsEnabled || !item.ready}
                 key="use-recommendation"
                 title={
                   item.ready
@@ -7563,7 +7568,7 @@ function OperatorEvidenceRecommendationPanel({
               >
                 <Button
                   aria-label={t("useRecommendation", { name: item.template.name })}
-                  disabled={!connected || !item.ready}
+                  disabled={!actionsEnabled || !item.ready}
                   icon={<FormOutlined />}
                   onClick={() => form.setFieldsValue(item.formValues)}
                   size="small"
