@@ -358,7 +358,7 @@ export function NotificationChannelSettingsManager({
   async function handleSubmit(values: NotificationChannelFormState) {
     const parsed = formStateToWriteRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeNotificationChannelText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeNotificationChannelText(parsed.message, t) });
       return;
     }
 
@@ -557,7 +557,7 @@ export function NotificationChannelSettingsManager({
       {launchNotice ? (
         <Alert
           aria-label={t("launchPreset")}
-          description={localizeNotificationChannelText(launchNotice, locale)}
+          description={localizeNotificationChannelText(launchNotice, t)}
           message={t("actionLoaded")}
           role="status"
           showIcon
@@ -574,7 +574,6 @@ export function NotificationChannelSettingsManager({
         }
         runLoading={testingID !== null}
         runnableChannelCount={authorizedAIProofRunnableChannels.length}
-        locale={locale}
         t={t}
         workflowReturn={workflowReturn}
       />
@@ -689,7 +688,6 @@ export function NotificationChannelSettingsManager({
               <Form.Item noStyle shouldUpdate>
                 {(channelForm) => (
                   <NotificationChannelDeliveryPreview
-                    locale={locale}
                     t={t}
                     values={
                       channelForm.getFieldsValue(
@@ -793,7 +791,6 @@ function Notice({ notice, t }: { notice: SettingsNotice; t: NotificationChannelT
 }
 
 function NotificationChannelEnterpriseWeChatRolloutPanel({
-  locale,
   onRunMissingProof,
   readiness,
   runDisabled,
@@ -802,7 +799,6 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
   t,
   workflowReturn,
 }: {
-  locale: string;
   onRunMissingProof: () => void;
   readiness: NotificationChannelEnterpriseWeChatRolloutReadiness;
   runDisabled: boolean;
@@ -839,7 +835,7 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
                 size="small"
                 type="primary"
               >
-                {localizeNotificationChannelText(workflowReturn.label, locale)}
+                {localizeNotificationChannelText(workflowReturn.label, t)}
               </Button>
             ) : null}
           </Space>
@@ -847,11 +843,11 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
       }
       description={
         <Space direction="vertical" size={8}>
-          <Typography.Text>{localizeNotificationChannelText(readiness.detail, locale)}</Typography.Text>
+          <Typography.Text>{localizeNotificationChannelText(readiness.detail, t)}</Typography.Text>
           {workflowReturn !== null ? (
             <Typography.Text type="secondary">
               {canReturnToWorkflow
-                ? localizeNotificationChannelText(workflowReturn.detail, locale)
+                ? localizeNotificationChannelText(workflowReturn.detail, t)
                 : t("finishWecomSetup")}
             </Typography.Text>
           ) : null}
@@ -882,7 +878,7 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
                 children:
                   readiness.missingScopes.length === 0
                     ? t("none")
-                    : readiness.missingScopes.map((scope) => localizeNotificationChannelText(scope, locale)).join(", "),
+                    : readiness.missingScopes.map((scope) => localizeNotificationChannelText(scope, t)).join(", "),
                 key: "missingScopes",
                 label: t("missingScopes"),
               },
@@ -891,7 +887,7 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
                   readiness.missingContentKinds.length === 0
                     ? t("none")
                     : readiness.missingContentKinds
-                        .map((kind) => localizeNotificationChannelText(notificationChannelTestContentKindLabel(kind), locale))
+                        .map((kind) => localizeNotificationChannelText(notificationChannelTestContentKindLabel(kind), t))
                         .join(", "),
                 key: "missingProof",
                 label: t("missingProof"),
@@ -901,7 +897,7 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
           />
         </Space>
       }
-      message={localizeNotificationChannelText(readiness.label, locale)}
+      message={localizeNotificationChannelText(readiness.label, t)}
       role={readiness.status === "blocked" ? "alert" : "status"}
       showIcon
       type={enterpriseWeChatRolloutAlertType(readiness.status)}
@@ -961,7 +957,7 @@ function NotificationChannelAIProofInventoryPanel({
       }
       description={
         <Space direction="vertical" size={4}>
-          <Typography.Text>{localizeNotificationChannelText(readiness.detail, locale)}</Typography.Text>
+          <Typography.Text>{localizeNotificationChannelText(readiness.detail, t)}</Typography.Text>
           {readiness.candidateChannelIDs.length > 0 ? (
             <Typography.Text type="secondary">
               {t("proofSummary", {
@@ -976,7 +972,7 @@ function NotificationChannelAIProofInventoryPanel({
             <Typography.Text type="secondary">
               {t("missingProof")}: {" "}
               {readiness.missingContentKinds
-                .map((kind) => localizeNotificationChannelText(notificationChannelTestContentKindLabel(kind), locale))
+                .map((kind) => localizeNotificationChannelText(notificationChannelTestContentKindLabel(kind), t))
                 .join(", ")}
               .
             </Typography.Text>
@@ -990,7 +986,7 @@ function NotificationChannelAIProofInventoryPanel({
           ) : null}
         </Space>
       }
-      message={localizeNotificationChannelText(readiness.label, locale)}
+      message={localizeNotificationChannelText(readiness.label, t)}
       role={readiness.status === "blocked" ? "alert" : "status"}
       showIcon
       type={aiProofInventoryAlertType(readiness.status)}
@@ -1020,7 +1016,7 @@ function AIProofSummaryRow({
           color={aiProofContentSummaryColor(content.status)}
           key={content.contentKind}
         >
-          {localizeNotificationChannelText(content.label, locale)}: {aiProofContentSummaryLabel(content.status, locale)}
+          {localizeNotificationChannelText(content.label, t)}: {aiProofContentSummaryLabel(content.status, t)}
           {content.checkedAt ? ` ${formatDateTime(content.checkedAt, locale)}` : ""}
         </Tag>
       ))}
@@ -1048,24 +1044,9 @@ function aiProofContentSummaryColor(
 
 function aiProofContentSummaryLabel(
   status: NotificationChannelAIProofSummary["contents"][number]["status"],
-  locale: string,
+  t: NotificationChannelTranslator,
 ): string {
-  switch (status) {
-    case "current":
-      return locale === "zh-CN" ? "有效" : "current";
-    case "stale":
-      return locale === "zh-CN" ? "已过期" : "stale";
-    case "missing":
-      return locale === "zh-CN" ? "缺失" : "missing";
-    case "failed":
-      return locale === "zh-CN" ? "失败" : "failed";
-    case "blocked":
-      return locale === "zh-CN" ? "已阻塞" : "blocked";
-    case "unsupported":
-      return locale === "zh-CN" ? "不支持" : "unsupported";
-    case "invalid":
-      return locale === "zh-CN" ? "无效" : "invalid";
-  }
+  return t(`proofContentStatus.${status}`);
 }
 
 function aiProofInventoryAlertType(
@@ -1084,11 +1065,9 @@ function aiProofInventoryAlertType(
 }
 
 function NotificationChannelDeliveryPreview({
-  locale,
   t,
   values,
 }: {
-  locale: string;
   t: NotificationChannelTranslator;
   values: NotificationChannelFormState;
 }) {
@@ -1098,7 +1077,7 @@ function NotificationChannelDeliveryPreview({
   const testSample = notificationChannelTestSample(normalized);
   const items: DescriptionsProps["items"] = [
     {
-      children: localizeNotificationChannelText(credentials.kindLabel, locale),
+      children: localizeNotificationChannelText(credentials.kindLabel, t),
       key: "kind",
       label: t("adapter"),
     },
@@ -1140,7 +1119,7 @@ function NotificationChannelDeliveryPreview({
       label: t("autoRoomClose"),
     },
     {
-      children: localizeNotificationChannelText(testSample.label, locale),
+      children: localizeNotificationChannelText(testSample.label, t),
       key: "testSample",
       label: t("testSample"),
     },
@@ -1157,7 +1136,7 @@ function NotificationChannelDeliveryPreview({
             {channelDeliveryReadinessLabel(readiness.status, t)}
           </Tag>
           <Tag color={channelCredentialReadinessColor(credentials.status)}>
-            {localizeNotificationChannelText(credentials.kindLabel, locale)}
+            {localizeNotificationChannelText(credentials.kindLabel, t)}
           </Tag>
           <Tag color={readiness.hasReportScope ? "blue" : "default"}>
             {t("reports")}
@@ -1171,15 +1150,15 @@ function NotificationChannelDeliveryPreview({
             {t("diagnosisClose")}
           </Tag>
         </Space>
-        <Typography.Text strong>{localizeNotificationChannelText(readiness.label, locale)}</Typography.Text>
-        <Typography.Text type="secondary">{localizeNotificationChannelText(readiness.detail, locale)}</Typography.Text>
+        <Typography.Text strong>{localizeNotificationChannelText(readiness.label, t)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeNotificationChannelText(readiness.detail, t)}</Typography.Text>
         {readiness.missingScopes.length > 0 ? (
           <Typography.Text type="secondary">
-            {t("missingScopes")}: {readiness.missingScopes.map((scope) => localizeNotificationChannelText(scope, locale)).join(", ")}
+            {t("missingScopes")}: {readiness.missingScopes.map((scope) => localizeNotificationChannelText(scope, t)).join(", ")}
           </Typography.Text>
         ) : null}
-        <Typography.Text type="secondary">{localizeNotificationChannelText(credentials.detail, locale)}</Typography.Text>
-        <Typography.Text type="secondary">{localizeNotificationChannelText(testSample.detail, locale)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeNotificationChannelText(credentials.detail, t)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeNotificationChannelText(testSample.detail, t)}</Typography.Text>
         <Descriptions column={1} items={items} size="small" />
       </Space>
     </div>
@@ -1312,7 +1291,7 @@ function NotificationChannelTable({
         <Space wrap>
           {scopes.map((scope) => (
             <Tag color={scope === "report" ? "blue" : "purple"} key={scope}>
-              {localizeNotificationChannelText(scope, locale)}
+              {localizeNotificationChannelText(scope, t)}
             </Tag>
           ))}
         </Space>
@@ -1338,7 +1317,6 @@ function NotificationChannelTable({
             channel,
             testResults,
           )}
-          locale={locale}
           t={t}
         />
       ),
@@ -1460,12 +1438,10 @@ function NotificationChannelTable({
 
 function ChannelAIRoomReadiness({
   channel,
-  locale,
   t,
   testProof,
 }: {
   channel: NotificationChannelProfile;
-  locale: string;
   t: NotificationChannelTranslator;
   testProof?: NotificationChannelTestProofBundle;
 }) {
@@ -1484,30 +1460,30 @@ function ChannelAIRoomReadiness({
       </Tag>
       <Typography.Text
         ellipsis={{
-          tooltip: localizeNotificationChannelText(readiness.detail, locale),
+          tooltip: localizeNotificationChannelText(readiness.detail, t),
         }}
         type="secondary"
       >
-        {localizeNotificationChannelText(readiness.label, locale)}
+        {localizeNotificationChannelText(readiness.label, t)}
       </Typography.Text>
       <Typography.Text
         ellipsis={{
-          tooltip: localizeNotificationChannelText(proofReadiness.detail, locale),
+          tooltip: localizeNotificationChannelText(proofReadiness.detail, t),
         }}
         type="secondary"
       >
-        {localizeNotificationChannelText(proofReadiness.label, locale)}
+        {localizeNotificationChannelText(proofReadiness.label, t)}
       </Typography.Text>
       {readiness.missingScopes.length > 0 ? (
         <Typography.Text type="secondary">
-          {t("missing")} {readiness.missingScopes.map((scope) => localizeNotificationChannelText(scope, locale)).join(", ")}
+          {t("missing")} {readiness.missingScopes.map((scope) => localizeNotificationChannelText(scope, t)).join(", ")}
         </Typography.Text>
       ) : null}
       {proofReadiness.missingContentKinds.length > 0 ? (
         <Typography.Text type="secondary">
           {t("test")} {" "}
           {proofReadiness.missingContentKinds
-            .map((kind) => localizeNotificationChannelText(notificationChannelTestContentKindLabel(kind), locale))
+            .map((kind) => localizeNotificationChannelText(notificationChannelTestContentKindLabel(kind), t))
             .join(", ")}
         </Typography.Text>
       ) : null}
@@ -1622,10 +1598,10 @@ function ChannelTestProof({
           wrap
         >
           <Tag color={channelTestStatusColor(result.status)}>
-            {localizeNotificationChannelText(notificationChannelTestContentKindLabel(result.content_kind), locale)}
+            {localizeNotificationChannelText(notificationChannelTestContentKindLabel(result.content_kind), t)}
           </Tag>
           <Tag color={channelTestStatusColor(result.status)}>
-            {localizeNotificationChannelText(result.status, locale)}
+            {localizeNotificationChannelText(result.status, t)}
           </Tag>
           {result.content_sha256 ? (
             <Typography.Text type="secondary">
@@ -1690,181 +1666,185 @@ function noticeKindForChannelTestStatus(
   }
 }
 
-function localizeNotificationChannelText(value: string, locale: string): string {
-  if (locale !== "zh-CN") {
-    return value;
-  }
-  const exact: Readonly<Record<string, string>> = {
-    blocked: "已阻塞",
-    diagnosis_close: "诊断关闭",
-    diagnosis_consultation: "诊断会诊",
-    failed: "失败",
-    pending: "等待中",
-    ready: "就绪",
-    report: "报告",
-    review: "需检查",
-    success: "成功",
-    unsupported: "不支持",
-    "AI delivery proof needs review.": "AI 交付证明需要检查。",
-    "AI delivery test proof needs review.": "AI 交付测试证明需要检查。",
-    "AI delivery test proof not applicable.": "AI 交付测试证明不适用。",
-    "AI delivery test proof ready.": "AI 交付测试证明已就绪。",
-    "AI diagnosis delivery channel setup blocked.": "AI 诊断交付渠道配置已阻塞。",
-    "AI diagnosis delivery ready.": "AI 诊断交付已就绪。",
-    "AI diagnosis sample": "AI 诊断样例",
-    "AI diagnosis update and close notification samples both succeeded after the latest channel update.":
-      "最近一次渠道更新后，AI 诊断进展和关闭通知样例均已成功。",
-    "AI diagnosis updates and close notifications require an Enterprise WeChat channel.":
-      "AI 诊断进展和关闭通知需要企业微信渠道。",
-    "AI diagnosis scopes need review.": "AI 诊断范围需要检查。",
-    "Add diagnosis_consultation and diagnosis_close scopes before using this channel for AI diagnosis rooms.":
-      "将此渠道用于 AI 诊断室前，请添加 diagnosis_consultation 和 diagnosis_close 范围。",
-    "Back to workflow": "返回工作流",
-    "Channel disabled.": "通知渠道已停用。",
-    "Channel name is required.": "渠道名称为必填项。",
-    "Channel name must be 120 bytes or fewer.": "渠道名称不能超过 120 字节。",
-    "Content proof missing": "内容证明缺失",
-    "Configured AI diagnosis delivery candidates are blocked by kind, state, scope, or secret-reference readiness.":
-      "已配置的 AI 诊断交付候选项因类型、状态、范围或密钥引用就绪度而被阻塞。",
-    "Configured Enterprise WeChat rollout candidates are blocked by kind, state, or credential readiness.":
-      "已配置的企业微信上线候选项因类型、状态或凭据就绪度而被阻塞。",
-    "Create or enable an Enterprise WeChat channel with diagnosis_consultation and diagnosis_close scopes before enabling automatic diagnosis room delivery.":
-      "启用自动诊断室交付前，请创建或启用具有 diagnosis_consultation 和 diagnosis_close 范围的企业微信渠道。",
-    "Create or enable an Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes before accepting automatic diagnosis rollout.":
-      "接受自动诊断上线前，请创建或启用具有 report、diagnosis_consultation 和 diagnosis_close 范围的企业微信渠道。",
-    "Credential secret not selected.": "尚未选择凭据密钥。",
-    "Delivery scopes need review.": "交付范围需要检查。",
-    "Delivery scopes not selected.": "尚未选择交付范围。",
-    "Delivery scopes ready.": "交付范围已就绪。",
-    "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, Feishu, Slack, or Email delivery.":
-      "诊断会诊和关闭通知需要企业微信渠道。Webhook、钉钉、飞书、Slack 或邮件交付仅使用 report 范围。",
-    "Diagnosis close sample": "诊断关闭样例",
-    "Diagnosis delivery scopes ready.": "诊断交付范围已就绪。",
-    "Diagnosis delivery scopes require an Enterprise WeChat channel.":
-      "诊断交付范围需要企业微信渠道。",
-    "DingTalk robot webhook URL": "钉钉机器人 Webhook URL",
-    "DingTalk credential contract selected.": "已选择钉钉凭据协议。",
-    "Email credential contract selected.": "已选择邮件凭据协议。",
-    "Endpoint URL cannot be stored as a secret reference.":
-      "端点 URL 不能直接作为密钥引用保存。",
-    "Enable this channel before it can deliver AI diagnosis updates or close notifications.":
-      "此渠道必须先启用，才能交付 AI 诊断进展或关闭通知。",
-    "Enterprise WeChat required.": "需要企业微信。",
-    "Enterprise WeChat required for diagnosis delivery.":
-      "诊断交付需要企业微信。",
-    "Enterprise WeChat robot webhook URL": "企业微信机器人 Webhook URL",
-    "Enterprise WeChat rollout channel blocked.": "企业微信发布渠道已阻塞。",
-    "Enterprise WeChat rollout needs review.": "企业微信发布准备需要检查。",
-    "Feishu credential contract selected.": "已选择飞书凭据协议。",
-    "Feishu or Lark custom bot webhook URL":
-      "飞书或 Lark 自定义机器人 Webhook URL",
-    "HTTP webhook URL": "HTTP Webhook URL",
-    "Label keys must be non-empty.": "标签键不能为空。",
-    "Labels exceed the allowed length.": "标签超过允许长度。",
-    "Labels must contain 32 entries or fewer.": "标签不能超过 32 项。",
-    "Labels must not contain control characters.": "标签不能包含控制字符。",
-    "Labels must use key=value lines.": "标签必须按行使用 key=value 格式。",
-    "No AI diagnosis delivery channel configured.": "尚未配置 AI 诊断交付渠道。",
-    "No Enterprise WeChat rollout channel configured.": "尚未配置企业微信发布渠道。",
-    "Prepared an Enterprise WeChat channel for AI diagnosis updates and close notifications. Paste the secret reference before saving.":
-      "已准备企业微信渠道，用于 AI 诊断进展和关闭通知。保存前请填写密钥引用。",
-    "Prepared an Enterprise WeChat channel for final report delivery. Paste the secret reference before saving.":
-      "已准备企业微信渠道，用于最终报告交付。保存前请填写密钥引用。",
-    "Prepared an Enterprise WeChat channel for final reports, automatic diagnosis updates, and close notifications. Paste the secret reference before saving.":
-      "已准备企业微信渠道，用于最终报告、自动诊断进展和关闭通知。保存前请填写密钥引用。",
-    "Ready for AI diagnosis updates and close notifications through Enterprise WeChat.":
-      "已可通过企业微信交付 AI 诊断进展和关闭通知。",
-    "Return to workflow policies after Enterprise WeChat channel scopes and AI delivery proof are ready.":
-      "企业微信渠道范围和 AI 交付证明就绪后，请返回工作流策略。",
-    "Report delivery WeCom": "报告交付企业微信",
-    "Secret reference is required.": "密钥引用为必填项。",
-    "Secret reference must be 256 bytes or fewer.": "密钥引用不能超过 256 字节。",
-    "Secret reference must not be an endpoint URL.": "密钥引用不能是端点 URL。",
-    "Secret reference must not contain whitespace or control characters.":
-      "密钥引用不能包含空白符或控制字符。",
-    "Slack incoming webhook URL": "Slack Incoming Webhook URL",
-    "SMTP URL with from/to recipients": "带发件人与收件人的 SMTP URL",
-    "Select at least one delivery scope.": "请至少选择一个交付范围。",
-    "Select diagnosis_consultation and diagnosis_close scopes before collecting AI delivery test proof.":
-      "采集 AI 交付测试证明前，请选择 diagnosis_consultation 和 diagnosis_close 范围。",
-    "Select report for final report delivery, diagnosis_consultation for AI diagnosis updates, and diagnosis_close for close notifications.":
-      "最终报告交付请选择 report，AI 诊断进展请选择 diagnosis_consultation，关闭通知请选择 diagnosis_close。",
-    "Slack credential contract selected.": "已选择 Slack 凭据协议。",
-    "Store endpoint URLs in server-side secret storage and enter only the secret reference here.":
-      "请将端点 URL 存入服务端密钥存储，此处仅填写密钥引用。",
-    "Test sends a diagnosis room close notification sample.":
-      "测试将发送诊断室关闭通知样例。",
-    "Test sends a generic transport notification sample.": "测试将发送通用传输通知样例。",
-    "Test sends an AI diagnosis update sample, not a raw Alertmanager alert.":
-      "测试将发送 AI 诊断进展样例，而不是原始 Alertmanager 告警。",
-    "Transport sample": "传输样例",
-    "The channel can be saved, but workflows using the missing scope will be blocked until it is added.":
-      "此渠道可以保存，但在补齐缺失范围前，使用该范围的工作流将被阻塞。",
-    "The channel can support AI diagnosis updates and close notifications. Add report scope only when final report delivery should use this channel.":
-      "此渠道可支持 AI 诊断进展和关闭通知。仅当最终报告也应使用此渠道时添加 report 范围。",
-    "The channel can support final reports, auto-room AI diagnosis updates, and close notifications.":
-      "此渠道可支持最终报告、自动诊断室 AI 诊断进展和关闭通知。",
-    "WeCom credential contract selected.": "已选择企业微信凭据协议。",
-    "Webhook credential contract selected.": "已选择 Webhook 凭据协议。",
-  };
-  if (exact[value] !== undefined) {
-    return exact[value]!;
+const notificationChannelRuntimeTextKeys = {
+    "blocked": "runtimeText.blocked",
+    "diagnosis_close": "runtimeText.diagnosisClose",
+    "diagnosis_consultation": "runtimeText.diagnosisConsultation",
+    "failed": "runtimeText.failed",
+    "pending": "runtimeText.pending",
+    "ready": "runtimeText.ready",
+    "report": "runtimeText.report",
+    "review": "runtimeText.review",
+    "success": "runtimeText.success",
+    "unsupported": "runtimeText.unsupported",
+    "AI delivery proof needs review.": "runtimeText.aiDeliveryProofNeedsReview",
+    "AI delivery test proof needs review.": "runtimeText.aiDeliveryTestProofNeedsReview",
+    "AI delivery test proof not applicable.": "runtimeText.aiDeliveryTestProofNotApplicable",
+    "AI delivery test proof ready.": "runtimeText.aiDeliveryTestProofReady",
+    "AI diagnosis delivery channel setup blocked.": "runtimeText.aiDiagnosisDeliveryChannelSetupBlocked",
+    "AI diagnosis delivery ready.": "runtimeText.aiDiagnosisDeliveryReady",
+    "AI diagnosis sample": "runtimeText.aiDiagnosisSample",
+    "AI diagnosis WeCom": "runtimeText.aiDiagnosisWeCom",
+    "AI report and diagnosis WeCom": "runtimeText.aiReportAndDiagnosisWeCom",
+    "AI diagnosis update and close notification samples both succeeded after the latest channel update.": "runtimeText.aiDiagnosisUpdateAndCloseNotificationSamplesBothSucceededAfterTheLatest",
+    "AI diagnosis updates and close notifications require an Enterprise WeChat channel.": "runtimeText.aiDiagnosisUpdatesAndCloseNotificationsRequireAnEnterpriseWechatChannel",
+    "AI diagnosis scopes need review.": "runtimeText.aiDiagnosisScopesNeedReview",
+    "Add diagnosis_consultation and diagnosis_close scopes before using this channel for AI diagnosis rooms.": "runtimeText.addDiagnosisConsultationAndDiagnosisCloseScopesBeforeUsingThisChannelFor",
+    "Add diagnosis_consultation and diagnosis_close scopes before collecting AI delivery proof for Enterprise WeChat.": "runtimeText.addDiagnosisScopesBeforeCollectingProof",
+    "Add report, diagnosis_consultation, and diagnosis_close scopes to one Enterprise WeChat channel before accepting automatic diagnosis rollout.": "runtimeText.addAllScopesBeforeAutomaticDiagnosisRollout",
+    "All AI diagnosis delivery candidates have current AI diagnosis and close notification sample proof.": "runtimeText.allAiDeliveryCandidatesHaveCurrentProof",
+    "Back to workflow": "runtimeText.backToWorkflow",
+    "Channel disabled.": "runtimeText.channelDisabled",
+    "Channel name is required.": "runtimeText.channelNameIsRequired",
+    "Channel name must be 120 bytes or fewer.": "runtimeText.channelNameMustBe120BytesOrFewer",
+    "Content proof missing": "runtimeText.contentProofMissing",
+    "Configured AI diagnosis delivery candidates are blocked by kind, state, scope, or secret-reference readiness.": "runtimeText.configuredAiDiagnosisDeliveryCandidatesAreBlockedByKindStateScopeOr",
+    "Configured Enterprise WeChat rollout candidates are blocked by kind, state, or credential readiness.": "runtimeText.configuredEnterpriseWechatRolloutCandidatesAreBlockedByKindStateOrCredential",
+    "Create or enable an Enterprise WeChat channel with diagnosis_consultation and diagnosis_close scopes before enabling automatic diagnosis room delivery.": "runtimeText.createOrEnableAnEnterpriseWechatChannelWithDiagnosisConsultationAndDiagnosis",
+    "Create or enable an Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes before accepting automatic diagnosis rollout.": "runtimeText.createOrEnableAnEnterpriseWechatChannelWithReportDiagnosisConsultationAnd",
+    "Credential secret not selected.": "runtimeText.credentialSecretNotSelected",
+    "Delivery scopes need review.": "runtimeText.deliveryScopesNeedReview",
+    "Delivery scopes not selected.": "runtimeText.deliveryScopesNotSelected",
+    "Delivery scopes ready.": "runtimeText.deliveryScopesReady",
+    "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, Feishu, Slack, or Email delivery.": "runtimeText.diagnosisConsultationAndCloseNotificationsRequireAnEnterpriseWechatChannelUseReport",
+    "Diagnosis close sample": "runtimeText.diagnosisCloseSample",
+    "Diagnosis delivery scopes ready.": "runtimeText.diagnosisDeliveryScopesReady",
+    "Diagnosis delivery scopes require an Enterprise WeChat channel.": "runtimeText.diagnosisDeliveryScopesRequireAnEnterpriseWechatChannel",
+    "DingTalk robot webhook URL": "runtimeText.dingtalkRobotWebhookUrl",
+    "DingTalk credential contract selected.": "runtimeText.dingtalkCredentialContractSelected",
+    "Email credential contract selected.": "runtimeText.emailCredentialContractSelected",
+    "Endpoint URL cannot be stored as a secret reference.": "runtimeText.endpointUrlCannotBeStoredAsASecretReference",
+    "Enable this channel before it can deliver AI diagnosis updates or close notifications.": "runtimeText.enableThisChannelBeforeItCanDeliverAiDiagnosisUpdatesOrClose",
+    "Enterprise WeChat required.": "runtimeText.enterpriseWechatRequired",
+    "Enterprise WeChat required for diagnosis delivery.": "runtimeText.enterpriseWechatRequiredForDiagnosisDelivery",
+    "Enterprise WeChat robot webhook URL": "runtimeText.enterpriseWechatRobotWebhookUrl",
+    "Enterprise WeChat rollout channel blocked.": "runtimeText.enterpriseWechatRolloutChannelBlocked",
+    "Enterprise WeChat rollout needs review.": "runtimeText.enterpriseWechatRolloutNeedsReview",
+    "Enterprise WeChat rollout proof is ready for automatic diagnosis: report delivery, AI diagnosis updates, and close notifications are all covered.": "runtimeText.enterpriseWechatRolloutProofReady",
+    "Feishu credential contract selected.": "runtimeText.feishuCredentialContractSelected",
+    "Feishu or Lark custom bot webhook URL": "runtimeText.feishuOrLarkCustomBotWebhookUrl",
+    "HTTP webhook URL": "runtimeText.httpWebhookUrl",
+    "Label keys must be non-empty.": "runtimeText.labelKeysMustBeNonEmpty",
+    "Labels exceed the allowed length.": "runtimeText.labelsExceedTheAllowedLength",
+    "Labels must contain 32 entries or fewer.": "runtimeText.labelsMustContain32EntriesOrFewer",
+    "Labels must not contain control characters.": "runtimeText.labelsMustNotContainControlCharacters",
+    "Labels must use key=value lines.": "runtimeText.labelsMustUseKeyValueLines",
+    "No AI diagnosis delivery channel configured.": "runtimeText.noAiDiagnosisDeliveryChannelConfigured",
+    "No Enterprise WeChat rollout channel configured.": "runtimeText.noEnterpriseWechatRolloutChannelConfigured",
+    "Prepared an Enterprise WeChat channel for AI diagnosis updates and close notifications. Paste the secret reference before saving.": "runtimeText.preparedAnEnterpriseWechatChannelForAiDiagnosisUpdatesAndCloseNotifications",
+    "Prepared an Enterprise WeChat channel for final report delivery. Paste the secret reference before saving.": "runtimeText.preparedAnEnterpriseWechatChannelForFinalReportDeliveryPasteTheSecret",
+    "Prepared an Enterprise WeChat channel for final reports, automatic diagnosis updates, and close notifications. Paste the secret reference before saving.": "runtimeText.preparedAnEnterpriseWechatChannelForFinalReportsAutomaticDiagnosisUpdatesAnd",
+    "Ready for AI diagnosis updates and close notifications through Enterprise WeChat.": "runtimeText.readyForAiDiagnosisUpdatesAndCloseNotificationsThroughEnterpriseWechat",
+    "Return to workflow policies after Enterprise WeChat channel scopes and AI delivery proof are ready.": "runtimeText.returnToWorkflowPoliciesAfterEnterpriseWechatChannelScopesAndAiDelivery",
+    "Run current AI diagnosis sample and diagnosis close sample tests before accepting Enterprise WeChat automatic diagnosis rollout.": "runtimeText.runAiAndCloseSamplesBeforeRollout",
+    "Run current AI diagnosis sample and diagnosis close sample tests before relying on Enterprise WeChat for automatic diagnosis room delivery.": "runtimeText.runAiAndCloseSamplesBeforeDelivery",
+    "Report delivery WeCom": "runtimeText.reportDeliveryWecom",
+    "Secret reference is required.": "runtimeText.secretReferenceIsRequired",
+    "Secret reference must be 256 bytes or fewer.": "runtimeText.secretReferenceMustBe256BytesOrFewer",
+    "Secret reference must not be an endpoint URL.": "runtimeText.secretReferenceMustNotBeAnEndpointUrl",
+    "Secret reference must not contain whitespace or control characters.": "runtimeText.secretReferenceMustNotContainWhitespaceOrControlCharacters",
+    "Slack incoming webhook URL": "runtimeText.slackIncomingWebhookUrl",
+    "SMTP URL with from/to recipients": "runtimeText.smtpUrlWithFromToRecipients",
+    "Select at least one delivery scope.": "runtimeText.selectAtLeastOneDeliveryScope",
+    "Select diagnosis_consultation and diagnosis_close scopes before collecting AI delivery test proof.": "runtimeText.selectDiagnosisConsultationAndDiagnosisCloseScopesBeforeCollectingAiDeliveryTest",
+    "Select report for final report delivery, diagnosis_consultation for AI diagnosis updates, and diagnosis_close for close notifications.": "runtimeText.selectReportForFinalReportDeliveryDiagnosisConsultationForAiDiagnosisUpdates",
+    "Slack credential contract selected.": "runtimeText.slackCredentialContractSelected",
+    "Store endpoint URLs in server-side secret storage and enter only the secret reference here.": "runtimeText.storeEndpointUrlsInServerSideSecretStorageAndEnterOnlyThe",
+    "Test sends a diagnosis room close notification sample.": "runtimeText.testSendsADiagnosisRoomCloseNotificationSample",
+    "Test sends a generic transport notification sample.": "runtimeText.testSendsAGenericTransportNotificationSample",
+    "Test sends an AI diagnosis update sample, not a raw Alertmanager alert.": "runtimeText.testSendsAnAiDiagnosisUpdateSampleNotARawAlertmanagerAlert",
+    "Transport sample": "runtimeText.transportSample",
+    "The channel can be saved, but workflows using the missing scope will be blocked until it is added.": "runtimeText.theChannelCanBeSavedButWorkflowsUsingTheMissingScopeWill",
+    "The channel can support AI diagnosis updates and close notifications. Add report scope only when final report delivery should use this channel.": "runtimeText.theChannelCanSupportAiDiagnosisUpdatesAndCloseNotificationsAddReport",
+    "The channel can support final reports, auto-room AI diagnosis updates, and close notifications.": "runtimeText.theChannelCanSupportFinalReportsAutoRoomAiDiagnosisUpdatesAnd",
+    "WeCom credential contract selected.": "runtimeText.wecomCredentialContractSelected",
+    "Webhook credential contract selected.": "runtimeText.webhookCredentialContractSelected",
+    "credential secret reference stores an endpoint URL": "runtimeText.credentialSecretReferenceStoresEndpoint",
+    "missing credential secret reference": "runtimeText.missingCredentialSecretReference",
+    "not Enterprise WeChat": "runtimeText.notEnterpriseWechat",
+} as const;
+
+export function localizeNotificationChannelText(value: string, t: NotificationChannelTranslator): string {
+  const key =
+    notificationChannelRuntimeTextKeys[
+      value as keyof typeof notificationChannelRuntimeTextKeys
+    ];
+  if (key !== undefined) {
+    return t(key);
   }
   let match = value.match(/^Loaded notification channel #(\d+) for delivery review\.$/);
   if (match) {
-    return `已加载通知渠道 #${match[1]} 进行交付检查。`;
+    return t("runtimePattern.loadedChannelForReview", { id: match[1]! });
   }
   match = value.match(/^Notification channel #(\d+) was not found\. Select an existing channel or create a replacement\.$/);
   if (match) {
-    return `未找到通知渠道 #${match[1]}。请选择现有渠道或创建替代渠道。`;
+    return t("runtimePattern.channelNotFound", { id: match[1]! });
   }
   match = value.match(/^Run (.+) tests after the latest channel update before relying on this channel for AI diagnosis rooms\.$/);
   if (match) {
     const tests = match[1]!
       .split(" and ")
-      .map((item) => localizeNotificationChannelText(item, locale))
-      .join("和");
-    return `依赖此渠道执行 AI 诊断室交付前，请在最近一次渠道更新后运行${tests}测试。`;
+      .map((item) => localizeNotificationChannelText(item, t))
+      .join(" / ");
+    return t("runtimePattern.runTestsAfterUpdate", { tests });
   }
   match = value.match(/^Select a deployment-managed secret reference before testing the channel, then map it in (.+)\.$/);
   if (match) {
-    return `测试渠道前请选择由部署管理的密钥引用，并在 ${match[1]} 中完成映射。`;
+    return t("runtimePattern.mapSecretReference", { setting: match[1]! });
   }
   match = value.match(/^(\d+) AI delivery channels? proof-ready\.$/);
   if (match) {
-    return `${match[1]} 个 AI 交付渠道的证明已就绪。`;
+    return t("runtimePattern.aiDeliveryChannelsReady", {
+      count: Number(match[1]),
+    });
   }
   match = value.match(/^(\d+) Enterprise WeChat rollout channels? ready\.$/);
   if (match) {
-    return `${match[1]} 个企业微信上线渠道已就绪。`;
+    return t("runtimePattern.weComRolloutChannelsReady", {
+      count: Number(match[1]),
+    });
   }
   match = value.match(/^Label key "(.+)" is duplicated\.$/);
   if (match) {
-    return `标签键“${match[1]}”重复。`;
+    return t("runtimePattern.labelKeyDuplicated", { key: match[1]! });
   }
   match = value.match(/^Backend tests resolve this secret reference through (.+) and construct a generic webhook provider from the endpoint\.$/);
   if (match) {
-    return `后端测试通过 ${match[1]} 解析此密钥引用，并根据端点构造通用 Webhook 提供方。`;
+    return t("runtimePattern.backendGenericWebhook", { setting: match[1]! });
   }
   match = value.match(/^Backend tests resolve this secret reference through (.+) and require one DingTalk robot webhook endpoint\.$/);
   if (match) {
-    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个钉钉机器人 Webhook 端点。`;
+    return t("runtimePattern.backendDingTalk", { setting: match[1]! });
   }
   match = value.match(/^Backend tests resolve this secret reference through (.+) and require one Feishu or Lark custom bot webhook endpoint\.$/);
   if (match) {
-    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个飞书或 Lark 自定义机器人 Webhook 端点。`;
+    return t("runtimePattern.backendFeishu", { setting: match[1]! });
   }
   match = value.match(/^Backend tests resolve this secret reference through (.+) and require one HTTPS Enterprise WeChat robot webhook endpoint\.$/);
   if (match) {
-    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个 HTTPS 企业微信机器人 Webhook 端点。`;
+    return t("runtimePattern.backendWeCom", { setting: match[1]! });
   }
   match = value.match(/^Backend tests resolve this secret reference through (.+) and require one SMTP URL with from and to query parameters\.$/);
   if (match) {
-    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个带 from 和 to 查询参数的 SMTP URL。`;
+    return t("runtimePattern.backendEmail", { setting: match[1]! });
   }
   match = value.match(/^Backend tests resolve this secret reference through (.+) and require one Slack incoming webhook endpoint\.$/);
   if (match) {
-    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个 Slack Incoming Webhook 端点。`;
+    return t("runtimePattern.backendSlack", { setting: match[1]! });
+  }
+  match = value.match(/^(\d+) AI diagnosis delivery channels? can be used now; (\d+) candidate channels? still need setup or proof review\.$/);
+  if (match) {
+    return t("runtimePattern.aiDeliveryChannelsAvailable", {
+      ready: Number(match[1]),
+      review: Number(match[2]),
+    });
+  }
+  match = value.match(/^(\d+) Enterprise WeChat rollout channels? can be used now; (\d+) candidate channels? still need scope, state, credential, or proof review\.$/);
+  if (match) {
+    return t("runtimePattern.weComRolloutChannelsAvailable", {
+      ready: Number(match[1]),
+      review: Number(match[2]),
+    });
   }
   return value;
 }

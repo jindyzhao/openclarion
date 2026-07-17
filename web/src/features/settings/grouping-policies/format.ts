@@ -8,9 +8,30 @@ import {
   utf8ByteLength
 } from "../validation";
 
+type GroupingPolicyTokenField = "dimension_key" | "source_filter";
+
+export type GroupingPolicyValidationError =
+  | { code: "policy_name_required" }
+  | { code: "policy_name_too_long"; limit: number }
+  | { code: "token_list_required"; field: GroupingPolicyTokenField }
+  | {
+      code: "token_list_too_long";
+      field: GroupingPolicyTokenField;
+      limit: number;
+    }
+  | { code: "token_invalid_characters"; field: GroupingPolicyTokenField }
+  | {
+      code: "token_too_long";
+      field: GroupingPolicyTokenField;
+      limit: number;
+    }
+  | { code: "severity_required" }
+  | { code: "severity_invalid_characters" }
+  | { code: "severity_too_long"; limit: number };
+
 type ParseResult<T> =
   | { ok: true; value: T }
-  | { ok: false; message: string };
+  | { error: GroupingPolicyValidationError; ok: false };
 
 type SearchParamValue = string | string[] | undefined;
 
@@ -98,35 +119,44 @@ export function formStateToWriteRequest(form: GroupingPolicyFormState): ParseRes
   const name = form.name.trim();
   const severityKey = form.severityKey.trim();
   if (name === "") {
-    return { ok: false, message: "Policy name is required." };
+    return { error: { code: "policy_name_required" }, ok: false };
   }
   if (utf8ByteLength(name) > 120) {
-    return { ok: false, message: "Policy name must be 120 bytes or fewer." };
+    return {
+      error: { code: "policy_name_too_long", limit: 120 },
+      ok: false
+    };
   }
   const dimensions = parseTokenList(form.dimensionKeysText, {
-    field: "Dimension key",
+    field: "dimension_key",
     maxEntries: 16,
     required: true
   });
   if (!dimensions.ok) {
-    return { ok: false, message: dimensions.message };
+    return dimensions;
   }
   if (severityKey === "") {
-    return { ok: false, message: "Severity key is required." };
+    return { error: { code: "severity_required" }, ok: false };
   }
   if (!validPolicyToken(severityKey)) {
-    return { ok: false, message: "Severity key must not contain whitespace or control characters." };
+    return {
+      error: { code: "severity_invalid_characters" },
+      ok: false
+    };
   }
   if (severityKey.length > 64) {
-    return { ok: false, message: "Severity key must be 64 characters or fewer." };
+    return {
+      error: { code: "severity_too_long", limit: 64 },
+      ok: false
+    };
   }
   const sources = parseTokenList(form.sourceFilterText, {
-    field: "Source filter",
+    field: "source_filter",
     maxEntries: 16,
     required: false
   });
   if (!sources.ok) {
-    return { ok: false, message: sources.message };
+    return sources;
   }
   return {
     ok: true,
@@ -146,25 +176,54 @@ export function listToText(values: string[]): string {
 
 function parseTokenList(
   value: string,
-  options: { field: string; maxEntries: number; required: boolean }
+  options: {
+    field: GroupingPolicyTokenField;
+    maxEntries: number;
+    required: boolean;
+  }
 ): ParseResult<string[]> {
   const tokens = value
     .split(/[\r\n,]+/)
     .map((item) => item.trim())
     .filter((item) => item !== "");
   if (tokens.length === 0) {
-    return options.required ? { ok: false, message: `${options.field} list is required.` } : { ok: true, value: [] };
+    return options.required
+      ? {
+          error: { code: "token_list_required", field: options.field },
+          ok: false
+        }
+      : { ok: true, value: [] };
   }
   const unique = [...new Set(tokens)].sort((left, right) => left.localeCompare(right));
   if (unique.length > options.maxEntries) {
-    return { ok: false, message: `${options.field} list must contain ${options.maxEntries} entries or fewer.` };
+    return {
+      error: {
+        code: "token_list_too_long",
+        field: options.field,
+        limit: options.maxEntries
+      },
+      ok: false
+    };
   }
   for (const token of unique) {
     if (!validPolicyToken(token)) {
-      return { ok: false, message: `${options.field} must not contain whitespace or control characters.` };
+      return {
+        error: {
+          code: "token_invalid_characters",
+          field: options.field
+        },
+        ok: false
+      };
     }
     if (utf8ByteLength(token) > 64) {
-      return { ok: false, message: `${options.field} must be 64 bytes or fewer.` };
+      return {
+        error: {
+          code: "token_too_long",
+          field: options.field,
+          limit: 64
+        },
+        ok: false
+      };
     }
   }
   return { ok: true, value: unique };

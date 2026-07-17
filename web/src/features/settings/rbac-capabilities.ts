@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -45,6 +46,7 @@ export function useCurrentRBACAuthorizations(
   checks: readonly CurrentRBACAuthorizationCheck[],
   enabled: boolean,
 ): CurrentRBACAuthorizations {
+  const t = useTranslations("Common");
   const [state, setState] = useState<CurrentRBACAuthorizationState>({
     fingerprint: "",
     kind: "loading",
@@ -102,8 +104,20 @@ export function useCurrentRBACAuthorizations(
       current,
       state: effectiveState,
     });
-    return { ...view, state: effectiveState };
-  }, [active, current, effectiveState]);
+    const notice =
+      view.notice === null || effectiveState.kind !== "error"
+        ? view.notice
+        : {
+            ...view.notice,
+            message: t("authorizationCheckFailed", {
+              error: currentRBACAuthorizationErrorDetail(
+                effectiveState,
+                t("authenticationRequired"),
+              ),
+            }),
+          };
+    return { ...view, notice, state: effectiveState };
+  }, [active, current, effectiveState, t]);
 }
 
 async function checkCurrentRBACAuthorizationBatches(
@@ -208,6 +222,18 @@ export function currentRBACAuthorizationNeedsSignIn(
   state: CurrentRBACAuthorizationState,
 ): boolean {
   return state.kind === "error" && state.status === 401;
+}
+
+export function currentRBACAuthorizationErrorDetail(
+  state: CurrentRBACAuthorizationState,
+  authenticationRequired: string,
+): string {
+  if (state.kind !== "error") {
+    return "";
+  }
+  return currentRBACAuthorizationNeedsSignIn(state)
+    ? authenticationRequired
+    : state.message;
 }
 
 function currentRBACAuthorizationStateFromResponse(

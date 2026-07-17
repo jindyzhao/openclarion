@@ -277,7 +277,7 @@ export function AlertSourceSettingsManager({
   async function handleSubmit(values: AlertSourceFormState) {
     const parsed = formStateToWriteRequest(normalizeFormValues(values));
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeAlertSourceText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeAlertSourceText(parsed.message, t) });
       return;
     }
 
@@ -356,14 +356,14 @@ export function AlertSourceSettingsManager({
       {launchNotice ? (
         <Alert
           aria-label={t("launchPreset")}
-          description={localizeAlertSourceText(launchNotice, locale)}
+          description={localizeAlertSourceText(launchNotice, t)}
           message={t("actionLoaded")}
           role="status"
           showIcon
           type="info"
         />
       ) : null}
-      <AlertSourceWorkflowReturnPanel locale={locale} t={t} workflowReturn={workflowReturn} />
+      <AlertSourceWorkflowReturnPanel t={t} workflowReturn={workflowReturn} />
 
       <Row align="top" className="settings-console-grid" gutter={[16, 16]}>
         <Col lg={8} md={24} xs={24}>
@@ -403,7 +403,6 @@ export function AlertSourceSettingsManager({
             >
               <AlertSourcePresetControls
                 disabled={busy || !canSaveCurrentAlertSource}
-                locale={locale}
                 onApply={applyPreset}
                 presets={presetOptions}
                 t={t}
@@ -462,7 +461,6 @@ export function AlertSourceSettingsManager({
                 extra={
                   <ConnectionTargetPreview
                     canonicalBaseURL={canonicalBaseURL}
-                    locale={locale}
                     t={t}
                     result={connectionTargets}
                   />
@@ -512,7 +510,6 @@ export function AlertSourceSettingsManager({
               <Form.Item noStyle shouldUpdate>
                 {(sourceForm) => (
                   <AlertSourceReadinessPreview
-                    locale={locale}
                     t={t}
                     values={normalizeFormValues(
                       sourceForm.getFieldsValue(true) as AlertSourceFormState,
@@ -579,11 +576,9 @@ export function AlertSourceSettingsManager({
 }
 
 function AlertSourceWorkflowReturnPanel({
-  locale,
   t,
   workflowReturn,
 }: {
-  locale: string;
   t: AlertSourceTranslator;
   workflowReturn: AlertSourceWorkflowReturn | null;
 }) {
@@ -594,11 +589,11 @@ function AlertSourceWorkflowReturnPanel({
     <Alert
       action={
         <Button href={workflowReturn.href} icon={<BranchesOutlined />} type="primary">
-          {localizeAlertSourceText(workflowReturn.label, locale)}
+          {localizeAlertSourceText(workflowReturn.label, t)}
         </Button>
       }
       aria-label={t("workflowReturnLabel")}
-      description={localizeAlertSourceText(workflowReturn.detail, locale)}
+      description={localizeAlertSourceText(workflowReturn.detail, t)}
       message={t("workflowReturn")}
       role="status"
       showIcon
@@ -609,13 +604,11 @@ function AlertSourceWorkflowReturnPanel({
 
 function AlertSourcePresetControls({
   disabled,
-  locale,
   onApply,
   presets,
   t,
 }: {
   disabled: boolean;
-  locale: string;
   onApply: (preset: AlertSourcePresetOption) => void;
   presets: AlertSourcePresetOption[];
   t: AlertSourceTranslator;
@@ -632,10 +625,10 @@ function AlertSourcePresetControls({
             htmlType="button"
             key={preset.intent}
             onClick={() => onApply(preset)}
-            title={localizeAlertSourceText(preset.detail, locale)}
+            title={localizeAlertSourceText(preset.detail, t)}
             type="default"
           >
-            {localizeAlertSourceText(preset.label, locale)}
+            {localizeAlertSourceText(preset.label, t)}
           </Button>
         ))}
       </Space>
@@ -645,12 +638,10 @@ function AlertSourcePresetControls({
 
 function ConnectionTargetPreview({
   canonicalBaseURL,
-  locale,
   result,
   t,
 }: {
   canonicalBaseURL: ReturnType<typeof alertSourceCanonicalBaseURL>;
-  locale: string;
   result: ReturnType<typeof alertSourceConnectionTargets>;
   t: AlertSourceTranslator;
 }) {
@@ -678,7 +669,7 @@ function ConnectionTargetPreview({
       {result.value.map((target) => (
         <Space align="start" direction="vertical" key={target.label} size={0}>
           <Typography.Text type="secondary">
-            {localizeAlertSourceText(target.label, locale)}
+            {localizeAlertSourceText(target.label, t)}
           </Typography.Text>
           <Typography.Text
             className="settings-url-cell"
@@ -693,11 +684,9 @@ function ConnectionTargetPreview({
 }
 
 function AlertSourceReadinessPreview({
-  locale,
   t,
   values,
 }: {
-  locale: string;
   t: AlertSourceTranslator;
   values: AlertSourceFormState;
 }) {
@@ -731,7 +720,7 @@ function AlertSourceReadinessPreview({
     },
     {
       children: connection.ok ? (
-        <ConnectionTargetsDescription locale={locale} targets={connection.value} />
+        <ConnectionTargetsDescription t={t} targets={connection.value} />
       ) : (
         t("pending")
       ),
@@ -759,13 +748,13 @@ function AlertSourceReadinessPreview({
             <Tag color="green">{t("noAuth")}</Tag>
           )}
         </Space>
-        <Typography.Text strong>{localizeAlertSourceText(readiness.label, locale)}</Typography.Text>
-        <Typography.Text type="secondary">{localizeAlertSourceText(readiness.detail, locale)}</Typography.Text>
+        <Typography.Text strong>{localizeAlertSourceText(readiness.label, t)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeAlertSourceText(readiness.detail, t)}</Typography.Text>
         {classificationHint === null ? null : (
           <Alert
             description={
               <Space direction="vertical" size={4}>
-                <Typography.Text>{localizeAlertSourceText(classificationHint.detail, locale)}</Typography.Text>
+                <Typography.Text>{localizeAlertSourceText(classificationHint.detail, t)}</Typography.Text>
                 <Typography.Text
                   className="settings-code-cell"
                   copyable={{ text: classificationHint.suggestedLabelsText }}
@@ -775,49 +764,49 @@ function AlertSourceReadinessPreview({
                 </Typography.Text>
               </Space>
             }
-            message={localizeAlertSourceText(classificationHint.label, locale)}
+            message={localizeAlertSourceText(classificationHint.label, t)}
             showIcon
             type="warning"
           />
         )}
         <Space wrap>
           {readiness.capabilities.map((capability) => (
-            <Tag key={capability}>{localizeAlertSourceText(capability, locale)}</Tag>
+            <Tag key={capability}>{localizeAlertSourceText(capability, t)}</Tag>
           ))}
         </Space>
         <Alert
           description={
             <Space direction="vertical" size={6}>
-              <Typography.Text>{localizeAlertSourceText(providerGuidance.detail, locale)}</Typography.Text>
+              <Typography.Text>{localizeAlertSourceText(providerGuidance.detail, t)}</Typography.Text>
               {providerGuidance.items.map((item) => (
                 <Space align="start" key={item.key} size={6}>
-                  <Tag>{item.value}</Tag>
+                  <Tag>{localizeAlertSourceText(item.value, t)}</Tag>
                   <Space direction="vertical" size={0}>
-                    <Typography.Text>{localizeAlertSourceText(item.label, locale)}</Typography.Text>
+                    <Typography.Text>{localizeAlertSourceText(item.label, t)}</Typography.Text>
                     <Typography.Text type="secondary">
-                      {localizeAlertSourceText(item.detail, locale)}
+                      {localizeAlertSourceText(item.detail, t)}
                     </Typography.Text>
                   </Space>
                 </Space>
               ))}
             </Space>
           }
-          message={localizeAlertSourceText(providerGuidance.label, locale)}
+          message={localizeAlertSourceText(providerGuidance.label, t)}
           showIcon
           type="info"
         />
         <Descriptions column={1} items={items} size="small" />
-        <OperatorChecklist locale={locale} steps={operatorChecklist} t={t} />
+        <OperatorChecklist steps={operatorChecklist} t={t} />
       </Space>
     </div>
   );
 }
 
 function ConnectionTargetsDescription({
-  locale,
+  t,
   targets,
 }: {
-  locale: string;
+  t: AlertSourceTranslator;
   targets: AlertSourceConnectionTargetPreview[];
 }) {
   return (
@@ -828,7 +817,7 @@ function ConnectionTargetsDescription({
           key={target.label}
           type="secondary"
         >
-          {localizeAlertSourceText(target.label, locale)}: {target.value}
+          {localizeAlertSourceText(target.label, t)}: {target.value}
         </Typography.Text>
       ))}
     </Space>
@@ -836,11 +825,9 @@ function ConnectionTargetsDescription({
 }
 
 function OperatorChecklist({
-  locale,
   steps,
   t,
 }: {
-  locale: string;
   steps: AlertSourceOperatorStep[];
   t: AlertSourceTranslator;
 }) {
@@ -856,8 +843,8 @@ function OperatorChecklist({
             {alertSourceReadinessLabel(step.status, t)}
           </Tag>
           <Space direction="vertical" size={0}>
-            <Typography.Text strong>{localizeAlertSourceText(step.label, locale)}</Typography.Text>
-            <Typography.Text type="secondary">{localizeAlertSourceText(step.detail, locale)}</Typography.Text>
+            <Typography.Text strong>{localizeAlertSourceText(step.label, t)}</Typography.Text>
+            <Typography.Text type="secondary">{localizeAlertSourceText(step.detail, t)}</Typography.Text>
           </Space>
         </Space>
       ))}
@@ -981,7 +968,7 @@ function AlertSourceTable({
     {
       key: "ai_role",
       title: t("aiRole"),
-      render: (_value, profile) => <AlertSourceAIRole locale={locale} profile={profile} t={t} />,
+      render: (_value, profile) => <AlertSourceAIRole profile={profile} t={t} />,
     },
     {
       dataIndex: "base_url",
@@ -997,7 +984,7 @@ function AlertSourceTable({
       key: "ingest",
       title: t("ingest"),
       render: (_value, profile) => (
-        <IngestEndpoint locale={locale} profile={profile} publicAPIBaseURL={publicAPIBaseURL} t={t} />
+        <IngestEndpoint profile={profile} publicAPIBaseURL={publicAPIBaseURL} t={t} />
       ),
     },
     {
@@ -1048,7 +1035,7 @@ function AlertSourceTable({
           bindings={automationBindingsBySourceID[profile.id]}
           profile={profile}
           result={testResults[profile.id]}
-          locale={locale}
+          t={t}
           workflowReturn={workflowReturn}
         />
       ),
@@ -1119,11 +1106,9 @@ function AlertSourceTable({
 }
 
 function AlertSourceAIRole({
-  locale,
   profile,
   t,
 }: {
-  locale: string;
   profile: AlertSourceProfile;
   t: AlertSourceTranslator;
 }) {
@@ -1139,10 +1124,10 @@ function AlertSourceAIRole({
         </Tag>
       </Space>
       <Typography.Text
-        ellipsis={{ tooltip: localizeAlertSourceText(readiness.detail, locale) }}
+        ellipsis={{ tooltip: localizeAlertSourceText(readiness.detail, t) }}
         type="secondary"
       >
-        {localizeAlertSourceText(readiness.label, locale)}
+        {localizeAlertSourceText(readiness.label, t)}
       </Typography.Text>
     </Space>
   );
@@ -1150,15 +1135,15 @@ function AlertSourceAIRole({
 
 function AlertSourceNextSetupActions({
   bindings,
-  locale,
   profile,
   result,
+  t,
   workflowReturn,
 }: {
   bindings?: AlertSourceAutomationBindings;
-  locale: string;
   profile: AlertSourceProfile;
   result?: AlertSourceConnectionTestResult;
+  t: AlertSourceTranslator;
   workflowReturn: AlertSourceWorkflowReturn | null;
 }) {
   const readiness = alertSourceAutomationSetupReadiness(
@@ -1170,17 +1155,17 @@ function AlertSourceNextSetupActions({
     <Space direction="vertical" size={4}>
       <Space size={[4, 4]} wrap>
         <Tag color={alertSourceReadinessColor(readiness.status)}>
-          {localizeAlertSourceText(readiness.label, locale)}
+          {localizeAlertSourceText(readiness.label, t)}
         </Tag>
       </Space>
-      <Typography.Text ellipsis={{ tooltip: localizeAlertSourceText(readiness.detail, locale) }} type="secondary">
-        {localizeAlertSourceText(readiness.detail, locale)}
+      <Typography.Text ellipsis={{ tooltip: localizeAlertSourceText(readiness.detail, t) }} type="secondary">
+        {localizeAlertSourceText(readiness.detail, t)}
       </Typography.Text>
       <Space size={[4, 4]} wrap>
         {readiness.steps.map((step) => (
-          <Tooltip key={step.key} title={localizeAlertSourceText(step.detail, locale)}>
+          <Tooltip key={step.key} title={localizeAlertSourceText(step.detail, t)}>
             <Tag color={alertSourceReadinessColor(step.status)}>
-              {localizeAlertSourceText(step.label, locale)}
+              {localizeAlertSourceText(step.label, t)}
             </Tag>
           </Tooltip>
         ))}
@@ -1190,14 +1175,14 @@ function AlertSourceNextSetupActions({
           bindings,
           workflowReturn,
         }).map((action) => (
-          <Tooltip key={action.key} title={localizeAlertSourceText(action.detail, locale)}>
+          <Tooltip key={action.key} title={localizeAlertSourceText(action.detail, t)}>
             <Button
               href={action.href}
               icon={alertSourceNextSetupActionIcon(action.key)}
               size="small"
               type="link"
             >
-              {localizeAlertSourceText(action.label, locale)}
+              {localizeAlertSourceText(action.label, t)}
             </Button>
           </Tooltip>
         ))}
@@ -1307,12 +1292,10 @@ function alertSourceNextSetupActionIcon(actionKey: string) {
 }
 
 function IngestEndpoint({
-  locale,
   profile,
   publicAPIBaseURL,
   t,
 }: {
-  locale: string;
   profile: AlertSourceProfile;
   publicAPIBaseURL: string;
   t: AlertSourceTranslator;
@@ -1339,12 +1322,12 @@ function IngestEndpoint({
         {config.endpoint}
       </Typography.Text>
       <Typography.Text
-        ellipsis={{ tooltip: localizeAlertSourceText(config.endpointGuidance, locale) }}
+        ellipsis={{ tooltip: localizeAlertSourceText(config.endpointGuidance, t) }}
         type={config.endpointScope === "absolute" ? "secondary" : "warning"}
       >
-        {localizeAlertSourceText(config.endpointGuidance, locale)}
+        {localizeAlertSourceText(config.endpointGuidance, t)}
       </Typography.Text>
-      <Typography.Text type="secondary">{localizeAlertSourceText(config.authorization, locale)}</Typography.Text>
+      <Typography.Text type="secondary">{localizeAlertSourceText(config.authorization, t)}</Typography.Text>
       <Space align="start" direction="vertical" size={0}>
         <Typography.Text type="secondary">
           {t("receiver", { name: config.receiverName })}
@@ -1367,10 +1350,10 @@ function IngestEndpoint({
           {config.routeYAML}
         </Typography.Paragraph>
         <Typography.Text
-          ellipsis={{ tooltip: localizeAlertSourceText(config.routeGuidance, locale) }}
+          ellipsis={{ tooltip: localizeAlertSourceText(config.routeGuidance, t) }}
           type="secondary"
         >
-          {localizeAlertSourceText(config.routeGuidance, locale)}
+          {localizeAlertSourceText(config.routeGuidance, t)}
         </Typography.Text>
       </Space>
       <Space
@@ -1382,21 +1365,21 @@ function IngestEndpoint({
         <Typography.Text type="secondary">{t("applyInAlertmanager")}</Typography.Text>
         {config.routingChecklist.map((item) => (
           <Space align="start" key={item.key} size={6}>
-            <Tag>{localizeAlertSourceText(item.label, locale)}</Tag>
+            <Tag>{localizeAlertSourceText(item.label, t)}</Tag>
             <Typography.Text
-              ellipsis={{ tooltip: localizeAlertSourceText(item.detail, locale) }}
+              ellipsis={{ tooltip: localizeAlertSourceText(item.detail, t) }}
               type="secondary"
             >
-              {localizeAlertSourceText(item.detail, locale)}
+              {localizeAlertSourceText(item.detail, t)}
             </Typography.Text>
           </Space>
         ))}
       </Space>
       <Typography.Text
-        ellipsis={{ tooltip: localizeAlertSourceText(config.detail, locale) }}
+        ellipsis={{ tooltip: localizeAlertSourceText(config.detail, t) }}
         type="secondary"
       >
-        {localizeAlertSourceText(config.detail, locale)}
+        {localizeAlertSourceText(config.detail, t)}
       </Typography.Text>
     </Space>
   );
@@ -1417,7 +1400,7 @@ function ConnectionTestResult({
   return (
     <Space direction="vertical" size={2}>
       <Tag color={connectionStatusColor(result.status)}>
-        {localizeAlertSourceText(result.status, locale)}
+        {localizeAlertSourceText(result.status, t)}
       </Tag>
       <Typography.Text type="secondary">{result.reason_code}</Typography.Text>
       <Typography.Text ellipsis={{ tooltip: result.message }} type="secondary">
@@ -1504,290 +1487,354 @@ function noticeKindForConnectionStatus(
   }
 }
 
-function localizeAlertSourceText(value: string, locale: string): string {
-  if (locale !== "zh-CN") {
-    return value;
-  }
-  const exact: Readonly<Record<string, string>> = {
-    blocked: "已阻塞",
-    failed: "失败",
-    success: "成功",
-    unsupported: "不支持",
-    "Add receiver": "添加接收器",
-    "Base URL is required.": "基础 URL 为必填项。",
-    "Base URL must be 2048 bytes or fewer.": "基础 URL 不能超过 2048 字节。",
-    "Base URL must be a valid URL.": "基础 URL 必须是有效 URL。",
-    "Base URL must not include query or fragment.":
-      "基础 URL 不能包含查询参数或片段。",
-    "Base URL must not include userinfo.": "基础 URL 不能包含用户信息。",
-    "Base URL scheme must be http or https.":
-      "基础 URL 协议必须是 http 或 https。",
-    "Bind active_alerts, metric evidence, Enterprise WeChat delivery, and an auto-room workflow before rollout.":
-      "上线前请绑定 active_alerts、指标证据、企业微信交付和自动诊断室工作流。",
-    "Bind this source to grouping, report replay, and diagnosis evidence workflows.":
-      "请将此告警源绑定到分组、报告重放和诊断证据工作流。",
-    "Bind this source to report replay and diagnosis evidence workflows.":
-      "请将此告警源绑定到报告重放和诊断证据工作流。",
-    "Configure Alertmanager, or another Alertmanager webhook-compatible sender, to POST webhook v4 JSON to this endpoint. Thanos Rule alerts should normally route through Alertmanager first. Resolved, silenced, inhibited, and muted alerts are ignored during ingest.":
-      "请配置 Alertmanager 或其他兼容 Alertmanager Webhook 的发送方，将 Webhook v4 JSON 通过 POST 发送到此端点。Thanos Rule 告警通常应先路由到 Alertmanager。接入时会忽略已恢复、静默、抑制和停用的告警。",
-    "Configure a WeCom channel with report, diagnosis_consultation, and diagnosis_close scopes; workflow setup verifies delivery proof.":
-      "请配置具有 report、diagnosis_consultation 和 diagnosis_close 范围的企业微信渠道；工作流配置会验证交付证明。",
-    "Create a WeCom report and AI-room channel for report, diagnosis consultation, and close notifications.":
-      "请创建企业微信报告与 AI 诊断室渠道，用于报告、诊断会诊和关闭通知。",
-    "Create a metric evidence template bound to this Prometheus-compatible source.":
-      "请创建绑定到此 Prometheus 兼容告警源的指标证据模板。",
-    "Create a Prometheus-compatible metric evidence source, usually Thanos Query, and add metric_query or metric_range_query templates.":
-      "请创建 Prometheus 兼容的指标证据源（通常为 Thanos Query），并添加 metric_query 或 metric_range_query 模板。",
-    "Create an active_alerts evidence template bound to this Prometheus-compatible source.":
-      "请创建绑定到此 Prometheus 兼容告警源的 active_alerts 证据模板。",
-    "Create an active_alerts evidence template bound to this Thanos Rule source.":
-      "请创建绑定到此 Thanos Rule 告警源的 active_alerts 证据模板。",
-    "Create an active_alerts evidence template for this source; do not use it as the metric confidence source.":
-      "请为此告警源创建 active_alerts 证据模板；不要将其用作指标置信度来源。",
-    "Create an active_alerts evidence template for this source.":
-      "请为此告警源创建 active_alerts 证据模板。",
-    "Create metric_query or metric_range_query evidence templates so AI diagnosis can request follow-up metrics before finalizing.":
-      "请创建 metric_query 或 metric_range_query 证据模板，使 AI 诊断能在定稿前请求后续指标。",
-    "Create or enable a Prometheus-compatible metric evidence source, usually Thanos Query, for AI confidence-building queries.":
-      "请创建或启用 Prometheus 兼容的指标证据源（通常为 Thanos Query），用于提升 AI 诊断置信度的查询。",
-    "Create or update an automatic diagnosis workflow after the alert tool is ready.":
-      "告警工具就绪后，请创建或更新自动诊断工作流。",
-    "Enable this Thanos Rule source before using it for active-alert evidence.":
-      "将此 Thanos Rule 告警源用于活动告警证据前，请先启用。",
-    "Keep source=thanos-rule so metric probes are skipped and the source is treated as active-alert evidence only.":
-      "请保留 source=thanos-rule，以跳过指标探测并仅将此告警源用作活动告警证据。",
-    "Labels must contain 32 entries or fewer.": "标签不能超过 32 项。",
-    "Labels must not contain control characters.": "标签不能包含控制字符。",
-    "Merge this child route under the existing Alertmanager route.routes list, then adjust matchers to the alert labels OpenClarion should diagnose.":
-      "请将此子路由合并到现有 Alertmanager route.routes 列表中，并按 OpenClarion 应诊断的告警标签调整匹配器。",
-    "Paste the Alertmanager route prefix, the UI alerts page, or /api/v2/alerts. OpenClarion stores the route prefix and tests the active alerts API.":
-      "请粘贴 Alertmanager 路由前缀、UI 告警页或 /api/v2/alerts。OpenClarion 会保存路由前缀并测试活动告警 API。",
-    "Paste the Thanos Rule route prefix, /alerts, or /api/v1/alerts. OpenClarion stores the route prefix and only tests active alerts.":
-      "请粘贴 Thanos Rule 路由前缀、/alerts 或 /api/v1/alerts。OpenClarion 会保存路由前缀并仅测试活动告警。",
-    "Paste the route prefix, graph page, /api/v1/query, or /api/v1/query_range. OpenClarion stores the route prefix and tests alerts plus vector(1).":
-      "请粘贴路由前缀、图表页、/api/v1/query 或 /api/v1/query_range。OpenClarion 会保存路由前缀，并测试告警与 vector(1)。",
-    "Prepared an enabled Thanos Rule active-alert source. Paste the Thanos Rule alerts URL or API base URL, then save and test it before adding active-alert evidence. Use Alertmanager for webhook-triggered automatic diagnosis rooms.":
-      "已准备启用的 Thanos Rule 活动告警源。请填写 Thanos Rule 告警 URL 或 API 基础 URL，保存并测试后再添加活动告警证据。由 Webhook 触发的自动诊断室请使用 Alertmanager。",
-    "Profile name is required.": "配置名称为必填项。",
-    "Profile name must be 120 bytes or fewer.": "配置名称不能超过 120 字节。",
-    "Provider test passed and active_alerts evidence is bound to this Thanos Rule source.":
-      "提供方测试已通过，active_alerts 证据已绑定到此 Thanos Rule 告警源。",
-    "Provider test passed and evidence templates exist for active alerts plus metric collection.":
-      "提供方测试已通过，活动告警和指标采集证据模板均已存在。",
-    "Provider test passed and internal AI diagnosis bindings include active alerts, metric evidence, and an automatic workflow. Apply the Alertmanager receiver route, then retain webhook delivery proof before rollout.":
-      "提供方测试已通过，内部 AI 诊断绑定已包含活动告警、指标证据和自动工作流。请应用 Alertmanager 接收器路由，并在上线前保留 Webhook 交付证明。",
-    "Provider test passed. Copy the receiver config, create active_alerts plus metric evidence templates, then bind an automatic diagnosis workflow.":
-      "提供方测试已通过。请复制接收器配置，创建 active_alerts 与指标证据模板，然后绑定自动诊断工作流。",
-    "Provider test passed. Create an active_alerts template for this Thanos Rule source; use Thanos Query for metric evidence and Alertmanager for webhook-triggered automatic rooms.":
-      "提供方测试已通过。请为此 Thanos Rule 告警源创建 active_alerts 模板；指标证据使用 Thanos Query，由 Webhook 触发的自动诊断室使用 Alertmanager。",
-    "Provider test passed. Create metric and active_alerts templates so diagnosis rooms can collect evidence from this source.":
-      "提供方测试已通过。请创建指标和 active_alerts 模板，使诊断室能够从此告警源采集证据。",
-    "Reload Alertmanager, then run Test in OpenClarion and send a bounded synthetic alert to confirm webhook delivery.":
-      "请重载 Alertmanager，然后在 OpenClarion 中运行测试并发送有界合成告警，以确认 Webhook 交付。",
-    "Return to workflow policies after the metric source is tested and evidence templates are ready.":
-      "指标源测试通过且证据模板就绪后，请返回工作流策略。",
-    "Run Test to confirm Thanos Rule /api/v1/alerts is reachable.":
-      "请运行测试以确认 Thanos Rule /api/v1/alerts 可访问。",
-    "Run Test to confirm active alerts and the vector(1) metric probe both succeed.":
-      "请运行测试以确认活动告警和 vector(1) 指标探测均成功。",
-    "Run Test to confirm active=true with silenced, inhibited, and unprocessed alerts excluded.":
-      "请运行测试以确认 active=true，并排除静默、抑制和未处理的告警。",
-    "Thanos Rule source is ready for active-alert evidence from /api/v1/alerts. Use Thanos Query for metric evidence and Alertmanager for webhook intake.":
-      "Thanos Rule 告警源已可通过 /api/v1/alerts 提供活动告警证据。指标证据请使用 Thanos Query，Webhook 接入请使用 Alertmanager。",
-    "The persisted source row exposes the OpenClarion webhook receiver URL and scoped Alertmanager route YAML.":
-      "保存后的告警源记录会显示 OpenClarion Webhook 接收器 URL 和限定范围的 Alertmanager 路由 YAML。",
-    "The profile can be saved as a draft, but workflows and diagnosis tools require it to be enabled.":
-      "此配置可以保存为草稿，但工作流和诊断工具要求先启用。",
-    "This looks like a rule-service active-alert URL. If it is Thanos Rule, use the Thanos Rule preset or add source=thanos-rule so OpenClarion skips metric probes and uses this source only for active-alert evidence.":
-      "此 URL 看起来是规则服务的活动告警地址。如果它属于 Thanos Rule，请使用 Thanos Rule 预设或添加 source=thanos-rule，使 OpenClarion 跳过指标探测并仅将其用于活动告警证据。",
-    "Use Alertmanager as the webhook source for automatic diagnosis rooms; bind Thanos Rule as supplemental active-alert evidence.":
-      "自动诊断室的 Webhook 告警源请使用 Alertmanager，并将 Thanos Rule 绑定为补充活动告警证据。",
-    "Use Alertmanager when alerts should trigger automatic AI diagnosis rooms through webhook delivery. OpenClarion also tests the active alerts API with silenced, inhibited, and unprocessed alerts excluded.":
-      "当告警需要通过 Webhook 交付触发自动 AI 诊断室时，请使用 Alertmanager。OpenClarion 还会测试活动告警 API，并排除静默、抑制和未处理的告警。",
-    "Use Prometheus-compatible sources, including Thanos Query, for metric evidence that raises diagnosis confidence after the initial alert report.":
-      "请使用 Prometheus 兼容告警源（包括 Thanos Query）提供指标证据，以在初始告警报告后提高诊断置信度。",
-    "Use Thanos Rule as supplemental active-alert evidence. Route webhook-triggered automatic rooms through Alertmanager and use Thanos Query for metric evidence.":
-      "请将 Thanos Rule 用作补充活动告警证据。由 Webhook 触发的自动诊断室通过 Alertmanager 路由，指标证据使用 Thanos Query。",
-    "Use source=thanos for Thanos Query or source=prometheus for a direct Prometheus server.":
-      "Thanos Query 请使用 source=thanos，直连 Prometheus 服务器请使用 source=prometheus。",
-    "Use this source for active_alerts evidence templates. Use Thanos Query for metric_query and metric_range evidence.":
-      "请将此告警源用于 active_alerts 证据模板，并使用 Thanos Query 提供 metric_query 和 metric_range 证据。",
-    "Use this source for active_alerts, metric_query, and metric_range evidence templates.":
-      "请将此告警源用于 active_alerts、metric_query 和 metric_range 证据模板。",
-    "source=thanos-rule": "source=thanos-rule",
-    "Active alert evidence complete": "活动告警证据已配置",
-    "Active alert evidence ready": "可配置活动告警证据",
-    "Active alert listing": "活动告警列表",
-    "Active alert pull": "拉取活动告警",
-    "Active alerts": "活动告警",
-    "Active alerts disabled.": "活动告警已停用。",
-    "Active alerts ready.": "活动告警已就绪。",
-    "alert webhook intake or active-alert evidence":
-      "告警 Webhook 接入或活动告警证据",
-    "AI Channel": "AI 通知渠道",
-    "AI channel": "AI 通知渠道",
-    "Alert API": "告警 API",
-    "Alert Tool": "告警工具",
-    "Alert intake disabled.": "告警接入已停用。",
-    "Alert intake ready.": "告警接入已就绪。",
-    "Alert tool": "告警工具",
-    "Alertmanager": "Alertmanager",
-    "Alertmanager alert intake": "Alertmanager 告警接入",
-    "Alertmanager integration": "Alertmanager 集成",
-    "Alertmanager route prefix": "Alertmanager 路由前缀",
-    "Alertmanager webhook ingest": "Alertmanager Webhook 接入",
-    "Auto Workflow": "自动诊断工作流",
-    "Auto workflow": "自动诊断工作流",
-    "Automatic diagnosis trigger": "自动诊断触发器",
-    "Back to workflow": "返回工作流",
-    "Base URL": "基础 URL",
-    "Bearer auth requires a secret reference.": "Bearer 认证需要密钥引用。",
-    "Bind route": "绑定路由",
-    "Complete source configuration.": "请完成告警源配置。",
-    "Confidence-building evidence": "用于提升置信度的证据",
-    "Connection test": "连接测试",
-    "Connection test blocked": "连接测试已阻塞",
-    "Connection test required": "需要连接测试",
-    "Create metric evidence templates for instant and range queries.":
-      "请创建即时查询和范围查询的指标证据模板。",
-    "Diagnosis tools": "诊断工具",
-    "Enable Workflow": "启用工作流",
-    "Enabled source": "已启用告警源",
-    "Evidence setup complete": "证据配置已完成",
-    "Evidence setup ready": "可以配置证据",
-    "Generic Alertmanager-compatible active alerts and webhooks.":
-      "通用的 Alertmanager 兼容活动告警与 Webhook。",
-    "Generic Prometheus-compatible alerts and metric evidence.":
-      "通用的 Prometheus 兼容告警与指标证据。",
-    "Instant metric evidence": "即时指标证据",
-    "Labels": "标签",
-    "Last connection test did not pass.": "最近一次连接测试未通过。",
-    "Last connection test passed.": "最近一次连接测试已通过。",
-    "Load diagnosis tool templates to check active_alerts coverage.":
-      "请加载诊断工具模板以检查 active_alerts 覆盖情况。",
-    "Load diagnosis tool templates to check metric evidence coverage.":
-      "请加载诊断工具模板以检查指标证据覆盖情况。",
-    "Load report workflow policies to check whether an enabled automatic workflow already binds an Enterprise WeChat AI channel.":
-      "请加载报告工作流策略，检查已启用的自动工作流是否绑定企业微信 AI 渠道。",
-    "Load workflow policies to check automatic diagnosis binding.":
-      "请加载工作流策略以检查自动诊断绑定。",
-    "Metric Source": "指标源",
-    "Metric Tool": "指标工具",
-    "Metric evidence": "指标证据",
-    "Metric evidence disabled.": "指标证据已停用。",
-    "Metric evidence ready.": "指标证据已就绪。",
-    "Metric evidence source": "指标证据源",
-    "metric evidence collection": "指标证据采集",
-    "Metric probe": "指标探测",
-    "Metric queries not required": "无需指标查询",
-    "Metric tools": "指标工具",
-    "No Authorization header": "不发送 Authorization 请求头",
-    "Prepared an enabled Alertmanager source. Paste the base URL, then save and test it before binding workflows.":
-      "已准备启用的 Alertmanager 告警源。请填写基础 URL，保存并测试后再绑定工作流。",
-    "Prepared an enabled Prometheus-compatible source. Paste the base URL, then save and test it before adding metric evidence tools.":
-      "已准备启用的 Prometheus 兼容告警源。请填写基础 URL，保存并测试后再添加指标证据工具。",
-    "Prepared an enabled Thanos Query source. Paste the base URL, then save and test it before adding metric evidence tools.":
-      "已准备启用的 Thanos Query 告警源。请填写基础 URL，保存并测试后再添加指标证据工具。",
-    "Prometheus": "Prometheus",
-    "Prometheus metric evidence": "Prometheus 指标证据",
-    "Prometheus-compatible": "Prometheus 兼容",
-    "Prometheus-compatible active alerts from Thanos Rule.":
-      "来自 Thanos Rule 的 Prometheus 兼容活动告警。",
-    "Prometheus-compatible integration": "Prometheus 兼容集成",
-    "Prometheus-compatible metric evidence.": "Prometheus 兼容指标证据。",
-    "Prometheus-compatible query API": "Prometheus 兼容查询 API",
-    "Range metric evidence": "范围指标证据",
-    "Receiver after save": "保存后生成接收器",
-    "Receiver route": "接收器路由",
-    "Reload and test": "重载并测试",
-    "Review Workflow": "检查工作流",
-    "Review Thanos Rule classification.": "检查 Thanos Rule 分类。",
-    "Run Test to verify provider reachability and credentials.":
-      "请运行测试以验证提供方可达性和凭据。",
-    "Secret reference requires bearer auth.": "只有 Bearer 认证可以使用密钥引用。",
-    "Secret reference must be 256 bytes or fewer.": "密钥引用不能超过 256 字节。",
-    "Secret reference must not contain whitespace or control characters.":
-      "密钥引用不能包含空白符或控制字符。",
-    "Silenced/inhibited alerts ignored": "忽略静默或抑制的告警",
-    "Source disabled": "告警源已停用",
-    "Source profile": "告警源配置",
-    "Source ready for workflows.": "告警源已可用于工作流。",
-    "Source will be saved as draft.": "告警源将保存为草稿。",
-    "Supplemental active alerts": "补充活动告警",
-    "Thanos Query": "Thanos Query",
-    "Thanos Rule": "Thanos Rule",
-    "Thanos Rule active alerts": "Thanos Rule 活动告警",
-    "Thanos Rule alerts API": "Thanos Rule 告警 API",
-    "Thanos Rule integration": "Thanos Rule 集成",
-    "Webhook intake": "Webhook 接入",
-    "Webhook proof": "Webhook 交付证明",
-    "Webhook proof needed": "需要 Webhook 交付证明",
-    "Webhook setup ready": "可以配置 Webhook",
-    "Workflow": "工作流",
-    "Workflow binding": "工作流绑定",
-  };
-  if (exact[value] !== undefined) {
-    return exact[value]!;
+const alertSourceRuntimeTextKeys = {
+    "blocked": "runtimeText.blocked",
+    "failed": "runtimeText.failed",
+    "success": "runtimeText.success",
+    "unsupported": "runtimeText.unsupported",
+    "Add receiver": "runtimeText.addReceiver",
+    "Base URL is required.": "runtimeText.baseUrlIsRequired",
+    "Base URL must be 2048 bytes or fewer.": "runtimeText.baseUrlMustBe2048BytesOrFewer",
+    "Base URL must be a valid URL.": "runtimeText.baseUrlMustBeAValidUrl",
+    "Base URL must not include query or fragment.": "runtimeText.baseUrlMustNotIncludeQueryOrFragment",
+    "Base URL must not include userinfo.": "runtimeText.baseUrlMustNotIncludeUserinfo",
+    "Base URL scheme must be http or https.": "runtimeText.baseUrlSchemeMustBeHttpOrHttps",
+    "Bind active_alerts, metric evidence, Enterprise WeChat delivery, and an auto-room workflow before rollout.": "runtimeText.bindActiveAlertsMetricEvidenceEnterpriseWechatDeliveryAndAnAutoRoom",
+    "Bind this source to grouping, report replay, and diagnosis evidence workflows.": "runtimeText.bindThisSourceToGroupingReportReplayAndDiagnosisEvidenceWorkflows",
+    "Bind this source to report replay and diagnosis evidence workflows.": "runtimeText.bindThisSourceToReportReplayAndDiagnosisEvidenceWorkflows",
+    "Configure Alertmanager, or another Alertmanager webhook-compatible sender, to POST webhook v4 JSON to this endpoint. Thanos Rule alerts should normally route through Alertmanager first. Resolved, silenced, inhibited, and muted alerts are ignored during ingest.": "runtimeText.configureAlertmanagerOrAnotherAlertmanagerWebhookCompatibleSenderToPostWebhookV4",
+    "Configure a WeCom channel with report, diagnosis_consultation, and diagnosis_close scopes; workflow setup verifies delivery proof.": "runtimeText.configureAWecomChannelWithReportDiagnosisConsultationAndDiagnosisCloseScopes",
+    "Create a WeCom report and AI-room channel for report, diagnosis consultation, and close notifications.": "runtimeText.createAWecomReportAndAiRoomChannelForReportDiagnosisConsultation",
+    "Create a metric evidence template bound to this Prometheus-compatible source.": "runtimeText.createAMetricEvidenceTemplateBoundToThisPrometheusCompatibleSource",
+    "Create a Prometheus-compatible metric evidence source, usually Thanos Query, and add metric_query or metric_range_query templates.": "runtimeText.createAPrometheusCompatibleMetricEvidenceSourceUsuallyThanosQueryAndAdd",
+    "Create an active_alerts evidence template bound to this Prometheus-compatible source.": "runtimeText.createAnActiveAlertsEvidenceTemplateBoundToThisPrometheusCompatibleSource",
+    "Create an active_alerts evidence template bound to this Thanos Rule source.": "runtimeText.createAnActiveAlertsEvidenceTemplateBoundToThisThanosRuleSource",
+    "Create an active_alerts evidence template for this source; do not use it as the metric confidence source.": "runtimeText.createAnActiveAlertsEvidenceTemplateForThisSourceDoNotUse",
+    "Create an active_alerts evidence template for this source.": "runtimeText.createAnActiveAlertsEvidenceTemplateForThisSource",
+    "Create metric_query or metric_range_query evidence templates so AI diagnosis can request follow-up metrics before finalizing.": "runtimeText.createMetricQueryOrMetricRangeQueryEvidenceTemplatesSoAiDiagnosis",
+    "Create or enable a Prometheus-compatible metric evidence source, usually Thanos Query, for AI confidence-building queries.": "runtimeText.createOrEnableAPrometheusCompatibleMetricEvidenceSourceUsuallyThanosQuery",
+    "Create or update an automatic diagnosis workflow after the alert tool is ready.": "runtimeText.createOrUpdateAnAutomaticDiagnosisWorkflowAfterTheAlertToolIs",
+    "Enable this Thanos Rule source before using it for active-alert evidence.": "runtimeText.enableThisThanosRuleSourceBeforeUsingItForActiveAlertEvidence",
+    "Keep source=thanos-rule so metric probes are skipped and the source is treated as active-alert evidence only.": "runtimeText.keepSourceThanosRuleSoMetricProbesAreSkippedAndTheSource",
+    "Labels must contain 32 entries or fewer.": "runtimeText.labelsMustContain32EntriesOrFewer",
+    "Labels must not contain control characters.": "runtimeText.labelsMustNotContainControlCharacters",
+    "Merge this child route under the existing Alertmanager route.routes list, then adjust matchers to the alert labels OpenClarion should diagnose.": "runtimeText.mergeThisChildRouteUnderTheExistingAlertmanagerRouteRoutesListThen",
+    "Paste the Alertmanager route prefix, the UI alerts page, or /api/v2/alerts. OpenClarion stores the route prefix and tests the active alerts API.": "runtimeText.pasteTheAlertmanagerRoutePrefixTheUiAlertsPageOrApiV2",
+    "Paste the Thanos Rule route prefix, /alerts, or /api/v1/alerts. OpenClarion stores the route prefix and only tests active alerts.": "runtimeText.pasteTheThanosRuleRoutePrefixAlertsOrApiV1AlertsOpenclarion",
+    "Paste the route prefix, graph page, /api/v1/query, or /api/v1/query_range. OpenClarion stores the route prefix and tests alerts plus vector(1).": "runtimeText.pasteTheRoutePrefixGraphPageApiV1QueryOrApiV1",
+    "Prepared an enabled Thanos Rule active-alert source. Paste the Thanos Rule alerts URL or API base URL, then save and test it before adding active-alert evidence. Use Alertmanager for webhook-triggered automatic diagnosis rooms.": "runtimeText.preparedAnEnabledThanosRuleActiveAlertSourcePasteTheThanosRule",
+    "Profile name is required.": "runtimeText.profileNameIsRequired",
+    "Profile name must be 120 bytes or fewer.": "runtimeText.profileNameMustBe120BytesOrFewer",
+    "Provider test passed and active_alerts evidence is bound to this Thanos Rule source.": "runtimeText.providerTestPassedAndActiveAlertsEvidenceIsBoundToThisThanos",
+    "Provider test passed and evidence templates exist for active alerts plus metric collection.": "runtimeText.providerTestPassedAndEvidenceTemplatesExistForActiveAlertsPlusMetric",
+    "Provider test passed and internal AI diagnosis bindings include active alerts, metric evidence, and an automatic workflow. Apply the Alertmanager receiver route, then retain webhook delivery proof before rollout.": "runtimeText.providerTestPassedAndInternalAiDiagnosisBindingsIncludeActiveAlertsMetric",
+    "Provider test passed. Copy the receiver config, create active_alerts plus metric evidence templates, then bind an automatic diagnosis workflow.": "runtimeText.providerTestPassedCopyTheReceiverConfigCreateActiveAlertsPlusMetric",
+    "Provider test passed. Create an active_alerts template for this Thanos Rule source; use Thanos Query for metric evidence and Alertmanager for webhook-triggered automatic rooms.": "runtimeText.providerTestPassedCreateAnActiveAlertsTemplateForThisThanosRule",
+    "Provider test passed. Create metric and active_alerts templates so diagnosis rooms can collect evidence from this source.": "runtimeText.providerTestPassedCreateMetricAndActiveAlertsTemplatesSoDiagnosisRooms",
+    "Reload Alertmanager, then run Test in OpenClarion and send a bounded synthetic alert to confirm webhook delivery.": "runtimeText.reloadAlertmanagerThenRunTestInOpenclarionAndSendABoundedSynthetic",
+    "Return to workflow policies after the metric source is tested and evidence templates are ready.": "runtimeText.returnToWorkflowPoliciesAfterTheMetricSourceIsTestedAndEvidence",
+    "Run Test to confirm Thanos Rule /api/v1/alerts is reachable.": "runtimeText.runTestToConfirmThanosRuleApiV1AlertsIsReachable",
+    "Run Test to confirm active alerts and the vector(1) metric probe both succeed.": "runtimeText.runTestToConfirmActiveAlertsAndTheVector1MetricProbe",
+    "Run Test to confirm active=true with silenced, inhibited, and unprocessed alerts excluded.": "runtimeText.runTestToConfirmActiveTrueWithSilencedInhibitedAndUnprocessedAlerts",
+    "Thanos Rule source is ready for active-alert evidence from /api/v1/alerts. Use Thanos Query for metric evidence and Alertmanager for webhook intake.": "runtimeText.thanosRuleSourceIsReadyForActiveAlertEvidenceFromApiV1",
+    "The persisted source row exposes the OpenClarion webhook receiver URL and scoped Alertmanager route YAML.": "runtimeText.thePersistedSourceRowExposesTheOpenclarionWebhookReceiverUrlAndScoped",
+    "This receiver URL is absolute and can be copied into an external Alertmanager route.": "runtimeText.thisReceiverUrlIsAbsoluteAndCanBeCopiedIntoAnExternalAlertmanagerRoute",
+    "The profile can be saved as a draft, but workflows and diagnosis tools require it to be enabled.": "runtimeText.theProfileCanBeSavedAsADraftButWorkflowsAndDiagnosis",
+    "This looks like a rule-service active-alert URL. If it is Thanos Rule, use the Thanos Rule preset or add source=thanos-rule so OpenClarion skips metric probes and uses this source only for active-alert evidence.": "runtimeText.thisLooksLikeARuleServiceActiveAlertUrlIfItIs",
+    "Use Alertmanager as the webhook source for automatic diagnosis rooms; bind Thanos Rule as supplemental active-alert evidence.": "runtimeText.useAlertmanagerAsTheWebhookSourceForAutomaticDiagnosisRoomsBindThanos",
+    "Use Alertmanager when alerts should trigger automatic AI diagnosis rooms through webhook delivery. OpenClarion also tests the active alerts API with silenced, inhibited, and unprocessed alerts excluded.": "runtimeText.useAlertmanagerWhenAlertsShouldTriggerAutomaticAiDiagnosisRoomsThroughWebhook",
+    "Use Prometheus-compatible sources, including Thanos Query, for metric evidence that raises diagnosis confidence after the initial alert report.": "runtimeText.usePrometheusCompatibleSourcesIncludingThanosQueryForMetricEvidenceThatRaises",
+    "Use Thanos Rule as supplemental active-alert evidence. Route webhook-triggered automatic rooms through Alertmanager and use Thanos Query for metric evidence.": "runtimeText.useThanosRuleAsSupplementalActiveAlertEvidenceRouteWebhookTriggeredAutomatic",
+    "Use source=thanos for Thanos Query or source=prometheus for a direct Prometheus server.": "runtimeText.useSourceThanosForThanosQueryOrSourcePrometheusForADirect",
+    "Use this source for active_alerts evidence templates. Use Thanos Query for metric_query and metric_range evidence.": "runtimeText.useThisSourceForActiveAlertsEvidenceTemplatesUseThanosQueryFor",
+    "Use this source for active_alerts, metric_query, and metric_range evidence templates.": "runtimeText.useThisSourceForActiveAlertsMetricQueryAndMetricRangeEvidence",
+    "source=thanos-rule": "runtimeText.sourceThanosRule",
+    "Active alert evidence complete": "runtimeText.activeAlertEvidenceComplete",
+    "Active alert evidence ready": "runtimeText.activeAlertEvidenceReady",
+    "Active alert listing": "runtimeText.activeAlertListing",
+    "Active alert pull": "runtimeText.activeAlertPull",
+    "Active alerts": "runtimeText.activeAlerts",
+    "Active alerts disabled.": "runtimeText.activeAlertsDisabled",
+    "Active alerts ready.": "runtimeText.activeAlertsReady",
+    "alert webhook intake or active-alert evidence": "runtimeText.alertWebhookIntakeOrActiveAlertEvidence",
+    "AI Channel": "runtimeText.aiChannel",
+    "AI channel": "runtimeText.aiChannel2",
+    "Alert API": "runtimeText.alertApi",
+    "Alert Tool": "runtimeText.alertTool",
+    "Alert intake disabled.": "runtimeText.alertIntakeDisabled",
+    "Alert intake ready.": "runtimeText.alertIntakeReady",
+    "Alert tool": "runtimeText.alertTool2",
+    "Alertmanager": "runtimeText.alertmanager",
+    "Alertmanager alert intake": "runtimeText.alertmanagerAlertIntake",
+    "Alertmanager integration": "runtimeText.alertmanagerIntegration",
+    "Alertmanager route prefix": "runtimeText.alertmanagerRoutePrefix",
+    "Alertmanager reads active alerts with silenced, inhibited, and unprocessed alerts filtered out.": "runtimeText.alertmanagerReadsFilteredActiveAlerts",
+    "Alertmanager webhook ingest": "runtimeText.alertmanagerWebhookIngest",
+    "Auto Workflow": "runtimeText.autoWorkflow",
+    "Auto workflow": "runtimeText.autoWorkflow2",
+    "Automatic diagnosis trigger": "runtimeText.automaticDiagnosisTrigger",
+    "Back to workflow": "runtimeText.backToWorkflow",
+    "Base URL": "runtimeText.baseUrl",
+    "Bearer auth requires a secret reference.": "runtimeText.bearerAuthRequiresASecretReference",
+    "Bind route": "runtimeText.bindRoute",
+    "Complete source configuration.": "runtimeText.completeSourceConfiguration",
+    "Copy the persisted webhook endpoint from the source row.": "runtimeText.copyPersistedWebhookEndpoint",
+    "Confidence-building evidence": "runtimeText.confidenceBuildingEvidence",
+    "Connection test": "runtimeText.connectionTest",
+    "Connection test blocked": "runtimeText.connectionTestBlocked",
+    "Connection test required": "runtimeText.connectionTestRequired",
+    "Create metric evidence templates for instant and range queries.": "runtimeText.createMetricEvidenceTemplatesForInstantAndRangeQueries",
+    "Diagnosis tools": "runtimeText.diagnosisTools",
+    "Enable Workflow": "runtimeText.enableWorkflow",
+    "Enabled source": "runtimeText.enabledSource",
+    "Enabled Alertmanager profile can be saved.": "runtimeText.enabledAlertmanagerProfileCanBeSaved",
+    "Enabled Prometheus-compatible profile can be saved.": "runtimeText.enabledPrometheusCompatibleProfileCanBeSaved",
+    "Enabled Thanos Rule active-alert profile can be saved.": "runtimeText.enabledThanosRuleProfileCanBeSaved",
+    "Evidence setup complete": "runtimeText.evidenceSetupComplete",
+    "Evidence setup ready": "runtimeText.evidenceSetupReady",
+    "Generic Alertmanager-compatible active alerts and webhooks.": "runtimeText.genericAlertmanagerCompatibleActiveAlertsAndWebhooks",
+    "Generic Prometheus-compatible alerts and metric evidence.": "runtimeText.genericPrometheusCompatibleAlertsAndMetricEvidence",
+    "Instant metric evidence": "runtimeText.instantMetricEvidence",
+    "Labels": "runtimeText.labels",
+    "Last connection test did not pass.": "runtimeText.lastConnectionTestDidNotPass",
+    "Last connection test passed.": "runtimeText.lastConnectionTestPassed",
+    "Load diagnosis tool templates to check active_alerts coverage.": "runtimeText.loadDiagnosisToolTemplatesToCheckActiveAlertsCoverage",
+    "Load diagnosis tool templates to check metric evidence coverage.": "runtimeText.loadDiagnosisToolTemplatesToCheckMetricEvidenceCoverage",
+    "Load report workflow policies to check whether an enabled automatic workflow already binds an Enterprise WeChat AI channel.": "runtimeText.loadReportWorkflowPoliciesToCheckWhetherAnEnabledAutomaticWorkflowAlready",
+    "Load workflow policies to check automatic diagnosis binding.": "runtimeText.loadWorkflowPoliciesToCheckAutomaticDiagnosisBinding",
+    "Metric Source": "runtimeText.metricSource",
+    "Metric Tool": "runtimeText.metricTool",
+    "Metric evidence": "runtimeText.metricEvidence",
+    "Metric evidence disabled.": "runtimeText.metricEvidenceDisabled",
+    "Metric evidence ready.": "runtimeText.metricEvidenceReady",
+    "Metric evidence source": "runtimeText.metricEvidenceSource",
+    "metric evidence collection": "runtimeText.metricEvidenceCollection",
+    "Metric probe": "runtimeText.metricProbe",
+    "Metric queries not required": "runtimeText.metricQueriesNotRequired",
+    "Metric tools": "runtimeText.metricTools",
+    "No Authorization header": "runtimeText.noAuthorizationHeader",
+    "Prepared an enabled Alertmanager source. Paste the base URL, then save and test it before binding workflows.": "runtimeText.preparedAnEnabledAlertmanagerSourcePasteTheBaseUrlThenSaveAnd",
+    "Prepared an enabled Prometheus-compatible source. Paste the base URL, then save and test it before adding metric evidence tools.": "runtimeText.preparedAnEnabledPrometheusCompatibleSourcePasteTheBaseUrlThenSave",
+    "Prepared an enabled Thanos Query source. Paste the base URL, then save and test it before adding metric evidence tools.": "runtimeText.preparedAnEnabledThanosQuerySourcePasteTheBaseUrlThenSave",
+    "Prometheus": "runtimeText.prometheus",
+    "Prometheus metric evidence": "runtimeText.prometheusMetricEvidence",
+    "Prometheus-compatible": "runtimeText.prometheusCompatible",
+    "Prometheus-compatible active alerts from Thanos Rule.": "runtimeText.prometheusCompatibleActiveAlertsFromThanosRule",
+    "Prometheus-compatible integration": "runtimeText.prometheusCompatibleIntegration",
+    "Prometheus-compatible metric evidence.": "runtimeText.prometheusCompatibleMetricEvidence",
+    "Prometheus-compatible query API": "runtimeText.prometheusCompatibleQueryApi",
+    "Prometheus-compatible sources support active alert reads and metric evidence collection.": "runtimeText.prometheusCompatibleSourcesSupportAlertsAndMetrics",
+    "Range metric evidence": "runtimeText.rangeMetricEvidence",
+    "Receiver after save": "runtimeText.receiverAfterSave",
+    "Receiver route": "runtimeText.receiverRoute",
+    "Reload and test": "runtimeText.reloadAndTest",
+    "Review Workflow": "runtimeText.reviewWorkflow",
+    "Review Thanos Rule classification.": "runtimeText.reviewThanosRuleClassification",
+    "Run Test to verify provider reachability and credentials.": "runtimeText.runTestToVerifyProviderReachabilityAndCredentials",
+    "Save an enabled Prometheus-compatible profile first.": "runtimeText.saveAnEnabledPrometheusCompatibleProfileFirst",
+    "Save an enabled Alertmanager profile first.": "runtimeText.saveAnEnabledAlertmanagerProfileFirst",
+    "Save an enabled Thanos Rule active-alert profile first.": "runtimeText.saveAnEnabledThanosRuleProfileFirst",
+    "Set NEXT_PUBLIC_OPENCLARION_API_PUBLIC_BASE_URL to an externally reachable OpenClarion URL before copying this receiver to an external Alertmanager.": "runtimeText.setPublicBaseUrlBeforeCopyingReceiver",
+    "Secret reference requires bearer auth.": "runtimeText.secretReferenceRequiresBearerAuth",
+    "Secret reference must be 256 bytes or fewer.": "runtimeText.secretReferenceMustBe256BytesOrFewer",
+    "Secret reference must not contain whitespace or control characters.": "runtimeText.secretReferenceMustNotContainWhitespaceOrControlCharacters",
+    "Silenced/inhibited alerts ignored": "runtimeText.silencedInhibitedAlertsIgnored",
+    "Source disabled": "runtimeText.sourceDisabled",
+    "Source profile": "runtimeText.sourceProfile",
+    "Source ready for workflows.": "runtimeText.sourceReadyForWorkflows",
+    "Source will be saved as draft.": "runtimeText.sourceWillBeSavedAsDraft",
+    "Supplemental active alerts": "runtimeText.supplementalActiveAlerts",
+    "Thanos Query": "runtimeText.thanosQuery",
+    "Thanos Rule": "runtimeText.thanosRule",
+    "Thanos Rule active alerts": "runtimeText.thanosRuleActiveAlerts",
+    "Thanos Rule alerts API": "runtimeText.thanosRuleAlertsApi",
+    "Thanos Rule active-alert sources read firing alerts from /api/v1/alerts. Use Thanos Query for metric evidence and Alertmanager for webhook-triggered automatic diagnosis rooms.": "runtimeText.thanosRuleSourcesReadFiringAlerts",
+    "Thanos metric evidence": "runtimeText.thanosMetricEvidence",
+    "Webhook endpoint appears after save.": "runtimeText.webhookEndpointAppearsAfterSave",
+    "the source secret reference": "runtimeText.sourceSecretReference",
+    "Thanos Rule integration": "runtimeText.thanosRuleIntegration",
+    "Webhook intake": "runtimeText.webhookIntake",
+    "Webhook proof": "runtimeText.webhookProof",
+    "Webhook proof needed": "runtimeText.webhookProofNeeded",
+    "Webhook setup ready": "runtimeText.webhookSetupReady",
+    "Workflow": "runtimeText.workflow",
+    "Workflow binding": "runtimeText.workflowBinding",
+    "Copy the receiver YAML from the Ingest column, bind it to a scoped Alertmanager route, and reload Alertmanager.": "runtimeText.copyReceiverYamlFromIngest",
+    "Receiver YAML appears after the source is saved.": "runtimeText.receiverYamlAppearsAfterSave",
+    "Send a bounded synthetic firing alert or wait for a controlled route match, then confirm OpenClarion ingested the webhook and started the expected automatic diagnosis room.": "runtimeText.sendBoundedSyntheticAlert",
+    "Webhook delivery proof requires an enabled source and a successful provider connection test first.": "runtimeText.webhookProofRequiresEnabledSource",
+} as const;
+
+export function localizeAlertSourceText(value: string, t: AlertSourceTranslator): string {
+  const key =
+    alertSourceRuntimeTextKeys[
+      value as keyof typeof alertSourceRuntimeTextKeys
+    ];
+  if (key !== undefined) {
+    return t(key);
   }
   let match = value.match(/^Authorization: Bearer token resolved from (.+)$/);
   if (match) {
-    return `Authorization：Bearer 令牌从 ${match[1]} 解析`;
+    return t("runtimePattern.authorizationBearerResolved", {
+      source: match[1]!,
+    });
   }
   match = value.match(/^Enable this (.+) source before using it for (.+)\.$/);
   if (match) {
-    return `将此 ${localizeAlertSourceText(match[1]!, locale)} 告警源用于${localizeAlertSourceText(match[2]!, locale)}前，请先启用。`;
+    return t("runtimePattern.enableSourceBeforeUse", {
+      purpose: localizeAlertSourceText(match[2]!, t),
+      source: localizeAlertSourceText(match[1]!, t),
+    });
   }
   match = value.match(/^Run Test for this (.+) source before relying on AI diagnosis workflow setup\.$/);
   if (match) {
-    return `依赖 AI 诊断工作流配置前，请先测试此 ${localizeAlertSourceText(match[1]!, locale)} 告警源。`;
+    return t("runtimePattern.runTestBeforeAISetup", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
   }
   match = value.match(/^Last connection test ended with (.+)\. Resolve the provider or credential issue before continuing setup\.$/);
   if (match) {
-    return `最近一次连接测试结果为 ${localizeAlertSourceText(match[1]!, locale)}。继续配置前，请解决提供方或凭据问题。`;
+    return t("runtimePattern.lastConnectionTestEnded", {
+      status: localizeAlertSourceText(match[1]!, t),
+    });
   }
   match = value.match(/^Label line (\d+) must use key=value\.$/);
   if (match) {
-    return `标签第 ${match[1]} 行必须使用 key=value 格式。`;
+    return t("runtimePattern.labelLineKeyValue", { line: match[1]! });
   }
   match = value.match(/^Label line (\d+) has an empty key\.$/);
   if (match) {
-    return `标签第 ${match[1]} 行的键为空。`;
+    return t("runtimePattern.labelLineEmptyKey", { line: match[1]! });
   }
   match = value.match(/^Label line (\d+) exceeds the allowed length\.$/);
   if (match) {
-    return `标签第 ${match[1]} 行超过允许长度。`;
+    return t("runtimePattern.labelLineTooLong", { line: match[1]! });
   }
   match = value.match(/^Label key "(.+)" is duplicated\.$/);
   if (match) {
-    return `标签键“${match[1]}”重复。`;
+    return t("runtimePattern.labelKeyDuplicated", { key: match[1]! });
   }
   match = value.match(/^(.+) source is ready for instant and range metric evidence tools\.$/);
   if (match) {
-    return `${localizeAlertSourceText(match[1]!, locale)} 告警源已可用于即时和范围指标证据工具。`;
+    return t("runtimePattern.sourceReadyForMetricEvidence", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
   }
   match = value.match(/^Create an active_alerts evidence template bound to this (.+) source\.$/);
   if (match) {
-    return `请创建绑定到此 ${localizeAlertSourceText(match[1]!, locale)} 告警源的 active_alerts 证据模板。`;
+    return t("runtimePattern.createActiveAlertsTemplate", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
   }
   match = value.match(/^Create or update an automatic diagnosis workflow that uses this (.+) webhook source\.$/);
   if (match) {
-    return `请创建或更新使用此 ${localizeAlertSourceText(match[1]!, locale)} Webhook 告警源的自动诊断工作流。`;
+    return t("runtimePattern.createAutomaticWorkflow", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
   }
   match = value.match(/^Enable this (.+) source, save it, then run Test before configuring AI diagnosis setup\.$/);
   if (match) {
-    return `请启用并保存此 ${localizeAlertSourceText(match[1]!, locale)} 告警源，然后在配置 AI 诊断前运行测试。`;
+    return t("runtimePattern.enableSaveAndTest", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
   }
   match = value.match(/^Ready for (.+) webhook intake and active-alert evidence in automatic AI diagnosis workflows\.$/);
   if (match) {
-    return `已可在自动 AI 诊断工作流中使用 ${localizeAlertSourceText(match[1]!, locale)} Webhook 接入和活动告警证据。`;
+    return t("runtimePattern.readyForWebhookIntake", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
   }
   match = value.match(/^Copy the receiver YAML into Alertmanager receivers as (.+)\.$/);
   if (match) {
-    return `请将接收器 YAML 复制到 Alertmanager receivers，并命名为 ${match[1]}。`;
+    return t("runtimePattern.copyReceiverYAML", { name: match[1]! });
   }
   match = value.match(/^Add a scoped Alertmanager route that selects alerts OpenClarion should diagnose and sends them to (.+)\. Use continue: true only when existing downstream receivers should also run\.$/);
   if (match) {
-    return `请添加限定范围的 Alertmanager 路由，选择 OpenClarion 应诊断的告警并发送到 ${match[1]}。仅当现有下游接收器也应继续运行时才使用 continue: true。`;
+    return t("runtimePattern.addScopedRoute", { receiver: match[1]! });
+  }
+  match = value.match(/^Review the enabled automatic diagnosis workflow that uses this (.+) webhook source\.$/);
+  if (match) {
+    return t("runtimePattern.reviewEnabledAutomaticWorkflow", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
+  }
+  match = value.match(/^Enable or review the existing automatic diagnosis workflow that uses this (.+) webhook source\.$/);
+  if (match) {
+    return t("runtimePattern.enableOrReviewAutomaticWorkflow", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
+  }
+  match = value.match(/^(.+) source is saved and enabled\.$/);
+  if (match) {
+    return t("runtimePattern.sourceSavedAndEnabled", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
+  }
+  match = value.match(/^(.+) source must be enabled before workflow setup\.$/);
+  if (match) {
+    return t("runtimePattern.sourceMustBeEnabledBeforeWorkflowSetup", {
+      source: localizeAlertSourceText(match[1]!, t),
+    });
+  }
+  match = value.match(/^(\d+) enabled active_alerts template\(s\) are bound to this source\.$/);
+  if (match) {
+    return t("runtimePattern.enabledActiveAlertTemplatesBound", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) active_alerts template\(s\) exist for this source but are disabled\.$/);
+  if (match) {
+    return t("runtimePattern.activeAlertTemplatesDisabled", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) enabled metric evidence template\(s\) are bound to this source\.$/);
+  if (match) {
+    return t("runtimePattern.enabledMetricTemplatesBound", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) metric evidence template\(s\) exist for this source but are disabled\.$/);
+  if (match) {
+    return t("runtimePattern.metricTemplatesDisabled", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) enabled metric evidence template\(s\) are available across Prometheus-compatible sources\.$/);
+  if (match) {
+    return t("runtimePattern.enabledMetricTemplatesAvailable", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) metric evidence source\(s\) exist\. Create a metric_query or metric_range_query template before relying on automatic diagnosis confidence\.$/);
+  if (match) {
+    return t("runtimePattern.metricEvidenceSourcesNeedTemplate", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) enabled automatic diagnosis workflow\(s\) are bound to this source; workflow enablement covers the required WeCom scopes and AI delivery proof\.$/);
+  if (match) {
+    return t("runtimePattern.enabledAutomaticWorkflowsBoundWithProof", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) automatic diagnosis workflow\(s\) exist for this source but are disabled; enablement requires WeCom report, diagnosis_consultation, diagnosis_close scopes, and current AI proof\.$/);
+  if (match) {
+    return t("runtimePattern.automaticWorkflowsDisabledWithProof", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) enabled automatic diagnosis workflow\(s\) are bound to this source\.$/);
+  if (match) {
+    return t("runtimePattern.enabledAutomaticWorkflowsBound", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) automatic diagnosis workflow\(s\) exist for this source but are disabled\.$/);
+  if (match) {
+    return t("runtimePattern.automaticWorkflowsDisabled", {
+      count: Number(match[1]),
+    });
   }
   return value;
 }

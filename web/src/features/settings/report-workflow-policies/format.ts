@@ -65,6 +65,14 @@ export type NotificationChannelDeliveryReadiness = {
   detail: string;
   label: string;
   missingScopes: string[];
+  reason:
+    | "channel_not_selected"
+    | "channel_required"
+    | "channel_disabled"
+    | "channel_kind_mismatch"
+    | "missing_scopes"
+    | "ai_proof_missing"
+    | "ready";
   requiredScopes: string[];
   status: DiagnosisToolReadinessStatus;
 };
@@ -105,6 +113,13 @@ export type ReportWorkflowPolicyWorkflowReturnCandidate = {
 
 type ReportWorkflowPolicyDraftPlanStep = {
   detail: string;
+  key:
+    | "save-policy"
+    | "enable-policy"
+    | "impact-preview"
+    | "replay-window"
+    | "ai-handoff"
+    | "operator-notification";
   status: DiagnosisToolReadinessStatus;
   title: string;
 };
@@ -322,6 +337,7 @@ export function reportNotificationChannelReadinessForSelection({
           "Bind an enabled report channel with diagnosis_consultation and diagnosis_close scopes before using automatic diagnosis rooms.",
         label: "Auto-room delivery blocked.",
         missingScopes: ["report", "diagnosis_consultation", "diagnosis_close"],
+        reason: "channel_required",
         requiredScopes,
         status: "blocked",
       };
@@ -330,6 +346,7 @@ export function reportNotificationChannelReadinessForSelection({
       detail: "No notification channel profile is bound.",
       label: "No report channel selected.",
       missingScopes: [],
+      reason: "channel_not_selected",
       requiredScopes,
       status: "pending",
     };
@@ -341,6 +358,7 @@ export function reportNotificationChannelReadinessForSelection({
         "Selected notification channel must be enabled before workflow policy enablement.",
       label: "Notification channel disabled.",
       missingScopes: [],
+      reason: "channel_disabled",
       requiredScopes,
       status: "blocked",
     };
@@ -357,6 +375,7 @@ export function reportNotificationChannelReadinessForSelection({
         "Automatic diagnosis room delivery requires an Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes.",
       label: "Enterprise WeChat channel required.",
       missingScopes: [],
+      reason: "channel_kind_mismatch",
       requiredScopes,
       status: "blocked",
     };
@@ -379,6 +398,7 @@ export function reportNotificationChannelReadinessForSelection({
       detail: `Selected notification channel is missing ${missingScopes.join(" and ")} scope.`,
       label: "Notification channel scope mismatch.",
       missingScopes,
+      reason: "missing_scopes",
       requiredScopes,
       status: "blocked",
     };
@@ -394,6 +414,7 @@ export function reportNotificationChannelReadinessForSelection({
         "Open the selected Enterprise WeChat channel and run current AI diagnosis and diagnosis close sample tests before workflow policy enablement.",
       label: "AI delivery proof missing.",
       missingScopes: [],
+      reason: "ai_proof_missing",
       requiredScopes,
       status: "blocked",
     };
@@ -405,6 +426,7 @@ export function reportNotificationChannelReadinessForSelection({
         "Selected notification channel can deliver reports, auto-room AI diagnosis updates, and close notifications.",
       label: "Report and auto-room delivery ready.",
       missingScopes: [],
+      reason: "ready",
       requiredScopes,
       status: "ready",
     };
@@ -415,6 +437,7 @@ export function reportNotificationChannelReadinessForSelection({
       "Selected notification channel can deliver final report notifications.",
     label: "Report delivery ready.",
     missingScopes: [],
+    reason: "ready",
     requiredScopes,
     status: "ready",
   };
@@ -1084,11 +1107,13 @@ export function reportWorkflowPolicyDraftPlan({
   const steps: ReportWorkflowPolicyDraftPlanStep[] = [
     {
       detail: saveDetail,
+      key: "save-policy",
       status: saveStatus,
       title: persisted ? `Update policy #${editingPolicyID}` : "Save policy",
     },
     {
       detail: enableDetail,
+      key: "enable-policy",
       status: enableStatus,
       title: "Enable policy",
     },
@@ -1096,6 +1121,7 @@ export function reportWorkflowPolicyDraftPlan({
       detail: saveBlocked
         ? "Impact preview needs valid required workflow fields."
         : "Run draft or saved impact preview to estimate matched alert groups and expose blocked enablement reasons before replay.",
+      key: "impact-preview",
       status: saveBlocked ? "blocked" : "pending",
       title: "Impact preview",
     },
@@ -1103,13 +1129,15 @@ export function reportWorkflowPolicyDraftPlan({
       detail:
         saveBlocked || enableStatus === "blocked"
           ? "Replay is blocked until the policy can be saved and enabled."
-        : `Replay bounded ${form.reportScenario} windows after the policy is enabled.`,
+          : `Replay bounded ${form.reportScenario} windows after the policy is enabled.`,
+      key: "replay-window",
       status:
         saveBlocked || enableStatus === "blocked" ? "blocked" : "pending",
       title: "Replay window",
     },
     {
       detail: aiHandoffDetail,
+      key: "ai-handoff",
       status: saveBlocked ? "blocked" : aiHandoffStatus,
       title: "AI handoff",
     },
@@ -1118,6 +1146,7 @@ export function reportWorkflowPolicyDraftPlan({
         form.reportNotificationChannelProfileID,
         notificationChannelLabels,
       ),
+      key: "operator-notification",
       status: saveBlocked
         ? "blocked"
         : reportNotificationChannelReadiness.status,
@@ -1686,7 +1715,7 @@ function reportNotificationChannelSetupActionCopy({
     };
   }
 
-  if (readiness.label === "AI delivery proof missing.") {
+  if (readiness.reason === "ai_proof_missing") {
     return {
       actionLabel: "Run AI proof",
       detail:
@@ -1695,7 +1724,7 @@ function reportNotificationChannelSetupActionCopy({
     };
   }
 
-  if (readiness.label === "Enterprise WeChat channel required.") {
+  if (readiness.reason === "channel_kind_mismatch") {
     return {
       actionLabel: "Switch to WeCom",
       detail:
@@ -1714,7 +1743,7 @@ function reportNotificationChannelSetupActionCopy({
 
   return {
     actionLabel:
-      readiness.label === "Notification channel disabled."
+      readiness.reason === "channel_disabled"
         ? "Enable channel"
         : "Edit channel",
     detail: readiness.detail,

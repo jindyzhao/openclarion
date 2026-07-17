@@ -13,10 +13,12 @@ import { SettingsOverview } from "@/features/settings/overview/settings-overview
 import { fetchReportWorkflowPolicies } from "@/features/settings/report-workflow-policies/api";
 import { fetchReportWorkflowSchedules } from "@/features/settings/report-workflow-schedules/api";
 import { diagnosisBackendRequestOptionsFromIncomingHeaders } from "@/lib/api/server-authorization";
+import { getTranslations } from "next-intl/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
+  const t = await getTranslations("SettingsOverview");
   const backendRequestOptions =
     await diagnosisBackendRequestOptionsFromIncomingHeaders();
   const [
@@ -76,11 +78,11 @@ export default async function SettingsPage() {
     <>
       <section className="page-heading">
         <div>
-          <h1>Settings</h1>
-          <p>Declarative alert operations configuration and proof readiness.</p>
+          <h1>{t("page.title")}</h1>
+          <p>{t("page.subtitle")}</p>
         </div>
         <div className="status-line">
-          {totalConfigured} configuration objects
+          {t("page.configurationObjects", { count: totalConfigured })}
         </div>
       </section>
 

@@ -543,6 +543,7 @@ describe("report workflow policy form formatting", () => {
 
     expect(readiness).toMatchObject({
       missingScopes: [],
+      reason: "channel_not_selected",
       requiredScopes: ["report"],
       status: "pending",
     });
@@ -562,6 +563,7 @@ describe("report workflow policy form formatting", () => {
       detail:
         "Bind an enabled report channel with diagnosis_consultation and diagnosis_close scopes before using automatic diagnosis rooms.",
       missingScopes: ["report", "diagnosis_consultation", "diagnosis_close"],
+      reason: "channel_required",
       requiredScopes: ["report", "diagnosis_consultation", "diagnosis_close"],
       status: "blocked",
     });
@@ -579,6 +581,7 @@ describe("report workflow policy form formatting", () => {
 
     expect(readiness).toMatchObject({
       missingScopes: [],
+      reason: "ready",
       requiredScopes: ["report"],
       status: "ready",
     });
@@ -596,6 +599,7 @@ describe("report workflow policy form formatting", () => {
 
     expect(readiness).toMatchObject({
       missingScopes: ["diagnosis_consultation", "diagnosis_close"],
+      reason: "missing_scopes",
       requiredScopes: ["report", "diagnosis_consultation", "diagnosis_close"],
       status: "blocked",
     });
@@ -621,6 +625,7 @@ describe("report workflow policy form formatting", () => {
         "Open the selected Enterprise WeChat channel and run current AI diagnosis and diagnosis close sample tests before workflow policy enablement.",
       label: "AI delivery proof missing.",
       missingScopes: [],
+      reason: "ai_proof_missing",
       requiredScopes: ["report", "diagnosis_consultation", "diagnosis_close"],
       status: "blocked",
     });
@@ -723,6 +728,7 @@ describe("report workflow policy form formatting", () => {
       detail:
         "Selected notification channel must be enabled before workflow policy enablement.",
       missingScopes: [],
+      reason: "channel_disabled",
       requiredScopes: ["report", "diagnosis_consultation", "diagnosis_close"],
       status: "blocked",
     });
@@ -1366,13 +1372,15 @@ describe("report workflow policy form formatting", () => {
     });
 
     expect(plan.status).toBe("pending");
-    expect(plan.steps.map((step) => [step.title, step.status])).toEqual([
-      ["Save policy", "ready"],
-      ["Enable policy", "pending"],
-      ["Impact preview", "pending"],
-      ["Replay window", "pending"],
-      ["AI handoff", "ready"],
-      ["Operator notification", "ready"],
+    expect(
+      plan.steps.map((step) => [step.key, step.title, step.status]),
+    ).toEqual([
+      ["save-policy", "Save policy", "ready"],
+      ["enable-policy", "Enable policy", "pending"],
+      ["impact-preview", "Impact preview", "pending"],
+      ["replay-window", "Replay window", "pending"],
+      ["ai-handoff", "AI handoff", "ready"],
+      ["operator-notification", "Operator notification", "ready"],
     ]);
     expect(plan.steps[0]?.detail).toContain("#1 Ready Alertmanager");
     expect(plan.steps[5]?.detail).toContain("#3 Operations close webhook");
@@ -1426,13 +1434,15 @@ describe("report workflow policy form formatting", () => {
     });
 
     expect(plan.status).toBe("blocked");
-    expect(plan.steps.map((step) => [step.title, step.status])).toEqual([
-      ["Save policy", "ready"],
-      ["Enable policy", "blocked"],
-      ["Impact preview", "pending"],
-      ["Replay window", "blocked"],
-      ["AI handoff", "ready"],
-      ["Operator notification", "blocked"],
+    expect(
+      plan.steps.map((step) => [step.key, step.title, step.status]),
+    ).toEqual([
+      ["save-policy", "Save policy", "ready"],
+      ["enable-policy", "Enable policy", "blocked"],
+      ["impact-preview", "Impact preview", "pending"],
+      ["replay-window", "Replay window", "blocked"],
+      ["ai-handoff", "AI handoff", "ready"],
+      ["operator-notification", "Operator notification", "blocked"],
     ]);
     expect(plan.steps[0]?.detail).toContain("#1 Ready Alertmanager");
     expect(plan.steps[1]).toMatchObject({
@@ -2649,6 +2659,7 @@ function reportWorkflowPolicyImpactPreviewResult(
     grouping_dimension_keys: ["alertname", "service"],
     grouping_policy_enabled: true,
     grouping_policy_id: 2,
+    max_failed_sub_reports: 0,
     grouping_severity_key: "severity",
     grouping_source_filter: ["alertmanager"],
     groups: [],
@@ -2659,7 +2670,6 @@ function reportWorkflowPolicyImpactPreviewResult(
     report_notification_channel_bound: true,
     report_notification_channel_enabled: true,
     report_notification_channel_has_diagnosis_close_scope: true,
-    max_failed_sub_reports: 0,
     report_notification_channel_has_diagnosis_consultation_scope: true,
     report_notification_channel_has_report_scope: true,
     report_notification_channel_profile_id: 3,

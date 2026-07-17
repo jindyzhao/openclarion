@@ -76,22 +76,67 @@ describe("grouping policy settings formatting", () => {
         ...emptyGroupingPolicyForm(),
         name: "Bad dimension",
         dimensionKeysText: "alert name"
-      }).ok
-    ).toBe(false);
+      })
+    ).toEqual({
+      error: { code: "token_invalid_characters", field: "dimension_key" },
+      ok: false
+    });
     expect(
       formStateToWriteRequest({
         ...emptyGroupingPolicyForm(),
         name: "Bad severity",
         severityKey: "severity level"
-      }).ok
-    ).toBe(false);
+      })
+    ).toEqual({
+      error: { code: "severity_invalid_characters" },
+      ok: false
+    });
     expect(
       formStateToWriteRequest({
         ...emptyGroupingPolicyForm(),
         name: "Bad source",
         sourceFilterText: "prometheus east"
-      }).ok
-    ).toBe(false);
+      })
+    ).toEqual({
+      error: { code: "token_invalid_characters", field: "source_filter" },
+      ok: false
+    });
+  });
+
+  it("returns semantic required and list-limit validation errors", () => {
+    expect(
+      formStateToWriteRequest({
+        ...emptyGroupingPolicyForm(),
+        name: ""
+      })
+    ).toEqual({ error: { code: "policy_name_required" }, ok: false });
+    expect(
+      formStateToWriteRequest({
+        ...emptyGroupingPolicyForm(),
+        name: "Missing dimensions",
+        dimensionKeysText: ""
+      })
+    ).toEqual({
+      error: { code: "token_list_required", field: "dimension_key" },
+      ok: false
+    });
+    expect(
+      formStateToWriteRequest({
+        ...emptyGroupingPolicyForm(),
+        name: "Too many dimensions",
+        dimensionKeysText: Array.from(
+          { length: 17 },
+          (_, index) => `dimension_${index}`
+        ).join("\n")
+      })
+    ).toEqual({
+      error: {
+        code: "token_list_too_long",
+        field: "dimension_key",
+        limit: 16
+      },
+      ok: false
+    });
   });
 
   it("enforces UTF-8 byte limits before submit", () => {
@@ -100,20 +145,37 @@ describe("grouping policy settings formatting", () => {
         ...emptyGroupingPolicyForm(),
         name: "é".repeat(61)
       })
-    ).toEqual({ ok: false, message: "Policy name must be 120 bytes or fewer." });
+    ).toEqual({
+      error: { code: "policy_name_too_long", limit: 120 },
+      ok: false
+    });
     expect(
       formStateToWriteRequest({
         ...emptyGroupingPolicyForm(),
         name: "Wide dimension",
         dimensionKeysText: "é".repeat(33)
       })
-    ).toEqual({ ok: false, message: "Dimension key must be 64 bytes or fewer." });
+    ).toEqual({
+      error: {
+        code: "token_too_long",
+        field: "dimension_key",
+        limit: 64
+      },
+      ok: false
+    });
     expect(
       formStateToWriteRequest({
         ...emptyGroupingPolicyForm(),
         name: "Wide source",
         sourceFilterText: "é".repeat(33)
       })
-    ).toEqual({ ok: false, message: "Source filter must be 64 bytes or fewer." });
+    ).toEqual({
+      error: {
+        code: "token_too_long",
+        field: "source_filter",
+        limit: 64
+      },
+      ok: false
+    });
   });
 });

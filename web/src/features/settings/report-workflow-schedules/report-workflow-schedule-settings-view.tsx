@@ -107,6 +107,10 @@ type SaveScheduleVariables = {
   scheduleID: number | null;
 };
 
+type WorkflowScheduleTranslator = ReturnType<
+  typeof useTranslations<"WorkflowScheduleSettings">
+>;
+
 const reportWorkflowScheduleBaseAuthorizationChecks: CurrentRBACAuthorizationCheck[] = [
   { key: "reportWorkflowRead", permission: "report_workflow.read" },
   { key: "reportWorkflowManage", permission: "report_workflow.manage" }
@@ -251,7 +255,7 @@ export function ReportWorkflowScheduleSettingsManager({
       ? null
       : {
           kind: "warning" as const,
-          message: localizeWorkflowScheduleText(schedulePolicyPermissionBlockReason, locale)
+          message: localizeWorkflowScheduleText(schedulePolicyPermissionBlockReason, t)
         });
   const readPermissionNotice = settingsReadPermissionNotice({
     canRead: canReadSchedules,
@@ -264,8 +268,8 @@ export function ReportWorkflowScheduleSettingsManager({
   const visibleNotice =
     currentAuthorization.notice ?? readPermissionNotice ?? notice;
   const relationOptions = useMemo(
-    () => buildScheduleRelationOptions(reportWorkflowPoliciesResult, locale),
-    [locale, reportWorkflowPoliciesResult]
+    () => buildScheduleRelationOptions(reportWorkflowPoliciesResult, t),
+    [reportWorkflowPoliciesResult, t]
   );
   const initialFormValues = useMemo(
     () => reportWorkflowScheduleLaunchInitialForm(launchIntent, relationOptions),
@@ -289,14 +293,14 @@ export function ReportWorkflowScheduleSettingsManager({
       setNotice({
         kind: "warning",
         message:
-          localizeWorkflowScheduleText(scheduleSavePermissionBlockReason, locale) ||
+          localizeWorkflowScheduleText(scheduleSavePermissionBlockReason, t) ||
           t("notAuthorizedSave")
       });
       return;
     }
     const parsed = formStateToWriteRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeWorkflowScheduleText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeWorkflowScheduleText(parsed.message, t) });
       return;
     }
 
@@ -332,7 +336,7 @@ export function ReportWorkflowScheduleSettingsManager({
       if (readiness.status === "blocked") {
         setNotice({
           kind: "error",
-          message: localizeWorkflowScheduleMessages(readiness.blockers, locale),
+          message: localizeWorkflowScheduleMessages(readiness.blockers, t),
         });
         return;
       }
@@ -381,7 +385,7 @@ export function ReportWorkflowScheduleSettingsManager({
       {launchNotice ? (
         <Alert
           aria-label={t("launchPreset")}
-          description={localizeWorkflowScheduleText(launchNotice, locale)}
+          description={localizeWorkflowScheduleText(launchNotice, t)}
           message={t("actionLoaded")}
           role="status"
           showIcon
@@ -390,7 +394,7 @@ export function ReportWorkflowScheduleSettingsManager({
       ) : null}
       {relationOptions.warnings.length > 0 ? (
         <Alert
-          description={localizeWorkflowScheduleMessages(relationOptions.warnings, locale)}
+          description={localizeWorkflowScheduleMessages(relationOptions.warnings, t)}
           message={t("relatedUnavailable")}
           role="status"
           showIcon
@@ -621,7 +625,6 @@ export function ReportWorkflowScheduleSettingsManager({
               <Form.Item noStyle shouldUpdate>
                 {(scheduleForm) => (
                   <ScheduleDraftPreview
-                    locale={locale}
                     relationOptions={relationOptions}
                     values={scheduleForm.getFieldsValue(true) as ReportWorkflowScheduleFormState}
                   />
@@ -692,11 +695,9 @@ function Notice({ notice }: { notice: SettingsNotice }) {
 }
 
 function ScheduleDraftPreview({
-  locale,
   relationOptions,
   values
 }: {
-  locale: string;
   relationOptions: ScheduleRelationOptions;
   values: ReportWorkflowScheduleFormState;
 }) {
@@ -725,21 +726,21 @@ function ScheduleDraftPreview({
       label: t("policy")
     },
     {
-      children: localizeWorkflowScheduleText(reportWorkflowScheduleFormCadenceValue(normalizeScheduleFormValues(values)), locale),
+      children: localizeWorkflowScheduleText(reportWorkflowScheduleFormCadenceValue(normalizeScheduleFormValues(values)), t),
       key: "cadence",
       label: t("cadence")
     },
     {
       children: t("replaySummary", {
-        delay: draftDuration(values.replayDelaySeconds, locale),
+        delay: draftDuration(values.replayDelaySeconds, t),
         limit: values.replayLimit ?? t("notSet"),
-        window: draftDuration(values.replayWindowSeconds, locale),
+        window: draftDuration(values.replayWindowSeconds, t),
       }),
       key: "replay",
       label: t("replay")
     },
     {
-      children: draftDuration(values.catchupWindowSeconds, locale),
+      children: draftDuration(values.catchupWindowSeconds, t),
       key: "catchup",
       label: t("catchUp")
     }
@@ -749,23 +750,21 @@ function ScheduleDraftPreview({
     <div aria-label={t("readinessPreview")} className="settings-preview-panel">
       <Space direction="vertical" size={10}>
         <Space wrap>
-          <Tag color={scheduleReadinessColor(readiness.status)}>{scheduleReadinessLabel(readiness.status, locale)}</Tag>
+          <Tag color={scheduleReadinessColor(readiness.status)}>{scheduleReadinessLabel(readiness.status, t)}</Tag>
           {values.temporalScheduleID ? <Tag>{values.temporalScheduleID}</Tag> : null}
         </Space>
-        <Typography.Text strong>{localizeWorkflowScheduleText(readiness.label, locale)}</Typography.Text>
-        <Typography.Text type="secondary">{localizeWorkflowScheduleText(readiness.detail, locale)}</Typography.Text>
+        <Typography.Text strong>{localizeWorkflowScheduleText(readiness.label, t)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeWorkflowScheduleText(readiness.detail, t)}</Typography.Text>
         <Descriptions column={1} items={items} size="small" />
-        <ScheduledProofOutcomePreview locale={locale} outcome={proofOutcome} />
+        <ScheduledProofOutcomePreview outcome={proofOutcome} />
       </Space>
     </div>
   );
 }
 
 function ScheduledProofOutcomePreview({
-  locale,
   outcome
 }: {
-  locale: string;
   outcome: ReturnType<typeof reportWorkflowScheduleProofOutcome>;
 }) {
   const t = useTranslations("WorkflowScheduleSettings");
@@ -773,18 +772,18 @@ function ScheduledProofOutcomePreview({
     <div aria-label={t("proofOutcomeLabel")} className="settings-proof-outcome">
       <div className="settings-preview-header">
         <Typography.Text strong>{t("proofOutcome")}</Typography.Text>
-        <Tag color={scheduleReadinessColor(outcome.status)}>{scheduleReadinessLabel(outcome.status, locale)}</Tag>
+        <Tag color={scheduleReadinessColor(outcome.status)}>{scheduleReadinessLabel(outcome.status, t)}</Tag>
       </div>
-      <Typography.Text type="secondary">{localizeWorkflowScheduleText(outcome.detail, locale)}</Typography.Text>
+      <Typography.Text type="secondary">{localizeWorkflowScheduleText(outcome.detail, t)}</Typography.Text>
       <div className="workflow-automation-grid">
         {outcome.items.map((item) => (
           <div className="workflow-automation-item" key={item.title}>
             <div className="workflow-automation-item-header">
-              <Typography.Text className="muted">{localizeWorkflowScheduleText(item.title, locale)}</Typography.Text>
-              <Tag color={scheduleReadinessColor(item.status)}>{scheduleReadinessLabel(item.status, locale)}</Tag>
+              <Typography.Text className="muted">{localizeWorkflowScheduleText(item.title, t)}</Typography.Text>
+              <Tag color={scheduleReadinessColor(item.status)}>{scheduleReadinessLabel(item.status, t)}</Tag>
             </div>
-            <Typography.Text strong>{localizeWorkflowScheduleText(item.value, locale)}</Typography.Text>
-            <Typography.Text type="secondary">{localizeWorkflowScheduleText(item.detail, locale)}</Typography.Text>
+            <Typography.Text strong>{localizeWorkflowScheduleText(item.value, t)}</Typography.Text>
+            <Typography.Text type="secondary">{localizeWorkflowScheduleText(item.detail, t)}</Typography.Text>
           </div>
         ))}
       </div>
@@ -814,9 +813,12 @@ function normalizeScheduleFormValues(
   };
 }
 
-function draftDuration(value: number | null | undefined, locale: string): string {
+function draftDuration(
+  value: number | null | undefined,
+  t: WorkflowScheduleTranslator,
+): string {
   if (value === null || value === undefined || !Number.isSafeInteger(value) || value < 0) {
-    return locale === "zh-CN" ? "未设置" : "Not set";
+    return t("catalog.notSet");
   }
   return formatDurationSeconds(value);
 }
@@ -832,35 +834,31 @@ function scheduleReadinessColor(status: ReportWorkflowScheduleDraftReadiness["st
   }
 }
 
-function scheduleReadinessLabel(status: ReportWorkflowScheduleDraftReadiness["status"], locale = "en"): string {
-  switch (status) {
-    case "ready":
-      return locale === "zh-CN" ? "就绪" : "Ready";
-    case "pending":
-      return locale === "zh-CN" ? "等待中" : "Pending";
-    case "blocked":
-      return locale === "zh-CN" ? "已阻塞" : "Blocked";
-  }
+function scheduleReadinessLabel(
+  status: ReportWorkflowScheduleDraftReadiness["status"],
+  t: WorkflowScheduleTranslator,
+): string {
+  return t(`readinessStatus.${status}`);
 }
 
 function buildScheduleRelationOptions(
   policiesResult: ApiResult<ReportWorkflowPolicyListResponse>,
-  locale: string,
+  t: WorkflowScheduleTranslator,
 ): ScheduleRelationOptions {
   if (!policiesResult.ok) {
     return {
       policyEnabledIDs: new Set(),
       policyLabels: {},
       policyOptions: [],
-      warnings: [locale === "zh-CN"
-        ? `报告工作流策略加载失败：${policiesResult.error.message}。`
-        : `Report workflow policies failed to load: ${policiesResult.error.message}.`]
+      warnings: [t("runtimePattern.policiesFailed", {
+        error: policiesResult.error.message,
+      })]
     };
   }
   return {
     policyEnabledIDs: new Set(policiesResult.data.items.filter((policy) => policy.enabled).map((policy) => policy.id)),
-    policyLabels: Object.fromEntries(policiesResult.data.items.map((policy) => [policy.id, policyLabel(policy, locale)])),
-    policyOptions: policiesResult.data.items.map((policy) => relationOption(policy.id, policyLabel(policy, locale))),
+    policyLabels: Object.fromEntries(policiesResult.data.items.map((policy) => [policy.id, policyLabel(policy, t)])),
+    policyOptions: policiesResult.data.items.map((policy) => relationOption(policy.id, policyLabel(policy, t))),
     warnings: []
   };
 }
@@ -895,14 +893,15 @@ function relationOption(value: number, label: string): RelationSelectOption {
   return { value, label, title: label };
 }
 
-function policyLabel(policy: ReportWorkflowPolicy, locale: string): string {
-  return `#${policy.id} ${policy.name} (${localizeWorkflowScheduleText(policy.report_scenario, locale)}, ${localizeWorkflowScheduleText(policy.diagnosis_follow_up, locale)}, ${enabledLabel(policy.enabled, locale)})`;
+function policyLabel(
+  policy: ReportWorkflowPolicy,
+  t: WorkflowScheduleTranslator,
+): string {
+  return `#${policy.id} ${policy.name} (${localizeWorkflowScheduleText(policy.report_scenario, t)}, ${localizeWorkflowScheduleText(policy.diagnosis_follow_up, t)}, ${enabledLabel(policy.enabled, t)})`;
 }
 
-function enabledLabel(enabled: boolean, locale: string): string {
-  return locale === "zh-CN"
-    ? enabled ? "已启用" : "已停用"
-    : enabled ? "enabled" : "disabled";
+function enabledLabel(enabled: boolean, t: WorkflowScheduleTranslator): string {
+  return localizeWorkflowScheduleText(enabled ? "enabled" : "disabled", t);
 }
 
 function relationLabel(labels: Record<number, string>, id: number, fallback: string): string {
@@ -963,11 +962,11 @@ function ReportWorkflowScheduleTable({
         <Space direction="vertical" size={2}>
           <Space size={6} wrap>
             <Tag color={schedule.cadence === "interval" ? "blue" : "purple"}>
-              {localizeWorkflowScheduleText(reportWorkflowScheduleCadenceLabel(schedule.cadence), locale)}
+              {localizeWorkflowScheduleText(reportWorkflowScheduleCadenceLabel(schedule.cadence), t)}
             </Tag>
-            <Typography.Text>{localizeWorkflowScheduleText(reportWorkflowScheduleCadenceValue(schedule), locale)}</Typography.Text>
+            <Typography.Text>{localizeWorkflowScheduleText(reportWorkflowScheduleCadenceValue(schedule), t)}</Typography.Text>
           </Space>
-          <Typography.Text type="secondary">{localizeWorkflowScheduleText(reportWorkflowScheduleCadenceDetail(schedule), locale)}</Typography.Text>
+          <Typography.Text type="secondary">{localizeWorkflowScheduleText(reportWorkflowScheduleCadenceDetail(schedule), t)}</Typography.Text>
         </Space>
       )
     },
@@ -1006,7 +1005,7 @@ function ReportWorkflowScheduleTable({
         <Space direction="vertical" size={2}>
           <Tag color={enabled ? "green" : "default"}>{enabled ? t("enabled") : t("draft")}</Tag>
           <Typography.Text type="secondary">
-            {enabled ? nullableDate(schedule.enabled_at, locale) : nullableDate(schedule.disabled_at, locale)}
+            {enabled ? nullableDate(schedule.enabled_at, locale, t) : nullableDate(schedule.disabled_at, locale, t)}
           </Typography.Text>
         </Space>
       )
@@ -1049,7 +1048,6 @@ function ReportWorkflowScheduleTable({
                 onEnable={onEnable}
                 policyEnabledIDs={relationOptions.policyEnabledIDs}
                 schedule={schedule}
-                locale={locale}
               />
             )}
           </Space>
@@ -1089,7 +1087,6 @@ function EnableScheduleButton({
   actionID,
   busy,
   canManage,
-  locale,
   onEnable,
   policyEnabledIDs,
   schedule
@@ -1097,7 +1094,6 @@ function EnableScheduleButton({
   actionID: number | null;
   busy: boolean;
   canManage: boolean;
-  locale: string;
   onEnable: (schedule: ReportWorkflowSchedule) => void;
   policyEnabledIDs: ReadonlySet<number>;
   schedule: ReportWorkflowSchedule;
@@ -1121,164 +1117,181 @@ function EnableScheduleButton({
     return button;
   }
   return (
-    <Tooltip title={localizeWorkflowScheduleText(readiness.detail, locale)}>
+    <Tooltip title={localizeWorkflowScheduleText(readiness.detail, t)}>
       <span>{button}</span>
     </Tooltip>
   );
 }
 
-function nullableDate(value: string | null, locale: string): string {
-  return value === null ? "-" : formatDateTime(value, locale);
+function nullableDate(
+  value: string | null,
+  locale: string,
+  t: WorkflowScheduleTranslator,
+): string {
+  return value === null ? t("catalog.notSet") : formatDateTime(value, locale);
 }
 
 function localizeWorkflowScheduleMessages(
   messages: readonly string[],
-  locale: string,
+  t: WorkflowScheduleTranslator,
 ): string {
   return messages
-    .map((message) => localizeWorkflowScheduleText(message, locale))
+    .map((message) => localizeWorkflowScheduleText(message, t))
     .join(" ");
 }
 
-function localizeWorkflowScheduleText(value: string, locale: string): string {
-  if (locale !== "zh-CN") {
-    return value;
-  }
-  const exact: Readonly<Record<string, string>> = {
-    alert_storm: "告警风暴",
-    auto_room: "自动创建诊断室",
-    blocked: "已阻塞",
-    cascade: "级联故障",
-    disabled: "已停用",
-    interval: "固定间隔",
-    pending: "等待中",
-    ready: "就绪",
-    single_alert: "单告警",
-    suggest_room: "建议创建诊断室",
-    "Bound report workflow policy is enabled.": "绑定的报告工作流策略已启用。",
-    "Bound report workflow policy must be enabled before schedule enablement.":
-      "启用定时任务前，必须先启用绑定的报告工作流策略。",
-    "Calendar day of month must be between 1 and 28.":
-      "日历日期必须在 1 到 28 之间。",
-    "Calendar day of week must be between 0 and 6.":
-      "日历星期值必须在 0 到 6 之间。",
-    "Calendar hour must be between 0 and 23.":
-      "日历小时必须在 0 到 23 之间。",
-    "Calendar minute must be between 0 and 59.":
-      "日历分钟必须在 0 到 59 之间。",
-    "Cadence": "执行周期",
-    "Catch-up": "补偿执行",
-    "Complete schedule fields.": "请完成定时任务字段。",
-    "Daily": "每天",
-    "Daily cadence must not include calendar day fields.":
-      "每日周期不能包含日历日期字段。",
-    "Enable the selected report workflow policy before this schedule can be enabled.":
-      "启用此定时任务前，请先启用所选报告工作流策略。",
-    Friday: "星期五",
-    "Hourly report replay": "每小时报告重放",
-    "Interval": "固定间隔",
-    "Interval cadence must not include calendar fields.":
-      "固定间隔周期不能包含日历字段。",
-    "Interval must be between 1 and 31536000 seconds.":
-      "间隔必须在 1 到 31536000 秒之间。",
-    "Catch-up window must be between 1 and 31536000 seconds.":
-      "补偿窗口必须在 1 到 31536000 秒之间。",
-    Monday: "星期一",
-    "Monthly": "每月",
-    "Monthly cadence must not include calendar day of week.":
-      "每月周期不能包含星期字段。",
-    "Not named": "未命名",
-    "Not selected": "未选择",
-    "Not set": "未设置",
-    "Offset must be 0 for calendar cadences.":
-      "日历周期的偏移必须为 0。",
-    "Offset must be between 0 and 31536000 seconds.":
-      "偏移必须在 0 到 31536000 秒之间。",
-    "Offset must be less than interval.": "偏移必须小于间隔。",
-    "Policy": "策略",
-    "Policy not ready.": "策略未就绪。",
-    "Proof target": "证明目标",
-    "Ready to enable.": "可以启用。",
-    "Ready to save.": "可以保存。",
-    "Replay sample": "重放样例",
-    "Replay window overlaps interval.": "重放窗口与执行间隔重叠。",
-    "Replay delay must be between 0 and 31536000 seconds.":
-      "重放延迟必须在 0 到 31536000 秒之间。",
-    "Replay limit must be between 1 and 100000.":
-      "重放限制必须在 1 到 100000 之间。",
-    "Replay window must be between 1 and 31536000 seconds.":
-      "重放窗口必须在 1 到 31536000 秒之间。",
-    Saturday: "星期六",
-    "Schedule fields and bound workflow policy are ready.":
-      "定时任务字段和绑定的工作流策略均已就绪。",
-    "Selected policy is not enabled.": "所选策略尚未启用。",
-    "Set a positive interval and an offset that is lower than the interval.":
-      "请设置正数间隔，并确保偏移小于间隔。",
-    "Set valid UTC calendar fields, a zero offset, and a positive replay guard interval.":
-      "请设置有效的 UTC 日历字段、零偏移和正数重放保护间隔。",
-    "Select a report workflow policy.": "请选择报告工作流策略。",
-    "Select the workflow policy that this schedule should replay.":
-      "请选择此定时任务需要重放的工作流策略。",
-    "Weekly": "每周",
-    "Weekly cadence must not include calendar day of month.":
-      "每周周期不能包含月内日期字段。",
-    Sunday: "星期日",
-    Thursday: "星期四",
-    Tuesday: "星期二",
-    Wednesday: "星期三",
-    Weekday: "星期",
-    "Schedule name is required.": "定时任务名称为必填项。",
-    "Schedule name must be 120 characters or fewer.": "定时任务名称不能超过 120 个字符。",
-    "Prepared an hourly replay schedule from the settings overview proof action.":
-      "已根据配置概览证明操作准备每小时重放定时任务。",
-    "Temporal Schedule ID is required.": "Temporal 定时任务 ID 为必填项。",
-    "Temporal Schedule ID must not contain whitespace.":
-      "Temporal 定时任务 ID 不能包含空白符。",
-    "Temporal Schedule ID must be 200 characters or fewer.":
-      "Temporal 定时任务 ID 不能超过 200 个字符。",
-    "Replay window must be less than or equal to cadence guard interval to avoid overlapping scheduled replay windows.":
-      "重放窗口必须小于或等于周期保护间隔，以避免定时重放窗口重叠。",
-    "This schedule can retain recurring proof by replaying bounded alert windows through the selected workflow policy.":
-      "此定时任务可通过所选工作流策略重放有界告警窗口并保留周期性证明。",
-    "Complete the schedule fields before relying on recurring replay proof.":
-      "依赖周期性重放证明前，请完成定时任务字段。",
-    "Resolve blocked policy or timing settings before scheduled-trigger proof can run.":
-      "运行定时触发证明前，请解决已阻塞的策略或时间设置。",
-  };
-  if (exact[value] !== undefined) {
-    return exact[value]!;
+const workflowScheduleRuntimeTextKeys = {
+    "alert_storm": "runtimeText.alertStorm",
+    "auto_room": "runtimeText.autoRoom",
+    "blocked": "runtimeText.blocked",
+    "cascade": "runtimeText.cascade",
+    "disabled": "runtimeText.disabled",
+    "enabled": "enabled",
+    "interval": "runtimeText.interval",
+    "pending": "runtimeText.pending",
+    "ready": "runtimeText.ready",
+    "single_alert": "runtimeText.singleAlert",
+    "suggest_room": "runtimeText.suggestRoom",
+    "Bound report workflow policy is enabled.": "runtimeText.boundReportWorkflowPolicyIsEnabled",
+    "Bound report workflow policy must be enabled before schedule enablement.": "runtimeText.boundReportWorkflowPolicyMustBeEnabledBeforeScheduleEnablement",
+    "The bound policy is enabled and can be scheduled.": "runtimeText.boundPolicyIsEnabledAndCanBeScheduled",
+    "Enable the bound report workflow policy before this schedule can run.": "runtimeText.enableTheBoundReportWorkflowPolicyBeforeThisScheduleCanRun",
+    "Select an enabled report workflow policy before scheduling proof.": "runtimeText.selectAnEnabledReportWorkflowPolicyBeforeSchedulingProof",
+    "Calendar day of month must be between 1 and 28.": "runtimeText.calendarDayOfMonthMustBeBetween1And28",
+    "Calendar day of week must be between 0 and 6.": "runtimeText.calendarDayOfWeekMustBeBetween0And6",
+    "Calendar hour must be between 0 and 23.": "runtimeText.calendarHourMustBeBetween0And23",
+    "Calendar minute must be between 0 and 59.": "runtimeText.calendarMinuteMustBeBetween0And59",
+    "Cadence": "runtimeText.cadence",
+    "Catch-up": "runtimeText.catchUp",
+    "Complete schedule fields.": "runtimeText.completeScheduleFields",
+    "Daily": "runtimeText.daily",
+    "Daily cadence must not include calendar day fields.": "runtimeText.dailyCadenceMustNotIncludeCalendarDayFields",
+    "Enable the selected report workflow policy before this schedule can be enabled.": "runtimeText.enableTheSelectedReportWorkflowPolicyBeforeThisScheduleCanBeEnabled",
+    "Friday": "runtimeText.friday",
+    "Hourly report replay": "runtimeText.hourlyReportReplay",
+    "Interval": "runtimeText.interval2",
+    "Interval cadence must not include calendar fields.": "runtimeText.intervalCadenceMustNotIncludeCalendarFields",
+    "Interval must be between 1 and 31536000 seconds.": "runtimeText.intervalMustBeBetween1And31536000Seconds",
+    "Catch-up window must be between 1 and 31536000 seconds.": "runtimeText.catchUpWindowMustBeBetween1And31536000Seconds",
+    "Monday": "runtimeText.monday",
+    "Monthly": "runtimeText.monthly",
+    "Monthly cadence must not include calendar day of week.": "runtimeText.monthlyCadenceMustNotIncludeCalendarDayOfWeek",
+    "Not named": "runtimeText.notNamed",
+    "Not selected": "runtimeText.notSelected",
+    "Not set": "runtimeText.notSet",
+    "Offset must be 0 for calendar cadences.": "runtimeText.offsetMustBe0ForCalendarCadences",
+    "Offset must be between 0 and 31536000 seconds.": "runtimeText.offsetMustBeBetween0And31536000Seconds",
+    "Offset must be less than interval.": "runtimeText.offsetMustBeLessThanInterval",
+    "Policy": "runtimeText.policy",
+    "Policy not ready.": "runtimeText.policyNotReady",
+    "Proof target": "runtimeText.proofTarget",
+    "Ready to enable.": "runtimeText.readyToEnable",
+    "Ready to save.": "runtimeText.readyToSave",
+    "Replay sample": "runtimeText.replaySample",
+    "Replay window overlaps interval.": "runtimeText.replayWindowOverlapsInterval",
+    "Replay window, delay, and limit must be valid, and the window cannot exceed the cadence guard interval.": "runtimeText.replayWindowDelayAndLimitMustBeValid",
+    "Replay delay must be between 0 and 31536000 seconds.": "runtimeText.replayDelayMustBeBetween0And31536000Seconds",
+    "Replay limit must be between 1 and 100000.": "runtimeText.replayLimitMustBeBetween1And100000",
+    "Replay window must be between 1 and 31536000 seconds.": "runtimeText.replayWindowMustBeBetween1And31536000Seconds",
+    "Saturday": "runtimeText.saturday",
+    "Schedule fields and bound workflow policy are ready.": "runtimeText.scheduleFieldsAndBoundWorkflowPolicyAreReady",
+    "Set a positive catch-up window for missed scheduled starts.": "runtimeText.setAPositiveCatchUpWindowForMissedScheduledStarts",
+    "Selected policy is not enabled.": "runtimeText.selectedPolicyIsNotEnabled",
+    "Set a positive interval and an offset that is lower than the interval.": "runtimeText.setAPositiveIntervalAndAnOffsetThatIsLowerThanThe",
+    "Set valid UTC calendar fields, a zero offset, and a positive replay guard interval.": "runtimeText.setValidUtcCalendarFieldsAZeroOffsetAndAPositiveReplay",
+    "Select a report workflow policy.": "runtimeText.selectAReportWorkflowPolicy",
+    "Select the workflow policy that this schedule should replay.": "runtimeText.selectTheWorkflowPolicyThatThisScheduleShouldReplay",
+    "Weekly": "runtimeText.weekly",
+    "Weekly cadence must not include calendar day of month.": "runtimeText.weeklyCadenceMustNotIncludeCalendarDayOfMonth",
+    "Sunday": "runtimeText.sunday",
+    "Thursday": "runtimeText.thursday",
+    "Tuesday": "runtimeText.tuesday",
+    "Wednesday": "runtimeText.wednesday",
+    "Weekday": "runtimeText.weekday",
+    "Schedule name is required.": "runtimeText.scheduleNameIsRequired",
+    "Schedule name must be 120 characters or fewer.": "runtimeText.scheduleNameMustBe120CharactersOrFewer",
+    "Prepared an hourly replay schedule from the settings overview proof action.": "runtimeText.preparedAnHourlyReplayScheduleFromTheSettingsOverviewProofAction",
+    "Temporal Schedule ID is required.": "runtimeText.temporalScheduleIdIsRequired",
+    "Temporal Schedule ID must not contain whitespace.": "runtimeText.temporalScheduleIdMustNotContainWhitespace",
+    "Temporal Schedule ID must be 200 characters or fewer.": "runtimeText.temporalScheduleIdMustBe200CharactersOrFewer",
+    "Provide a non-empty Temporal Schedule ID without whitespace.": "runtimeText.provideANonEmptyTemporalScheduleIdWithoutWhitespace",
+    "Replay window must be less than or equal to cadence guard interval to avoid overlapping scheduled replay windows.": "runtimeText.replayWindowMustBeLessThanOrEqualToCadenceGuardInterval",
+    "This schedule can retain recurring proof by replaying bounded alert windows through the selected workflow policy.": "runtimeText.thisScheduleCanRetainRecurringProofByReplayingBoundedAlertWindowsThrough",
+    "Complete the schedule fields before relying on recurring replay proof.": "runtimeText.completeTheScheduleFieldsBeforeRelyingOnRecurringReplayProof",
+    "Resolve blocked policy or timing settings before scheduled-trigger proof can run.": "runtimeText.resolveBlockedPolicyOrTimingSettingsBeforeScheduledTriggerProofCanRun",
+} as const;
+
+export function localizeWorkflowScheduleText(value: string, t: WorkflowScheduleTranslator): string {
+  const key =
+    workflowScheduleRuntimeTextKeys[
+      value as keyof typeof workflowScheduleRuntimeTextKeys
+    ];
+  if (key !== undefined) {
+    return t(key);
   }
   let match = value.match(/^Current user is not authorized to manage report workflow schedule #(\d+)\.$/);
   if (match) {
-    return `当前用户无权管理报告工作流定时任务 #${match[1]}。`;
+    return t("runtimePattern.unauthorizedSchedule", { id: match[1]! });
   }
   match = value.match(/^Every (.+)$/);
   if (match) {
-    return `每 ${match[1]} 执行一次`;
+    return t("runtimePattern.everyInterval", { interval: match[1]! });
   }
   match = value.match(/^Daily at (.+)$/);
   if (match) {
-    return `每天 ${match[1]} 执行`;
+    return t("runtimePattern.dailyAt", { time: match[1]! });
   }
   match = value.match(/^Day (.+) at (.+)$/);
   if (match) {
-    return `每月 ${match[1]} 日 ${match[2]} 执行`;
+    return t("runtimePattern.monthlyAt", {
+      day: match[1]!,
+      time: match[2]!,
+    });
   }
   match = value.match(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Weekday) at (.+)$/);
   if (match) {
-    return `${localizeWorkflowScheduleText(match[1]!, locale)} ${match[2]} 执行`;
+    return t("runtimePattern.weeklyAt", {
+      weekday: localizeWorkflowScheduleText(match[1]!, t),
+      time: match[2]!,
+    });
   }
   match = value.match(/^Starts every (.+) after offset (.+)\.$/);
   if (match) {
-    return `每 ${match[1]} 启动一次，偏移 ${match[2]}。`;
+    return t("runtimePattern.intervalWithOffset", {
+      interval: match[1]!,
+      offset: match[2]!,
+    });
+  }
+  match = value.match(/^Each run samples a (.+) alert window after a (.+) delay, capped at (\d+) events\.$/);
+  if (match) {
+    return t("runtimePattern.replaySampleDetail", {
+      delay: match[2]!,
+      limit: Number(match[3]),
+      window: match[1]!,
+    });
+  }
+  match = value.match(/^Temporal can catch up missed schedule starts within (.+)\.$/);
+  if (match) {
+    return t("runtimePattern.catchUpDetail", { window: match[1]! });
+  }
+  match = value.match(/^Temporal Schedule ID (.+) is ready for retained scheduled-trigger proof\.$/);
+  if (match) {
+    return t("runtimePattern.temporalIdReady", { id: match[1]! });
   }
   match = value.match(/^(Daily|Weekly|Monthly) UTC calendar schedule with (.+) replay guard interval\.$/);
   if (match) {
-    return `${localizeWorkflowScheduleText(match[1]!, locale)} UTC 日历定时任务，重放保护间隔为 ${match[2]}。`;
+    return t("runtimePattern.calendarGuard", {
+      cadence: localizeWorkflowScheduleText(match[1]!, t),
+      guard: match[2]!,
+    });
   }
   match = value.match(/^(.+) window$/);
   if (match) {
-    return `${match[1]} 窗口`;
+    return t("runtimePattern.window", { duration: match[1]! });
+  }
+  match = value.match(/^Policy #(\d+)$/);
+  if (match) {
+    return t("runtimePattern.policyNumber", { id: match[1]! });
   }
   return value;
 }
