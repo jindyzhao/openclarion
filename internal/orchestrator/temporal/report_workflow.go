@@ -548,7 +548,9 @@ const (
 	reportActivityScheduleToCloseTimeout     = 35 * time.Minute
 	reportTaskActivityStartToCloseTimeout    = time.Minute
 	reportTaskActivityScheduleToCloseTimeout = 5 * time.Minute
-	reportChildWorkflowExecutionTimeout      = 45 * time.Minute
+	reportChildWorkflowCleanupHeadroom       = 5 * time.Minute
+	reportChildWorkflowExecutionTimeout      = reportActivityScheduleToCloseTimeout +
+		2*reportTaskActivityScheduleToCloseTimeout + reportChildWorkflowCleanupHeadroom
 
 	reportFanOutTaskLifecycleChangeID    = "report-fan-out-task-lifecycle"
 	reportFanOutTaskLifecycleVersion     = 1

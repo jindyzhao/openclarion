@@ -15,11 +15,21 @@ func TestReportActivityOptionsAllowSlowReportLLM(t *testing.T) {
 	if options.RetryPolicy == nil || options.RetryPolicy.MaximumAttempts != 3 {
 		t.Fatalf("RetryPolicy = %+v, want maximum attempts 3", options.RetryPolicy)
 	}
-	if reportChildWorkflowOptions("reports").WorkflowExecutionTimeout != reportChildWorkflowExecutionTimeout {
+	childTimeout := reportChildWorkflowOptions("reports").WorkflowExecutionTimeout
+	if childTimeout != reportChildWorkflowExecutionTimeout {
 		t.Fatalf(
 			"child WorkflowExecutionTimeout = %s, want %s",
-			reportChildWorkflowOptions("reports").WorkflowExecutionTimeout,
+			childTimeout,
 			reportChildWorkflowExecutionTimeout,
+		)
+	}
+	activityBudget := reportActivityScheduleToCloseTimeout + 2*reportTaskActivityScheduleToCloseTimeout
+	if childTimeout <= activityBudget || childTimeout-activityBudget != reportChildWorkflowCleanupHeadroom {
+		t.Fatalf(
+			"child WorkflowExecutionTimeout = %s, want %s activity budget plus %s cleanup headroom",
+			childTimeout,
+			activityBudget,
+			reportChildWorkflowCleanupHeadroom,
 		)
 	}
 }
