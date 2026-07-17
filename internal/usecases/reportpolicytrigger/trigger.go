@@ -178,6 +178,7 @@ func (s *Service) ReplayAndStartDetailed(ctx context.Context, req Request) (Resu
 		WorkflowID:                         strings.TrimSpace(req.WorkflowID),
 		Scenario:                           reportprompt.Scenario(binding.policy.ReportScenario),
 		ReportNotificationChannelProfileID: binding.policy.ReportNotificationChannelProfileID,
+		MaxFailedSubReports:                binding.policy.MaxFailedSubReports,
 	}
 	result, err := s.replayAndStart(ctx, provider, s.uowFactory, s.starter, triggerReq)
 	if err != nil {

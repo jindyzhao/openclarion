@@ -867,6 +867,10 @@ var (
 		{Name: "executive_summary", Type: field.TypeString, Size: 4000},
 		{Name: "severity", Type: field.TypeString, Size: 32},
 		{Name: "confidence", Type: field.TypeString, Size: 32},
+		{Name: "generation_status", Type: field.TypeString, Size: 16, Default: "complete"},
+		{Name: "expected_sub_report_count", Type: field.TypeInt, Default: 1},
+		{Name: "successful_sub_report_count", Type: field.TypeInt, Default: 1},
+		{Name: "failed_sub_report_count", Type: field.TypeInt, Default: 0},
 		{Name: "subreport_summaries", Type: field.TypeJSON},
 		{Name: "recommended_actions", Type: field.TypeJSON},
 		{Name: "notification_text", Type: field.TypeString, Size: 2000},
@@ -885,7 +889,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "final_reports_tenants_tenant",
-				Columns:    []*schema.Column{FinalReportsColumns[15]},
+				Columns:    []*schema.Column{FinalReportsColumns[19]},
 				RefColumns: []*schema.Column{TenantsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -894,22 +898,22 @@ var (
 			{
 				Name:    "finalreport_tenant_id",
 				Unique:  false,
-				Columns: []*schema.Column{FinalReportsColumns[15]},
+				Columns: []*schema.Column{FinalReportsColumns[19]},
 			},
 			{
 				Name:    "finalreport_tenant_id_idempotency_key",
 				Unique:  true,
-				Columns: []*schema.Column{FinalReportsColumns[15], FinalReportsColumns[2]},
+				Columns: []*schema.Column{FinalReportsColumns[19], FinalReportsColumns[2]},
 			},
 			{
 				Name:    "finalreport_correlation_key_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{FinalReportsColumns[1], FinalReportsColumns[14]},
+				Columns: []*schema.Column{FinalReportsColumns[1], FinalReportsColumns[18]},
 			},
 			{
 				Name:    "finalreport_severity_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{FinalReportsColumns[5], FinalReportsColumns[14]},
+				Columns: []*schema.Column{FinalReportsColumns[5], FinalReportsColumns[18]},
 			},
 		},
 	}
@@ -1199,6 +1203,7 @@ var (
 		{Name: "alert_source_profile_id", Type: field.TypeInt},
 		{Name: "grouping_policy_id", Type: field.TypeInt},
 		{Name: "report_notification_channel_profile_id", Type: field.TypeInt, Nullable: true},
+		{Name: "max_failed_sub_reports", Type: field.TypeInt, Default: 0},
 		{Name: "trigger_mode", Type: field.TypeString, Size: 32, Default: "manual_replay"},
 		{Name: "report_scenario", Type: field.TypeString, Size: 32, Default: "single_alert"},
 		{Name: "diagnosis_follow_up", Type: field.TypeString, Size: 32, Default: "disabled"},
@@ -1217,7 +1222,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "report_workflow_policies_tenants_tenant",
-				Columns:    []*schema.Column{ReportWorkflowPoliciesColumns[13]},
+				Columns:    []*schema.Column{ReportWorkflowPoliciesColumns[14]},
 				RefColumns: []*schema.Column{TenantsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -1226,17 +1231,17 @@ var (
 			{
 				Name:    "reportworkflowpolicy_tenant_id",
 				Unique:  false,
-				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[13]},
+				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[14]},
 			},
 			{
 				Name:    "reportworkflowpolicy_tenant_id_name",
 				Unique:  true,
-				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[13], ReportWorkflowPoliciesColumns[1]},
+				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[14], ReportWorkflowPoliciesColumns[1]},
 			},
 			{
 				Name:    "reportworkflowpolicy_enabled_updated_at",
 				Unique:  false,
-				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[8], ReportWorkflowPoliciesColumns[12]},
+				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[9], ReportWorkflowPoliciesColumns[13]},
 			},
 			{
 				Name:    "reportworkflowpolicy_alert_source_profile_id_grouping_policy_id",

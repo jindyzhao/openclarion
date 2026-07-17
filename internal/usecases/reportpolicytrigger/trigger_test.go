@@ -23,6 +23,7 @@ func TestReplayAndStartResolvesPolicyBindings(t *testing.T) {
 	grouping := mustGroupingPolicy(t, 12, []string{"prometheus"})
 	policy := mustReportWorkflowPolicy(t, 13, source.ID, grouping.ID, domain.ReportWorkflowScenarioCascade)
 	policy.ReportNotificationChannelProfileID = 14
+	policy.MaxFailedSubReports = 2
 	factory := &fakePolicyUOWFactory{configRepo: &fakePolicyConfigRepo{
 		sources:   map[domain.AlertSourceProfileID]domain.AlertSourceProfile{source.ID: source},
 		groupings: map[domain.GroupingPolicyID]domain.GroupingPolicy{grouping.ID: grouping},
@@ -117,6 +118,9 @@ func TestReplayAndStartResolvesPolicyBindings(t *testing.T) {
 	}
 	if captured.ReportNotificationChannelProfileID != 14 {
 		t.Fatalf("ReportNotificationChannelProfileID = %d, want 14", captured.ReportNotificationChannelProfileID)
+	}
+	if captured.MaxFailedSubReports != 2 {
+		t.Fatalf("MaxFailedSubReports = %d, want 2", captured.MaxFailedSubReports)
 	}
 }
 
@@ -461,6 +465,7 @@ func mustReportWorkflowPolicy(
 		"Manual replay",
 		sourceID,
 		groupingID,
+		0,
 		0,
 		domain.ReportWorkflowTriggerModeManualReplay,
 		scenario,

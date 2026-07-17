@@ -33,6 +33,14 @@ type FinalReport struct {
 	Severity string `json:"severity,omitempty"`
 	// "low" | "medium" | "high"
 	Confidence string `json:"confidence,omitempty"`
+	// fan-in coverage: "complete" | "partial"
+	GenerationStatus string `json:"generation_status,omitempty"`
+	// number of SubReports expected before applying the failure threshold
+	ExpectedSubReportCount int `json:"expected_sub_report_count,omitempty"`
+	// number of generated SubReports included in fan-in
+	SuccessfulSubReportCount int `json:"successful_sub_report_count,omitempty"`
+	// number of failed SubReports omitted under the configured threshold
+	FailedSubReportCount int `json:"failed_sub_report_count,omitempty"`
 	// validated sub_reports projection from the FinalReport JSON
 	SubreportSummaries json.RawMessage `json:"subreport_summaries,omitempty"`
 	// validated recommended_actions array from the FinalReport JSON
@@ -104,9 +112,9 @@ func (*FinalReport) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case finalreport.FieldSubreportSummaries, finalreport.FieldRecommendedActions, finalreport.FieldContent:
 			values[i] = new([]byte)
-		case finalreport.FieldID, finalreport.FieldTenantID:
+		case finalreport.FieldID, finalreport.FieldTenantID, finalreport.FieldExpectedSubReportCount, finalreport.FieldSuccessfulSubReportCount, finalreport.FieldFailedSubReportCount:
 			values[i] = new(sql.NullInt64)
-		case finalreport.FieldCorrelationKey, finalreport.FieldIdempotencyKey, finalreport.FieldTitle, finalreport.FieldExecutiveSummary, finalreport.FieldSeverity, finalreport.FieldConfidence, finalreport.FieldNotificationText, finalreport.FieldModel, finalreport.FieldOutputMode, finalreport.FieldCreatedByWorkflow:
+		case finalreport.FieldCorrelationKey, finalreport.FieldIdempotencyKey, finalreport.FieldTitle, finalreport.FieldExecutiveSummary, finalreport.FieldSeverity, finalreport.FieldConfidence, finalreport.FieldGenerationStatus, finalreport.FieldNotificationText, finalreport.FieldModel, finalreport.FieldOutputMode, finalreport.FieldCreatedByWorkflow:
 			values[i] = new(sql.NullString)
 		case finalreport.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -172,6 +180,30 @@ func (_m *FinalReport) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field confidence", values[i])
 			} else if value.Valid {
 				_m.Confidence = value.String
+			}
+		case finalreport.FieldGenerationStatus:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field generation_status", values[i])
+			} else if value.Valid {
+				_m.GenerationStatus = value.String
+			}
+		case finalreport.FieldExpectedSubReportCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field expected_sub_report_count", values[i])
+			} else if value.Valid {
+				_m.ExpectedSubReportCount = int(value.Int64)
+			}
+		case finalreport.FieldSuccessfulSubReportCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field successful_sub_report_count", values[i])
+			} else if value.Valid {
+				_m.SuccessfulSubReportCount = int(value.Int64)
+			}
+		case finalreport.FieldFailedSubReportCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field failed_sub_report_count", values[i])
+			} else if value.Valid {
+				_m.FailedSubReportCount = int(value.Int64)
 			}
 		case finalreport.FieldSubreportSummaries:
 			if value, ok := values[i].(*[]byte); !ok {
@@ -298,6 +330,18 @@ func (_m *FinalReport) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("confidence=")
 	builder.WriteString(_m.Confidence)
+	builder.WriteString(", ")
+	builder.WriteString("generation_status=")
+	builder.WriteString(_m.GenerationStatus)
+	builder.WriteString(", ")
+	builder.WriteString("expected_sub_report_count=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ExpectedSubReportCount))
+	builder.WriteString(", ")
+	builder.WriteString("successful_sub_report_count=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SuccessfulSubReportCount))
+	builder.WriteString(", ")
+	builder.WriteString("failed_sub_report_count=")
+	builder.WriteString(fmt.Sprintf("%v", _m.FailedSubReportCount))
 	builder.WriteString(", ")
 	builder.WriteString("subreport_summaries=")
 	builder.WriteString(fmt.Sprintf("%v", _m.SubreportSummaries))

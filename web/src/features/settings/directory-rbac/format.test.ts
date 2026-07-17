@@ -682,6 +682,7 @@ function reportWorkflowPolicyFixture(
     enabled_at: "2026-06-05T08:05:00Z",
     grouping_policy_id: 2,
     id: 3,
+    max_failed_sub_reports: 0,
     name: "Default report workflow",
     report_notification_channel_profile_id: null,
     report_scenario: "single_alert",

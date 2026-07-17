@@ -1020,6 +1020,7 @@ const reportWorkflowPolicies = [
     trigger_mode: "manual_replay",
     report_scenario: "single_alert",
     diagnosis_follow_up: "suggest_room",
+    max_failed_sub_reports: 0,
     enabled: true,
     enabled_at: "2026-06-05T08:05:00Z",
     disabled_at: null,
@@ -1035,6 +1036,7 @@ const reportWorkflowPolicies = [
     trigger_mode: "manual_replay",
     report_scenario: "single_alert",
     diagnosis_follow_up: "disabled",
+    max_failed_sub_reports: 0,
     enabled: false,
     enabled_at: null,
     disabled_at: "2026-06-05T08:10:00Z",
@@ -2578,6 +2580,10 @@ function reportWorkflowPolicyFromBody(
     diagnosis_follow_up: diagnosisFollowUpModes.has(body.diagnosis_follow_up)
       ? body.diagnosis_follow_up
       : "disabled",
+    max_failed_sub_reports: Number.parseInt(
+      String(body.max_failed_sub_reports ?? "0"),
+      10,
+    ),
     enabled: false,
     enabled_at: null,
     disabled_at: null,

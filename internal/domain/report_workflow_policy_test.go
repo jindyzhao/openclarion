@@ -12,6 +12,7 @@ func TestNewReportWorkflowPolicyValidatesAndTrims(t *testing.T) {
 		AlertSourceProfileID(1),
 		GroupingPolicyID(2),
 		NotificationChannelProfileID(3),
+		2,
 		ReportWorkflowTriggerModeManualReplay,
 		ReportWorkflowScenarioCascade,
 		DiagnosisFollowUpModeAutoRoom,
@@ -26,6 +27,7 @@ func TestNewReportWorkflowPolicyValidatesAndTrims(t *testing.T) {
 		policy.AlertSourceProfileID != 1 ||
 		policy.GroupingPolicyID != 2 ||
 		policy.ReportNotificationChannelProfileID != 3 ||
+		policy.MaxFailedSubReports != 2 ||
 		policy.ReportScenario != ReportWorkflowScenarioCascade ||
 		policy.DiagnosisFollowUp != DiagnosisFollowUpModeAutoRoom ||
 		policy.Enabled {
@@ -43,6 +45,8 @@ func TestNewReportWorkflowPolicyRejectsInvalidInputs(t *testing.T) {
 		{name: "missing_source", edit: func(a *reportWorkflowPolicyArgs) { a.sourceID = 0 }},
 		{name: "missing_grouping", edit: func(a *reportWorkflowPolicyArgs) { a.groupingID = 0 }},
 		{name: "negative_report_channel", edit: func(a *reportWorkflowPolicyArgs) { a.reportChannelID = -1 }},
+		{name: "negative_failure_threshold", edit: func(a *reportWorkflowPolicyArgs) { a.maxFailedSubReports = -1 }},
+		{name: "failure_threshold_too_large", edit: func(a *reportWorkflowPolicyArgs) { a.maxFailedSubReports = ReportWorkflowMaxFailedSubReports + 1 }},
 		{name: "bad_trigger", edit: func(a *reportWorkflowPolicyArgs) { a.triggerMode = "scheduled" }},
 		{name: "bad_scenario", edit: func(a *reportWorkflowPolicyArgs) { a.scenario = "unknown" }},
 		{name: "bad_followup", edit: func(a *reportWorkflowPolicyArgs) { a.followUp = "auto_start" }},
@@ -62,6 +66,7 @@ func TestNewReportWorkflowPolicyRejectsInvalidInputs(t *testing.T) {
 				args.sourceID,
 				args.groupingID,
 				args.reportChannelID,
+				args.maxFailedSubReports,
 				args.triggerMode,
 				args.scenario,
 				args.followUp,
@@ -81,6 +86,7 @@ func TestWithReportWorkflowPolicyEnabledTogglesExplicitState(t *testing.T) {
 		"Default report policy",
 		AlertSourceProfileID(1),
 		GroupingPolicyID(2),
+		0,
 		0,
 		ReportWorkflowTriggerModeManualReplay,
 		ReportWorkflowScenarioSingleAlert,
@@ -114,26 +120,28 @@ func TestWithReportWorkflowPolicyEnabledTogglesExplicitState(t *testing.T) {
 }
 
 type reportWorkflowPolicyArgs struct {
-	name            string
-	sourceID        AlertSourceProfileID
-	groupingID      GroupingPolicyID
-	reportChannelID NotificationChannelProfileID
-	triggerMode     ReportWorkflowTriggerMode
-	scenario        ReportWorkflowScenario
-	followUp        DiagnosisFollowUpMode
-	enabled         bool
-	enabledAt       *time.Time
-	disabledAt      *time.Time
+	name                string
+	sourceID            AlertSourceProfileID
+	groupingID          GroupingPolicyID
+	reportChannelID     NotificationChannelProfileID
+	maxFailedSubReports int
+	triggerMode         ReportWorkflowTriggerMode
+	scenario            ReportWorkflowScenario
+	followUp            DiagnosisFollowUpMode
+	enabled             bool
+	enabledAt           *time.Time
+	disabledAt          *time.Time
 }
 
 func defaultReportWorkflowPolicyArgs() reportWorkflowPolicyArgs {
 	return reportWorkflowPolicyArgs{
-		name:            "Default report policy",
-		sourceID:        AlertSourceProfileID(1),
-		groupingID:      GroupingPolicyID(2),
-		reportChannelID: 0,
-		triggerMode:     ReportWorkflowTriggerModeManualReplay,
-		scenario:        ReportWorkflowScenarioSingleAlert,
-		followUp:        DiagnosisFollowUpModeDisabled,
+		name:                "Default report policy",
+		sourceID:            AlertSourceProfileID(1),
+		groupingID:          GroupingPolicyID(2),
+		reportChannelID:     0,
+		maxFailedSubReports: 0,
+		triggerMode:         ReportWorkflowTriggerModeManualReplay,
+		scenario:            ReportWorkflowScenarioSingleAlert,
+		followUp:            DiagnosisFollowUpModeDisabled,
 	}
 }

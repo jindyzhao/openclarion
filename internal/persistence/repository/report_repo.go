@@ -339,13 +339,29 @@ func (r *reportRepo) SaveFinalReport(ctx context.Context, fr domain.FinalReport,
 	if err := checkOpen(r.closed); err != nil {
 		return domain.FinalReport{}, err
 	}
+	validated, err := domain.NewFinalReport(fr)
+	if err != nil {
+		return domain.FinalReport{}, err
+	}
+	fr = validated
 	if len(subReportIDs) == 0 {
 		return domain.FinalReport{}, fmt.Errorf("save final report: subreport ids must be non-empty: %w", domain.ErrInvariantViolation)
 	}
+	if fr.SuccessfulSubReportCount != len(subReportIDs) {
+		return domain.FinalReport{}, fmt.Errorf(
+			"save final report: successful_sub_report_count %d does not match %d linked subreports: %w",
+			fr.SuccessfulSubReportCount, len(subReportIDs), domain.ErrInvariantViolation,
+		)
+	}
+	seenSubReportIDs := make(map[domain.SubReportID]struct{}, len(subReportIDs))
 	for _, id := range subReportIDs {
 		if id == 0 {
 			return domain.FinalReport{}, fmt.Errorf("save final report: subreport ids must be non-zero: %w", domain.ErrInvariantViolation)
 		}
+		if _, exists := seenSubReportIDs[id]; exists {
+			return domain.FinalReport{}, fmt.Errorf("save final report: duplicate subreport id %d: %w", id, domain.ErrInvariantViolation)
+		}
+		seenSubReportIDs[id] = struct{}{}
 	}
 	builder := r.tx.FinalReport.Create().
 		SetCorrelationKey(fr.CorrelationKey).
@@ -354,6 +370,10 @@ func (r *reportRepo) SaveFinalReport(ctx context.Context, fr domain.FinalReport,
 		SetExecutiveSummary(fr.ExecutiveSummary).
 		SetSeverity(string(fr.Severity)).
 		SetConfidence(string(fr.Confidence)).
+		SetGenerationStatus(string(fr.GenerationStatus)).
+		SetExpectedSubReportCount(fr.ExpectedSubReportCount).
+		SetSuccessfulSubReportCount(fr.SuccessfulSubReportCount).
+		SetFailedSubReportCount(fr.FailedSubReportCount).
 		SetSubreportSummaries(fr.SubReports).
 		SetRecommendedActions(fr.RecommendedActions).
 		SetNotificationText(fr.NotificationText).

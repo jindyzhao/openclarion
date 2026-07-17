@@ -22,6 +22,15 @@ const (
 	DiagnosisStatusCancelled DiagnosisStatus = "cancelled"
 )
 
+// Report fan-out lifecycle events share the append-only DiagnosisTask event
+// store, but remain a distinct task family for diagnosis-room read models.
+const (
+	DiagnosisTaskEventKindSubReportStarted   = "subreport.started"
+	DiagnosisTaskEventKindSubReportSucceeded = "subreport.succeeded"
+	DiagnosisTaskEventKindSubReportFailed    = "subreport.failed"
+	DiagnosisTaskEventKindSubReportCancelled = "subreport.cancelled"
+)
+
 // Valid reports whether s is a known DiagnosisStatus value.
 func (s DiagnosisStatus) Valid() bool {
 	switch s {
@@ -48,8 +57,10 @@ func (s DiagnosisStatus) IsTerminal() bool {
 	return false
 }
 
-// DiagnosisTask is the workflow-bound lifecycle record for one
-// DiagnosisWorkflow execution against one EvidenceSnapshot.
+// DiagnosisTask is the workflow-bound lifecycle record for one Temporal
+// execution against one EvidenceSnapshot. Interactive diagnosis and report
+// fan-out share this durable lifecycle store; task-family events keep their
+// read models distinct.
 //
 // Identity matches Temporal's own identity model: the natural unique
 // key at the persistence boundary is (WorkflowID, RunID). A new RunID

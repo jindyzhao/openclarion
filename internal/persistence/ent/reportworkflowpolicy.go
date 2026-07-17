@@ -28,6 +28,8 @@ type ReportWorkflowPolicy struct {
 	GroupingPolicyID int `json:"grouping_policy_id,omitempty"`
 	// optional bound NotificationChannelProfile identifier for final report delivery
 	ReportNotificationChannelProfileID *int `json:"report_notification_channel_profile_id,omitempty"`
+	// maximum failed SubReport children tolerated before fan-in is rejected
+	MaxFailedSubReports int `json:"max_failed_sub_reports,omitempty"`
 	// "manual_replay"
 	TriggerMode string `json:"trigger_mode,omitempty"`
 	// "single_alert" | "cascade" | "alert_storm"
@@ -77,7 +79,7 @@ func (*ReportWorkflowPolicy) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case reportworkflowpolicy.FieldEnabled:
 			values[i] = new(sql.NullBool)
-		case reportworkflowpolicy.FieldID, reportworkflowpolicy.FieldTenantID, reportworkflowpolicy.FieldAlertSourceProfileID, reportworkflowpolicy.FieldGroupingPolicyID, reportworkflowpolicy.FieldReportNotificationChannelProfileID:
+		case reportworkflowpolicy.FieldID, reportworkflowpolicy.FieldTenantID, reportworkflowpolicy.FieldAlertSourceProfileID, reportworkflowpolicy.FieldGroupingPolicyID, reportworkflowpolicy.FieldReportNotificationChannelProfileID, reportworkflowpolicy.FieldMaxFailedSubReports:
 			values[i] = new(sql.NullInt64)
 		case reportworkflowpolicy.FieldName, reportworkflowpolicy.FieldTriggerMode, reportworkflowpolicy.FieldReportScenario, reportworkflowpolicy.FieldDiagnosisFollowUp:
 			values[i] = new(sql.NullString)
@@ -134,6 +136,12 @@ func (_m *ReportWorkflowPolicy) assignValues(columns []string, values []any) err
 			} else if value.Valid {
 				_m.ReportNotificationChannelProfileID = new(int)
 				*_m.ReportNotificationChannelProfileID = int(value.Int64)
+			}
+		case reportworkflowpolicy.FieldMaxFailedSubReports:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field max_failed_sub_reports", values[i])
+			} else if value.Valid {
+				_m.MaxFailedSubReports = int(value.Int64)
 			}
 		case reportworkflowpolicy.FieldTriggerMode:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -242,6 +250,9 @@ func (_m *ReportWorkflowPolicy) String() string {
 		builder.WriteString("report_notification_channel_profile_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("max_failed_sub_reports=")
+	builder.WriteString(fmt.Sprintf("%v", _m.MaxFailedSubReports))
 	builder.WriteString(", ")
 	builder.WriteString("trigger_mode=")
 	builder.WriteString(_m.TriggerMode)

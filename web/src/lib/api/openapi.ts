@@ -2286,6 +2286,11 @@ export interface components {
              * @example 1
              */
             report_notification_channel_profile_id: number | null;
+            /**
+             * @description Maximum failed SubReport children tolerated before report fan-in is rejected. At least one SubReport must always succeed.
+             * @example 0
+             */
+            max_failed_sub_reports: number;
             trigger_mode: components["schemas"]["ReportWorkflowTriggerMode"];
             report_scenario: components["schemas"]["ReportWorkflowScenario"];
             diagnosis_follow_up: components["schemas"]["DiagnosisFollowUpMode"];
@@ -2338,6 +2343,12 @@ export interface components {
              */
             report_notification_channel_profile_id?: number | null;
             /**
+             * @description Maximum failed SubReport children tolerated before report fan-in is rejected. Zero requires every SubReport to succeed.
+             * @default 0
+             * @example 0
+             */
+            max_failed_sub_reports: number;
+            /**
              * @default manual_replay
              * @enum {string}
              */
@@ -2363,6 +2374,7 @@ export interface components {
              *         "alert_source_profile_id": 1,
              *         "grouping_policy_id": 1,
              *         "report_notification_channel_profile_id": null,
+             *         "max_failed_sub_reports": 0,
              *         "trigger_mode": "manual_replay",
              *         "report_scenario": "single_alert",
              *         "diagnosis_follow_up": "suggest_room",
@@ -2786,6 +2798,11 @@ export interface components {
             report_scenario: components["schemas"]["ReportWorkflowScenario"];
             diagnosis_follow_up: components["schemas"]["DiagnosisFollowUpMode"];
             /**
+             * @description Maximum failed SubReport children tolerated by this policy before fan-in is rejected.
+             * @example 0
+             */
+            max_failed_sub_reports: number;
+            /**
              * Format: int64
              * @example 1
              */
@@ -3184,6 +3201,10 @@ export interface components {
              *         "executive_summary": "Checkout latency increased after a deployment.",
              *         "severity": "warning",
              *         "confidence": "high",
+             *         "generation_status": "complete",
+             *         "expected_sub_report_count": 1,
+             *         "successful_sub_report_count": 1,
+             *         "failed_sub_report_count": 0,
              *         "notification_text": "Checkout latency incident requires review.",
              *         "created_by_workflow": "FinalReportWorkflow",
              *         "created_at": "2026-05-27T09:05:00Z"
@@ -4247,6 +4268,12 @@ export interface components {
             /** Format: int64 */
             event_count: number;
         };
+        /**
+         * @description Whether report fan-in included every expected SubReport or proceeded within the configured child-failure threshold.
+         * @example complete
+         * @enum {string}
+         */
+        FinalReportGenerationStatus: "complete" | "partial";
         /** @description Final report summary for list views. */
         FinalReportSummary: {
             /**
@@ -4259,6 +4286,13 @@ export interface components {
             executive_summary: string;
             severity: components["schemas"]["ReportSeverity"];
             confidence: components["schemas"]["ReportConfidence"];
+            generation_status: components["schemas"]["FinalReportGenerationStatus"];
+            /** @example 1 */
+            expected_sub_report_count: number;
+            /** @example 1 */
+            successful_sub_report_count: number;
+            /** @example 0 */
+            failed_sub_report_count: number;
             notification_text: string;
             created_by_workflow: string;
             /** Format: date-time */
@@ -4366,6 +4400,13 @@ export interface components {
             executive_summary: string;
             severity: components["schemas"]["ReportSeverity"];
             confidence: components["schemas"]["ReportConfidence"];
+            generation_status: components["schemas"]["FinalReportGenerationStatus"];
+            /** @example 1 */
+            expected_sub_report_count: number;
+            /** @example 1 */
+            successful_sub_report_count: number;
+            /** @example 0 */
+            failed_sub_report_count: number;
             /**
              * @example [
              *       {

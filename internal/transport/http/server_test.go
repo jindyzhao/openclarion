@@ -4942,6 +4942,7 @@ func TestCreateReportWorkflowPolicyStoresDisabledDraft(t *testing.T) {
 			AlertSourceProfileID:               1,
 			GroupingPolicyID:                   2,
 			ReportNotificationChannelProfileID: 3,
+			MaxFailedSubReports:                2,
 			TriggerMode:                        domain.ReportWorkflowTriggerModeManualReplay,
 			ReportScenario:                     domain.ReportWorkflowScenarioSingleAlert,
 			DiagnosisFollowUp:                  domain.DiagnosisFollowUpModeSuggestRoom,
@@ -4956,6 +4957,7 @@ func TestCreateReportWorkflowPolicyStoresDisabledDraft(t *testing.T) {
 		"alert_source_profile_id":1,
 		"grouping_policy_id":2,
 		"report_notification_channel_profile_id":3,
+		"max_failed_sub_reports":2,
 		"trigger_mode":"manual_replay",
 		"report_scenario":"single_alert",
 		"diagnosis_follow_up":"suggest_room"
@@ -4970,14 +4972,16 @@ func TestCreateReportWorkflowPolicyStoresDisabledDraft(t *testing.T) {
 	if repo.savedReportWorkflowPolicy.Enabled {
 		t.Fatalf("saved policy should be disabled: %+v", repo.savedReportWorkflowPolicy)
 	}
-	if repo.savedReportWorkflowPolicy.ReportNotificationChannelProfileID != 3 {
-		t.Fatalf("saved report notification channel ID = %d, want 3", repo.savedReportWorkflowPolicy.ReportNotificationChannelProfileID)
+	if repo.savedReportWorkflowPolicy.ReportNotificationChannelProfileID != 3 ||
+		repo.savedReportWorkflowPolicy.MaxFailedSubReports != 2 {
+		t.Fatalf("saved report workflow policy = %+v", repo.savedReportWorkflowPolicy)
 	}
 	var resp api.ReportWorkflowPolicy
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.ID != 7 || resp.ReportScenario != api.ReportWorkflowScenarioSingleAlert || resp.Enabled {
+	if resp.ID != 7 || resp.ReportScenario != api.ReportWorkflowScenarioSingleAlert ||
+		resp.MaxFailedSubReports != 2 || resp.Enabled {
 		t.Fatalf("response = %+v", resp)
 	}
 	reportChannelID, err := resp.ReportNotificationChannelProfileID.Get()
@@ -5329,6 +5333,7 @@ func TestPreviewReportWorkflowPolicyDraftImpactReturnsReadinessWithoutPersisting
 		"alert_source_profile_id": 1,
 		"grouping_policy_id": 2,
 		"report_notification_channel_profile_id": 3,
+		"max_failed_sub_reports": 2,
 		"trigger_mode": "manual_replay",
 		"report_scenario": "cascade",
 		"diagnosis_follow_up": "auto_room"
@@ -5358,7 +5363,8 @@ func TestPreviewReportWorkflowPolicyDraftImpactReturnsReadinessWithoutPersisting
 		t.Fatalf("readiness = %+v", got)
 	}
 	if got.ReportScenario != api.ReportWorkflowScenarioCascade ||
-		got.DiagnosisFollowUp != api.DiagnosisFollowUpModeAutoRoom {
+		got.DiagnosisFollowUp != api.DiagnosisFollowUpModeAutoRoom ||
+		got.MaxFailedSubReports != 2 {
 		t.Fatalf("scenario/followup = %s/%s", got.ReportScenario, got.DiagnosisFollowUp)
 	}
 	if got.EventsScanned != 2 || got.EventsMatched != 2 || got.GroupsEstimated != 1 || len(got.Groups) != 1 {

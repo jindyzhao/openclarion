@@ -201,6 +201,7 @@ export function emptyReportWorkflowPolicyForm(): ReportWorkflowPolicyFormState {
     alertSourceProfileID: null,
     groupingPolicyID: null,
     reportNotificationChannelProfileID: undefined,
+    maxFailedSubReports: 0,
     triggerMode: "manual_replay",
     reportScenario: "single_alert",
     diagnosisFollowUp: "disabled",
@@ -1973,6 +1974,7 @@ export function policyToFormState(
     groupingPolicyID: policy.grouping_policy_id,
     reportNotificationChannelProfileID:
       policy.report_notification_channel_profile_id ?? undefined,
+    maxFailedSubReports: policy.max_failed_sub_reports,
     triggerMode: policy.trigger_mode,
     reportScenario: policy.report_scenario,
     diagnosisFollowUp: policy.diagnosis_follow_up,
@@ -2053,6 +2055,17 @@ export function formStateToWriteRequest(
       message: "Select a valid report notification channel.",
     };
   }
+  if (
+    !Number.isSafeInteger(form.maxFailedSubReports) ||
+    form.maxFailedSubReports === null ||
+    form.maxFailedSubReports < 0 ||
+    form.maxFailedSubReports > 100000
+  ) {
+    return {
+      ok: false,
+      message: "Maximum failed SubReports must be between 0 and 100000.",
+    };
+  }
   return {
     ok: true,
     value: {
@@ -2061,6 +2074,7 @@ export function formStateToWriteRequest(
       grouping_policy_id: form.groupingPolicyID,
       report_notification_channel_profile_id:
         form.reportNotificationChannelProfileID ?? null,
+      max_failed_sub_reports: form.maxFailedSubReports,
       trigger_mode: form.triggerMode,
       report_scenario: form.reportScenario,
       diagnosis_follow_up: form.diagnosisFollowUp,
@@ -2086,6 +2100,7 @@ export function reportWorkflowPolicyFormMatchesPolicy(
     request.grouping_policy_id === policy.grouping_policy_id &&
     request.report_notification_channel_profile_id ===
       policy.report_notification_channel_profile_id &&
+    request.max_failed_sub_reports === policy.max_failed_sub_reports &&
     request.trigger_mode === policy.trigger_mode &&
     request.report_scenario === policy.report_scenario &&
     request.diagnosis_follow_up === policy.diagnosis_follow_up

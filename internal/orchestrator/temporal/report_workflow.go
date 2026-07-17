@@ -1,12 +1,16 @@
 package temporal
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	temporalsdk "go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+
+	"github.com/openclarion/openclarion/internal/domain"
 )
 
 // ReportFanOutWorkflowInput identifies one EvidenceSnapshot-backed
@@ -26,6 +30,7 @@ type ReportFanOutWorkflowResult struct {
 type ReportBatchWorkflowInput struct {
 	CorrelationKey                     string
 	ReportNotificationChannelProfileID int64
+	MaxFailedSubReports                int
 	Items                              []ReportBatchItem
 }
 
@@ -39,15 +44,84 @@ type ReportBatchItem struct {
 // ReportBatchWorkflowResult returns the full batch output.
 type ReportBatchWorkflowResult struct {
 	SubReportIDs               []int64
+	ExpectedSubReportCount     int
+	SuccessfulSubReportCount   int
+	FailedSubReportCount       int
+	FailedItems                []ReportBatchItemFailure
 	FinalReportID              int64
 	NotificationIdempotencyKey string
 	ProviderMessageID          string
 	NotificationStatus         string
 }
 
+// MarshalJSON preserves the pre-coverage workflow result payload for replayed
+// histories while keeping every coverage count explicit for new executions.
+func (r ReportBatchWorkflowResult) MarshalJSON() ([]byte, error) {
+	type legacyResult struct {
+		SubReportIDs               []int64
+		FinalReportID              int64
+		NotificationIdempotencyKey string
+		ProviderMessageID          string
+		NotificationStatus         string
+	}
+	legacy := legacyResult{
+		SubReportIDs:               r.SubReportIDs,
+		FinalReportID:              r.FinalReportID,
+		NotificationIdempotencyKey: r.NotificationIdempotencyKey,
+		ProviderMessageID:          r.ProviderMessageID,
+		NotificationStatus:         r.NotificationStatus,
+	}
+	if r.ExpectedSubReportCount == 0 && r.SuccessfulSubReportCount == 0 &&
+		r.FailedSubReportCount == 0 && len(r.FailedItems) == 0 {
+		return json.Marshal(legacy)
+	}
+	type currentResult struct {
+		SubReportIDs               []int64
+		ExpectedSubReportCount     int
+		SuccessfulSubReportCount   int
+		FailedSubReportCount       int
+		FailedItems                []ReportBatchItemFailure
+		FinalReportID              int64
+		NotificationIdempotencyKey string
+		ProviderMessageID          string
+		NotificationStatus         string
+	}
+	return json.Marshal(currentResult{
+		SubReportIDs:               r.SubReportIDs,
+		ExpectedSubReportCount:     r.ExpectedSubReportCount,
+		SuccessfulSubReportCount:   r.SuccessfulSubReportCount,
+		FailedSubReportCount:       r.FailedSubReportCount,
+		FailedItems:                r.FailedItems,
+		FinalReportID:              r.FinalReportID,
+		NotificationIdempotencyKey: r.NotificationIdempotencyKey,
+		ProviderMessageID:          r.ProviderMessageID,
+		NotificationStatus:         r.NotificationStatus,
+	})
+}
+
+// ReportBatchItemFailure is a sanitized child-workflow failure projection.
+// Provider error text stays in Temporal history and is never returned here.
+type ReportBatchItemFailure struct {
+	ItemIndex          int
+	EvidenceSnapshotID int64
+	Scenario           string
+	GroupIndex         int
+	Reason             string
+}
+
 // FinalReportWorkflowInput identifies the validated SubReports to reduce
 // into one persisted FinalReport.
 type FinalReportWorkflowInput struct {
+	CorrelationKey                     string
+	ReportNotificationChannelProfileID int64
+	SubReportIDs                       []int64
+	ExpectedSubReportCount             int `json:",omitempty"`
+	FailedSubReportCount               int `json:",omitempty"`
+}
+
+// finalReportWorkflowInputLegacy preserves the exact payload shape written by
+// histories created before FinalReport coverage fields were introduced.
+type finalReportWorkflowInputLegacy struct {
 	CorrelationKey                     string
 	ReportNotificationChannelProfileID int64
 	SubReportIDs                       []int64
@@ -95,10 +169,86 @@ func ReportFanOutWorkflow(ctx workflow.Context, input ReportFanOutWorkflowInput)
 			errTypeInvalidInput, nil)
 	}
 
+	version := workflow.GetVersion(ctx, reportFanOutTaskLifecycleChangeID, workflow.DefaultVersion, reportFanOutTaskLifecycleVersion)
+	if version == workflow.DefaultVersion {
+		return reportFanOutWorkflowLegacy(ctx, input)
+	}
+	return reportFanOutWorkflowWithTaskLifecycle(ctx, input)
+}
+
+func reportFanOutWorkflowLegacy(ctx workflow.Context, input ReportFanOutWorkflowInput) (ReportFanOutWorkflowResult, error) {
 	actCtx := workflow.WithActivityOptions(ctx, reportActivityOptions())
 	var result ReportFanOutWorkflowResult
 	if err := workflow.ExecuteActivity(actCtx, (*Activities).GenerateSubReport, input).Get(ctx, &result); err != nil {
 		return ReportFanOutWorkflowResult{}, err
+	}
+	return result, nil
+}
+
+func reportFanOutWorkflowWithTaskLifecycle(ctx workflow.Context, input ReportFanOutWorkflowInput) (ReportFanOutWorkflowResult, error) {
+	lifecycleCtx := workflow.WithActivityOptions(ctx, reportTaskActivityOptions())
+	generationCtx := workflow.WithActivityOptions(ctx, reportActivityOptions())
+	info := workflow.GetInfo(ctx)
+	startedAt := workflow.Now(ctx)
+	var ensured EnsureReportTaskResult
+	if err := workflow.ExecuteActivity(lifecycleCtx, (*Activities).EnsureReportTask, EnsureReportTaskInput{
+		EvidenceSnapshotID: input.EvidenceSnapshotID,
+		WorkflowID:         info.WorkflowExecution.ID,
+		RunID:              info.WorkflowExecution.RunID,
+		Scenario:           input.Scenario,
+		GroupIndex:         input.GroupIndex,
+		StartedAt:          startedAt,
+	}).Get(ctx, &ensured); err != nil {
+		return ReportFanOutWorkflowResult{}, err
+	}
+
+	var result ReportFanOutWorkflowResult
+	generationErr := workflow.ExecuteActivity(generationCtx, (*Activities).GenerateSubReport, input).Get(ctx, &result)
+	disconnectedCtx, _ := workflow.NewDisconnectedContext(ctx)
+	finishCtx := workflow.WithActivityOptions(disconnectedCtx, reportTaskActivityOptions())
+	if generationErr != nil {
+		status := domainDiagnosisStatusFailed
+		failureReason := reportTaskFailureGeneration
+		if temporalsdk.IsCanceledError(generationErr) {
+			status = domainDiagnosisStatusCancelled
+			failureReason = ""
+		}
+		var finished FinishReportTaskResult
+		finishErr := workflow.ExecuteActivity(finishCtx, (*Activities).FinishReportTask, FinishReportTaskInput{
+			DiagnosisTaskID:    ensured.DiagnosisTaskID,
+			EvidenceSnapshotID: input.EvidenceSnapshotID,
+			Scenario:           input.Scenario,
+			GroupIndex:         input.GroupIndex,
+			Status:             status,
+			FailureReason:      failureReason,
+			FinishedAt:         workflow.Now(disconnectedCtx),
+		}).Get(disconnectedCtx, &finished)
+		if finishErr != nil {
+			return ReportFanOutWorkflowResult{}, fmt.Errorf(
+				"report-fan-out: persist terminal task state: %w; generation failed: %w",
+				finishErr, generationErr,
+			)
+		}
+		if cancellationErr := ctx.Err(); cancellationErr != nil {
+			return ReportFanOutWorkflowResult{}, cancellationErr
+		}
+		return ReportFanOutWorkflowResult{}, generationErr
+	}
+
+	var finished FinishReportTaskResult
+	if err := workflow.ExecuteActivity(finishCtx, (*Activities).FinishReportTask, FinishReportTaskInput{
+		DiagnosisTaskID:    ensured.DiagnosisTaskID,
+		EvidenceSnapshotID: input.EvidenceSnapshotID,
+		Scenario:           input.Scenario,
+		GroupIndex:         input.GroupIndex,
+		SubReportID:        result.SubReportID,
+		Status:             domainDiagnosisStatusSucceeded,
+		FinishedAt:         workflow.Now(disconnectedCtx),
+	}).Get(disconnectedCtx, &finished); err != nil {
+		return ReportFanOutWorkflowResult{}, err
+	}
+	if cancellationErr := ctx.Err(); cancellationErr != nil {
+		return ReportFanOutWorkflowResult{}, cancellationErr
 	}
 	return result, nil
 }
@@ -122,6 +272,14 @@ func ReportBatchWorkflow(ctx workflow.Context, input ReportBatchWorkflowInput) (
 			"report-batch: input.report_notification_channel_profile_id must be >= 0",
 			errTypeInvalidInput, nil)
 	}
+	if input.MaxFailedSubReports < 0 || input.MaxFailedSubReports > domain.ReportWorkflowMaxFailedSubReports {
+		return ReportBatchWorkflowResult{}, temporalsdk.NewNonRetryableApplicationError(
+			fmt.Sprintf(
+				"report-batch: input.max_failed_sub_reports must be between 0 and %d",
+				domain.ReportWorkflowMaxFailedSubReports,
+			),
+			errTypeInvalidInput, nil)
+	}
 	for i, item := range input.Items {
 		if item.EvidenceSnapshotID == 0 {
 			return ReportBatchWorkflowResult{}, temporalsdk.NewNonRetryableApplicationError(
@@ -140,6 +298,14 @@ func ReportBatchWorkflow(ctx workflow.Context, input ReportBatchWorkflowInput) (
 		}
 	}
 
+	version := workflow.GetVersion(ctx, reportBatchPartialFanInChangeID, workflow.DefaultVersion, reportBatchPartialFanInVersion)
+	if version == workflow.DefaultVersion {
+		return reportBatchWorkflowLegacy(ctx, input)
+	}
+	return reportBatchWorkflowWithPartialFanIn(ctx, input)
+}
+
+func reportBatchWorkflowLegacy(ctx workflow.Context, input ReportBatchWorkflowInput) (ReportBatchWorkflowResult, error) {
 	childCtx := workflow.WithChildOptions(ctx, reportChildWorkflowOptions(workflow.GetInfo(ctx).TaskQueueName))
 	futures := make([]workflow.ChildWorkflowFuture, len(input.Items))
 	for i, item := range input.Items {
@@ -160,7 +326,7 @@ func ReportBatchWorkflow(ctx workflow.Context, input ReportBatchWorkflowInput) (
 	}
 
 	var final FinalReportWorkflowResult
-	if err := workflow.ExecuteChildWorkflow(childCtx, FinalReportWorkflow, FinalReportWorkflowInput{
+	if err := workflow.ExecuteChildWorkflow(childCtx, FinalReportWorkflow, finalReportWorkflowInputLegacy{
 		CorrelationKey:                     strings.TrimSpace(input.CorrelationKey),
 		ReportNotificationChannelProfileID: input.ReportNotificationChannelProfileID,
 		SubReportIDs:                       subReportIDs,
@@ -175,6 +341,96 @@ func ReportBatchWorkflow(ctx workflow.Context, input ReportBatchWorkflowInput) (
 		ProviderMessageID:          final.ProviderMessageID,
 		NotificationStatus:         final.NotificationStatus,
 	}, nil
+}
+
+func reportBatchWorkflowWithPartialFanIn(ctx workflow.Context, input ReportBatchWorkflowInput) (ReportBatchWorkflowResult, error) {
+	childOptions := reportChildWorkflowOptions(workflow.GetInfo(ctx).TaskQueueName)
+	childOptions.WaitForCancellation = true
+	childCtx := workflow.WithChildOptions(ctx, childOptions)
+	futures := make([]workflow.ChildWorkflowFuture, len(input.Items))
+	for i, item := range input.Items {
+		futures[i] = workflow.ExecuteChildWorkflow(childCtx, ReportFanOutWorkflow, ReportFanOutWorkflowInput{
+			EvidenceSnapshotID: item.EvidenceSnapshotID,
+			Scenario:           item.Scenario,
+			GroupIndex:         item.GroupIndex,
+		})
+	}
+
+	subReportIDs := make([]int64, 0, len(futures))
+	failedItems := make([]ReportBatchItemFailure, 0)
+	var cancellationErr error
+	settleCtx, _ := workflow.NewDisconnectedContext(ctx)
+	for i, future := range futures {
+		var result ReportFanOutWorkflowResult
+		if err := future.Get(settleCtx, &result); err != nil {
+			if cancellationErr == nil && temporalsdk.IsCanceledError(err) {
+				cancellationErr = err
+			}
+			failedItems = append(failedItems, ReportBatchItemFailure{
+				ItemIndex:          i,
+				EvidenceSnapshotID: input.Items[i].EvidenceSnapshotID,
+				Scenario:           input.Items[i].Scenario,
+				GroupIndex:         input.Items[i].GroupIndex,
+				Reason:             reportBatchChildFailureReason(err),
+			})
+			continue
+		}
+		subReportIDs = append(subReportIDs, result.SubReportID)
+	}
+	if err := ctx.Err(); err != nil {
+		return ReportBatchWorkflowResult{}, err
+	}
+	if cancellationErr != nil {
+		return ReportBatchWorkflowResult{}, cancellationErr
+	}
+	if len(subReportIDs) == 0 || len(failedItems) > input.MaxFailedSubReports {
+		return ReportBatchWorkflowResult{}, temporalsdk.NewNonRetryableApplicationError(
+			fmt.Sprintf(
+				"report-batch: %d of %d SubReports failed; policy allows at most %d failures and requires one success",
+				len(failedItems), len(input.Items), input.MaxFailedSubReports,
+			),
+			errTypeReportPartialFailureThreshold, nil,
+			len(input.Items), len(subReportIDs), len(failedItems), input.MaxFailedSubReports,
+		)
+	}
+
+	var final FinalReportWorkflowResult
+	if err := workflow.ExecuteChildWorkflow(childCtx, FinalReportWorkflow, FinalReportWorkflowInput{
+		CorrelationKey:                     strings.TrimSpace(input.CorrelationKey),
+		ReportNotificationChannelProfileID: input.ReportNotificationChannelProfileID,
+		SubReportIDs:                       subReportIDs,
+		ExpectedSubReportCount:             len(input.Items),
+		FailedSubReportCount:               len(failedItems),
+	}).Get(ctx, &final); err != nil {
+		return ReportBatchWorkflowResult{}, err
+	}
+
+	return ReportBatchWorkflowResult{
+		SubReportIDs:               subReportIDs,
+		ExpectedSubReportCount:     len(input.Items),
+		SuccessfulSubReportCount:   len(subReportIDs),
+		FailedSubReportCount:       len(failedItems),
+		FailedItems:                failedItems,
+		FinalReportID:              final.FinalReportID,
+		NotificationIdempotencyKey: final.NotificationIdempotencyKey,
+		ProviderMessageID:          final.ProviderMessageID,
+		NotificationStatus:         final.NotificationStatus,
+	}, nil
+}
+
+func reportBatchChildFailureReason(err error) string {
+	var childErr *temporalsdk.ChildWorkflowExecutionError
+	if !errors.As(err, &childErr) {
+		return "subreport_workflow_failed"
+	}
+	if temporalsdk.IsCanceledError(err) {
+		return "subreport_workflow_cancelled"
+	}
+	var activityErr *temporalsdk.ActivityError
+	if errors.As(err, &activityErr) && activityErr.ActivityType().GetName() == "GenerateSubReport" {
+		return reportTaskFailureGeneration
+	}
+	return "subreport_workflow_failed"
 }
 
 // FinalReportWorkflow reduces persisted SubReports, persists the
@@ -202,10 +458,30 @@ func FinalReportWorkflow(ctx workflow.Context, input FinalReportWorkflowInput) (
 				errTypeInvalidInput, nil)
 		}
 	}
+	if _, _, err := normalizedFinalReportCoverage(input); err != nil {
+		return FinalReportWorkflowResult{}, temporalsdk.NewNonRetryableApplicationError(
+			"final-report: "+err.Error(), errTypeInvalidInput, nil)
+	}
 
+	version := workflow.GetVersion(ctx, finalReportCoverageChangeID, workflow.DefaultVersion, finalReportCoverageVersion)
+	if version == workflow.DefaultVersion {
+		return executeFinalReportWorkflow(ctx, input, finalReportWorkflowInputLegacy{
+			CorrelationKey:                     input.CorrelationKey,
+			ReportNotificationChannelProfileID: input.ReportNotificationChannelProfileID,
+			SubReportIDs:                       input.SubReportIDs,
+		})
+	}
+	return executeFinalReportWorkflow(ctx, input, input)
+}
+
+func executeFinalReportWorkflow(
+	ctx workflow.Context,
+	input FinalReportWorkflowInput,
+	generationInput any,
+) (FinalReportWorkflowResult, error) {
 	actCtx := workflow.WithActivityOptions(ctx, reportActivityOptions())
 	var result FinalReportWorkflowResult
-	if err := workflow.ExecuteActivity(actCtx, (*Activities).GenerateFinalReport, input).Get(ctx, &result); err != nil {
+	if err := workflow.ExecuteActivity(actCtx, (*Activities).GenerateFinalReport, generationInput).Get(ctx, &result); err != nil {
 		return FinalReportWorkflowResult{}, err
 	}
 	var notification ReportNotificationResult
@@ -219,6 +495,20 @@ func FinalReportWorkflow(ctx workflow.Context, input FinalReportWorkflowInput) (
 	result.ProviderMessageID = notification.ProviderMessageID
 	result.NotificationStatus = notification.Status
 	return result, nil
+}
+
+func normalizedFinalReportCoverage(input FinalReportWorkflowInput) (expected, failed int, err error) {
+	expected = input.ExpectedSubReportCount
+	failed = input.FailedSubReportCount
+	if expected == 0 && failed == 0 {
+		return len(input.SubReportIDs), 0, nil
+	}
+	if expected <= 0 || failed < 0 || len(input.SubReportIDs) == 0 || expected != len(input.SubReportIDs)+failed {
+		return 0, 0, fmt.Errorf(
+			"coverage must satisfy expected_sub_report_count = successful inputs + failed_sub_report_count with at least one success",
+		)
+	}
+	return expected, failed, nil
 }
 
 func reportChildWorkflowOptions(taskQueue string) workflow.ChildWorkflowOptions {
@@ -246,8 +536,30 @@ func reportActivityOptions() workflow.ActivityOptions {
 	}
 }
 
+func reportTaskActivityOptions() workflow.ActivityOptions {
+	options := reportActivityOptions()
+	options.ScheduleToCloseTimeout = reportTaskActivityScheduleToCloseTimeout
+	options.StartToCloseTimeout = reportTaskActivityStartToCloseTimeout
+	return options
+}
+
 const (
-	reportActivityStartToCloseTimeout    = 10 * time.Minute
-	reportActivityScheduleToCloseTimeout = 35 * time.Minute
-	reportChildWorkflowExecutionTimeout  = 45 * time.Minute
+	reportActivityStartToCloseTimeout        = 10 * time.Minute
+	reportActivityScheduleToCloseTimeout     = 35 * time.Minute
+	reportTaskActivityStartToCloseTimeout    = time.Minute
+	reportTaskActivityScheduleToCloseTimeout = 5 * time.Minute
+	reportChildWorkflowCleanupHeadroom       = 5 * time.Minute
+	reportChildWorkflowExecutionTimeout      = reportActivityScheduleToCloseTimeout +
+		2*reportTaskActivityScheduleToCloseTimeout + reportChildWorkflowCleanupHeadroom
+
+	reportFanOutTaskLifecycleChangeID    = "report-fan-out-task-lifecycle"
+	reportFanOutTaskLifecycleVersion     = 1
+	reportBatchPartialFanInChangeID      = "report-batch-partial-fan-in"
+	reportBatchPartialFanInVersion       = 1
+	finalReportCoverageChangeID          = "final-report-coverage-input"
+	finalReportCoverageVersion           = 1
+	errTypeReportPartialFailureThreshold = "ReportPartialFailureThresholdExceeded"
+	domainDiagnosisStatusSucceeded       = "succeeded"
+	domainDiagnosisStatusFailed          = "failed"
+	domainDiagnosisStatusCancelled       = "cancelled"
 )

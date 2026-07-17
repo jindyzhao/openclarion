@@ -219,6 +219,7 @@ func (r *configRepo) SaveReportWorkflowPolicy(ctx context.Context, p domain.Repo
 		SetName(p.Name).
 		SetAlertSourceProfileID(int(p.AlertSourceProfileID)).
 		SetGroupingPolicyID(int(p.GroupingPolicyID)).
+		SetMaxFailedSubReports(p.MaxFailedSubReports).
 		SetTriggerMode(string(p.TriggerMode)).
 		SetReportScenario(string(p.ReportScenario)).
 		SetDiagnosisFollowUp(string(p.DiagnosisFollowUp)).
@@ -257,6 +258,7 @@ func (r *configRepo) UpdateReportWorkflowPolicy(ctx context.Context, p domain.Re
 		SetName(p.Name).
 		SetAlertSourceProfileID(int(p.AlertSourceProfileID)).
 		SetGroupingPolicyID(int(p.GroupingPolicyID)).
+		SetMaxFailedSubReports(p.MaxFailedSubReports).
 		SetTriggerMode(string(p.TriggerMode)).
 		SetReportScenario(string(p.ReportScenario)).
 		SetDiagnosisFollowUp(string(p.DiagnosisFollowUp)).

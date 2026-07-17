@@ -272,6 +272,24 @@ func TestDiagnosisRepository_ListTasksByEvidenceSnapshot(t *testing.T) {
 		if _, err := uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapBID, "wf-task-list-b1", "run-task-list-b1")); err != nil {
 			t.Fatalf("SaveTask other snapshot: %v", err)
 		}
+		reportTask, err := uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapAID, "wf-task-list-report", "run-task-list-report"))
+		if err != nil {
+			t.Fatalf("SaveTask report task: %v", err)
+		}
+		markerKind := domain.DiagnosisTaskEventKindSubReportStarted
+		marker, err := domain.NewDiagnosisTaskEvent(
+			reportTask.ID,
+			markerKind,
+			json.RawMessage(`{"source":"ReportFanOutWorkflow"}`),
+			&markerKind,
+			time.Now(),
+		)
+		if err != nil {
+			t.Fatalf("NewDiagnosisTaskEvent report marker: %v", err)
+		}
+		if _, err := uow.Diagnosis().AppendEvent(ctx, marker); err != nil {
+			t.Fatalf("AppendEvent report marker: %v", err)
+		}
 	})
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
@@ -336,6 +354,24 @@ func TestDiagnosisRepository_ListSnapshotHistories(t *testing.T) {
 		taskB, err = uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapBID, "wf-history-b", "run-history-b"))
 		if err != nil {
 			t.Fatalf("SaveTask snapshot B: %v", err)
+		}
+		reportTask, err := uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapBID, "wf-history-report", "run-history-report"))
+		if err != nil {
+			t.Fatalf("SaveTask snapshot B report task: %v", err)
+		}
+		markerKind := domain.DiagnosisTaskEventKindSubReportStarted
+		marker, err := domain.NewDiagnosisTaskEvent(
+			reportTask.ID,
+			markerKind,
+			json.RawMessage(`{"source":"ReportFanOutWorkflow"}`),
+			&markerKind,
+			time.Now(),
+		)
+		if err != nil {
+			t.Fatalf("NewDiagnosisTaskEvent history report marker: %v", err)
+		}
+		if _, err := uow.Diagnosis().AppendEvent(ctx, marker); err != nil {
+			t.Fatalf("AppendEvent history report marker: %v", err)
 		}
 	})
 

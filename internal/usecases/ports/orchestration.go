@@ -59,6 +59,7 @@ type ReportBatchStartRequest struct {
 	WorkflowID                         string
 	CorrelationKey                     string
 	ReportNotificationChannelProfileID domain.NotificationChannelProfileID
+	MaxFailedSubReports                int
 	Items                              []ReportBatchStartItem
 }
 

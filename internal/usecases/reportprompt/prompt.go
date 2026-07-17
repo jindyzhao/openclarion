@@ -56,8 +56,10 @@ type HistoricalReport struct {
 
 // FinalReportInput holds validated SubReports for the fan-in draft.
 type FinalReportInput struct {
-	CorrelationKey string
-	SubReports     []reportdraft.SubReport
+	CorrelationKey         string
+	SubReports             []reportdraft.SubReport
+	ExpectedSubReportCount int
+	FailedSubReportCount   int
 }
 
 // BuildSubReportRequest returns a strict-JSON LLM request for one
@@ -108,6 +110,10 @@ func BuildFinalReportRequest(in FinalReportInput) (ports.LLMRequest, error) {
 	if len(in.SubReports) == 0 {
 		return ports.LLMRequest{}, fmt.Errorf("report prompt: subreports must be non-empty: %w", domain.ErrInvariantViolation)
 	}
+	expected, failed, err := normalizedFinalReportCoverage(in)
+	if err != nil {
+		return ports.LLMRequest{}, err
+	}
 	subReports, err := marshalCompact("subreports", in.SubReports)
 	if err != nil {
 		return ports.LLMRequest{}, err
@@ -116,7 +122,7 @@ func BuildFinalReportRequest(in FinalReportInput) (ports.LLMRequest, error) {
 	return ports.LLMRequest{
 		Messages: []ports.LLMMessage{
 			{Role: ports.LLMRoleSystem, Content: finalReportSystemPrompt},
-			{Role: ports.LLMRoleUser, Content: finalReportUserPrompt(correlationKey, subReports)},
+			{Role: ports.LLMRoleUser, Content: finalReportUserPrompt(correlationKey, subReports, expected, failed)},
 		},
 		OutputSchema:   reportdraft.FinalReportSchema(),
 		OutputSchemaID: reportdraft.FinalReportSchemaID,
@@ -194,16 +200,36 @@ func validateHistoricalReports(reports []HistoricalReport) (string, error) {
 	return raw, nil
 }
 
-func finalReportUserPrompt(correlationKey string, subReports string) string {
+func finalReportUserPrompt(correlationKey string, subReports string, expected, failed int) string {
+	coverageGuidance := fmt.Sprintf("Coverage: %d of %d expected SubReports succeeded; %d failed.", expected-failed, expected, failed)
+	if failed > 0 {
+		coverageGuidance += " This is a partial report. State the missing coverage and preserve uncertainty; do not infer facts for failed SubReports."
+	}
 	return fmt.Sprintf(`Task: produce one FinalReport as JSON for OpenClarion.
 Correlation key: %s
+%s
 
 Use only these validated SubReports. Do not add facts that are not present in the SubReport JSON. Notification text must be concise and operator-facing.
 Return all required top-level fields: title, executive_summary, severity, confidence, sub_reports, recommended_actions, and notification_text.
 Every recommended_actions item must include label, detail, and priority. Use priority only as low, medium, or high.
 
 Validated SubReports JSON:
-%s`, correlationKey, subReports)
+%s`, correlationKey, coverageGuidance, subReports)
+}
+
+func normalizedFinalReportCoverage(in FinalReportInput) (expected, failed int, err error) {
+	expected = in.ExpectedSubReportCount
+	failed = in.FailedSubReportCount
+	if expected == 0 && failed == 0 {
+		return len(in.SubReports), 0, nil
+	}
+	if expected <= 0 || failed < 0 || expected != len(in.SubReports)+failed {
+		return 0, 0, fmt.Errorf(
+			"report prompt: coverage must satisfy expected count = successful SubReports + failed count: %w",
+			domain.ErrInvariantViolation,
+		)
+	}
+	return expected, failed, nil
 }
 
 func scenarioGuidance(s Scenario) string {

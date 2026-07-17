@@ -28,6 +28,14 @@ const (
 	FieldSeverity = "severity"
 	// FieldConfidence holds the string denoting the confidence field in the database.
 	FieldConfidence = "confidence"
+	// FieldGenerationStatus holds the string denoting the generation_status field in the database.
+	FieldGenerationStatus = "generation_status"
+	// FieldExpectedSubReportCount holds the string denoting the expected_sub_report_count field in the database.
+	FieldExpectedSubReportCount = "expected_sub_report_count"
+	// FieldSuccessfulSubReportCount holds the string denoting the successful_sub_report_count field in the database.
+	FieldSuccessfulSubReportCount = "successful_sub_report_count"
+	// FieldFailedSubReportCount holds the string denoting the failed_sub_report_count field in the database.
+	FieldFailedSubReportCount = "failed_sub_report_count"
 	// FieldSubreportSummaries holds the string denoting the subreport_summaries field in the database.
 	FieldSubreportSummaries = "subreport_summaries"
 	// FieldRecommendedActions holds the string denoting the recommended_actions field in the database.
@@ -83,6 +91,10 @@ var Columns = []string{
 	FieldExecutiveSummary,
 	FieldSeverity,
 	FieldConfidence,
+	FieldGenerationStatus,
+	FieldExpectedSubReportCount,
+	FieldSuccessfulSubReportCount,
+	FieldFailedSubReportCount,
 	FieldSubreportSummaries,
 	FieldRecommendedActions,
 	FieldNotificationText,
@@ -124,6 +136,22 @@ var (
 	SeverityValidator func(string) error
 	// ConfidenceValidator is a validator for the "confidence" field. It is called by the builders before save.
 	ConfidenceValidator func(string) error
+	// DefaultGenerationStatus holds the default value on creation for the "generation_status" field.
+	DefaultGenerationStatus string
+	// GenerationStatusValidator is a validator for the "generation_status" field. It is called by the builders before save.
+	GenerationStatusValidator func(string) error
+	// DefaultExpectedSubReportCount holds the default value on creation for the "expected_sub_report_count" field.
+	DefaultExpectedSubReportCount int
+	// ExpectedSubReportCountValidator is a validator for the "expected_sub_report_count" field. It is called by the builders before save.
+	ExpectedSubReportCountValidator func(int) error
+	// DefaultSuccessfulSubReportCount holds the default value on creation for the "successful_sub_report_count" field.
+	DefaultSuccessfulSubReportCount int
+	// SuccessfulSubReportCountValidator is a validator for the "successful_sub_report_count" field. It is called by the builders before save.
+	SuccessfulSubReportCountValidator func(int) error
+	// DefaultFailedSubReportCount holds the default value on creation for the "failed_sub_report_count" field.
+	DefaultFailedSubReportCount int
+	// FailedSubReportCountValidator is a validator for the "failed_sub_report_count" field. It is called by the builders before save.
+	FailedSubReportCountValidator func(int) error
 	// NotificationTextValidator is a validator for the "notification_text" field. It is called by the builders before save.
 	NotificationTextValidator func(string) error
 	// ModelValidator is a validator for the "model" field. It is called by the builders before save.
@@ -177,6 +205,26 @@ func BySeverity(opts ...sql.OrderTermOption) OrderOption {
 // ByConfidence orders the results by the confidence field.
 func ByConfidence(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldConfidence, opts...).ToFunc()
+}
+
+// ByGenerationStatus orders the results by the generation_status field.
+func ByGenerationStatus(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGenerationStatus, opts...).ToFunc()
+}
+
+// ByExpectedSubReportCount orders the results by the expected_sub_report_count field.
+func ByExpectedSubReportCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldExpectedSubReportCount, opts...).ToFunc()
+}
+
+// BySuccessfulSubReportCount orders the results by the successful_sub_report_count field.
+func BySuccessfulSubReportCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSuccessfulSubReportCount, opts...).ToFunc()
+}
+
+// ByFailedSubReportCount orders the results by the failed_sub_report_count field.
+func ByFailedSubReportCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldFailedSubReportCount, opts...).ToFunc()
 }
 
 // ByNotificationText orders the results by the notification_text field.

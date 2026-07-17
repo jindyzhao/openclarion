@@ -131,6 +131,13 @@ func reportBatchInputFromStartRequest(req ports.ReportBatchStartRequest) (Report
 	if req.ReportNotificationChannelProfileID < 0 {
 		return ReportBatchWorkflowInput{}, fmt.Errorf("report starter: report_notification_channel_profile_id must be non-negative: %w", domain.ErrInvariantViolation)
 	}
+	if req.MaxFailedSubReports < 0 || req.MaxFailedSubReports > domain.ReportWorkflowMaxFailedSubReports {
+		return ReportBatchWorkflowInput{}, fmt.Errorf(
+			"report starter: max_failed_sub_reports must be between 0 and %d: %w",
+			domain.ReportWorkflowMaxFailedSubReports,
+			domain.ErrInvariantViolation,
+		)
+	}
 
 	items := make([]ReportBatchItem, len(req.Items))
 	for i, item := range req.Items {
@@ -154,6 +161,7 @@ func reportBatchInputFromStartRequest(req ports.ReportBatchStartRequest) (Report
 	return ReportBatchWorkflowInput{
 		CorrelationKey:                     correlationKey,
 		ReportNotificationChannelProfileID: int64(req.ReportNotificationChannelProfileID),
+		MaxFailedSubReports:                req.MaxFailedSubReports,
 		Items:                              items,
 	}, nil
 }

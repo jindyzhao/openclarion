@@ -215,6 +215,18 @@ function Detail({
             </span>
           </div>
           <p>{report.executive_summary}</p>
+          {report.generation_status === "partial" ? (
+            <div className="notice" role="status">
+              <strong>{t("partialReport")}</strong>
+              <div>
+                {t("partialCoverage", {
+                  successful: report.successful_sub_report_count,
+                  expected: report.expected_sub_report_count,
+                  failed: report.failed_sub_report_count,
+                })}
+              </div>
+            </div>
+          ) : null}
           <p className="muted">{report.notification_text}</p>
           <div className="muted">
             {report.created_by_workflow} / {formatDateTime(report.created_at, locale)}

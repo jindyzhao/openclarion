@@ -374,6 +374,7 @@ func reportWorkflowPolicyWriteRequest(body api.ReportWorkflowPolicyWriteRequest)
 		AlertSourceProfileID:               domain.AlertSourceProfileID(body.AlertSourceProfileID),
 		GroupingPolicyID:                   domain.GroupingPolicyID(body.GroupingPolicyID),
 		ReportNotificationChannelProfileID: reportNotificationChannelProfileID,
+		MaxFailedSubReports:                derefInt(body.MaxFailedSubReports),
 		TriggerMode:                        domain.ReportWorkflowTriggerMode(derefString(body.TriggerMode)),
 		ReportScenario:                     domain.ReportWorkflowScenario(derefString(body.ReportScenario)),
 		DiagnosisFollowUp:                  domain.DiagnosisFollowUpMode(derefString(body.DiagnosisFollowUp)),
@@ -440,6 +441,7 @@ func reportWorkflowImpactDraftRequest(body api.ReportWorkflowPolicyWriteRequest)
 		AlertSourceProfileID:               domain.AlertSourceProfileID(body.AlertSourceProfileID),
 		GroupingPolicyID:                   domain.GroupingPolicyID(body.GroupingPolicyID),
 		ReportNotificationChannelProfileID: reportNotificationChannelProfileID,
+		MaxFailedSubReports:                derefInt(body.MaxFailedSubReports),
 		TriggerMode:                        domain.ReportWorkflowTriggerMode(derefString(body.TriggerMode)),
 		ReportScenario:                     domain.ReportWorkflowScenario(derefString(body.ReportScenario)),
 		DiagnosisFollowUp:                  domain.DiagnosisFollowUpMode(derefString(body.DiagnosisFollowUp)),
@@ -522,6 +524,7 @@ func reportWorkflowPolicyResponse(policy domain.ReportWorkflowPolicy) api.Report
 		AlertSourceProfileID:               int64(policy.AlertSourceProfileID),
 		GroupingPolicyID:                   int64(policy.GroupingPolicyID),
 		ReportNotificationChannelProfileID: nullableReportNotificationChannelProfileID(policy.ReportNotificationChannelProfileID),
+		MaxFailedSubReports:                policy.MaxFailedSubReports,
 		TriggerMode:                        api.ReportWorkflowTriggerMode(policy.TriggerMode),
 		ReportScenario:                     api.ReportWorkflowScenario(policy.ReportScenario),
 		DiagnosisFollowUp:                  api.DiagnosisFollowUpMode(policy.DiagnosisFollowUp),
@@ -543,6 +546,7 @@ func reportWorkflowImpactPreviewResponse(result reportworkflowimpact.Result) api
 		TriggerMode:                        api.ReportWorkflowTriggerMode(result.Policy.TriggerMode),
 		ReportScenario:                     api.ReportWorkflowScenario(result.Policy.ReportScenario),
 		DiagnosisFollowUp:                  api.DiagnosisFollowUpMode(result.Policy.DiagnosisFollowUp),
+		MaxFailedSubReports:                result.Policy.MaxFailedSubReports,
 		AlertSourceProfileID:               int64(result.AlertSourceID),
 		AlertSourceKind:                    api.AlertSourceKind(result.AlertSourceKind),
 		AlertSourceAuthMode:                api.AlertSourceAuthMode(result.AlertSourceAuthMode),
@@ -646,6 +650,13 @@ func nullableReportNotificationChannelProfileID(id domain.NotificationChannelPro
 func derefString(value *string) string {
 	if value == nil {
 		return ""
+	}
+	return *value
+}
+
+func derefInt(value *int) int {
+	if value == nil {
+		return 0
 	}
 	return *value
 }

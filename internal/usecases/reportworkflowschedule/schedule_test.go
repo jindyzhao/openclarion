@@ -253,6 +253,7 @@ func defaultPolicy(enabled bool) domain.ReportWorkflowPolicy {
 		1,
 		2,
 		0,
+		0,
 		domain.ReportWorkflowTriggerModeManualReplay,
 		domain.ReportWorkflowScenarioSingleAlert,
 		domain.DiagnosisFollowUpModeDisabled,

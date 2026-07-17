@@ -16964,6 +16964,13 @@ type FinalReportMutation struct {
 	executive_summary              *string
 	severity                       *string
 	confidence                     *string
+	generation_status              *string
+	expected_sub_report_count      *int
+	addexpected_sub_report_count   *int
+	successful_sub_report_count    *int
+	addsuccessful_sub_report_count *int
+	failed_sub_report_count        *int
+	addfailed_sub_report_count     *int
 	subreport_summaries            *json.RawMessage
 	appendsubreport_summaries      json.RawMessage
 	recommended_actions            *json.RawMessage
@@ -17337,6 +17344,210 @@ func (m *FinalReportMutation) OldConfidence(ctx context.Context) (v string, err 
 // ResetConfidence resets all changes to the "confidence" field.
 func (m *FinalReportMutation) ResetConfidence() {
 	m.confidence = nil
+}
+
+// SetGenerationStatus sets the "generation_status" field.
+func (m *FinalReportMutation) SetGenerationStatus(s string) {
+	m.generation_status = &s
+}
+
+// GenerationStatus returns the value of the "generation_status" field in the mutation.
+func (m *FinalReportMutation) GenerationStatus() (r string, exists bool) {
+	v := m.generation_status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGenerationStatus returns the old "generation_status" field's value of the FinalReport entity.
+// If the FinalReport object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FinalReportMutation) OldGenerationStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGenerationStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGenerationStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGenerationStatus: %w", err)
+	}
+	return oldValue.GenerationStatus, nil
+}
+
+// ResetGenerationStatus resets all changes to the "generation_status" field.
+func (m *FinalReportMutation) ResetGenerationStatus() {
+	m.generation_status = nil
+}
+
+// SetExpectedSubReportCount sets the "expected_sub_report_count" field.
+func (m *FinalReportMutation) SetExpectedSubReportCount(i int) {
+	m.expected_sub_report_count = &i
+	m.addexpected_sub_report_count = nil
+}
+
+// ExpectedSubReportCount returns the value of the "expected_sub_report_count" field in the mutation.
+func (m *FinalReportMutation) ExpectedSubReportCount() (r int, exists bool) {
+	v := m.expected_sub_report_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpectedSubReportCount returns the old "expected_sub_report_count" field's value of the FinalReport entity.
+// If the FinalReport object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FinalReportMutation) OldExpectedSubReportCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpectedSubReportCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpectedSubReportCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpectedSubReportCount: %w", err)
+	}
+	return oldValue.ExpectedSubReportCount, nil
+}
+
+// AddExpectedSubReportCount adds i to the "expected_sub_report_count" field.
+func (m *FinalReportMutation) AddExpectedSubReportCount(i int) {
+	if m.addexpected_sub_report_count != nil {
+		*m.addexpected_sub_report_count += i
+	} else {
+		m.addexpected_sub_report_count = &i
+	}
+}
+
+// AddedExpectedSubReportCount returns the value that was added to the "expected_sub_report_count" field in this mutation.
+func (m *FinalReportMutation) AddedExpectedSubReportCount() (r int, exists bool) {
+	v := m.addexpected_sub_report_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetExpectedSubReportCount resets all changes to the "expected_sub_report_count" field.
+func (m *FinalReportMutation) ResetExpectedSubReportCount() {
+	m.expected_sub_report_count = nil
+	m.addexpected_sub_report_count = nil
+}
+
+// SetSuccessfulSubReportCount sets the "successful_sub_report_count" field.
+func (m *FinalReportMutation) SetSuccessfulSubReportCount(i int) {
+	m.successful_sub_report_count = &i
+	m.addsuccessful_sub_report_count = nil
+}
+
+// SuccessfulSubReportCount returns the value of the "successful_sub_report_count" field in the mutation.
+func (m *FinalReportMutation) SuccessfulSubReportCount() (r int, exists bool) {
+	v := m.successful_sub_report_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSuccessfulSubReportCount returns the old "successful_sub_report_count" field's value of the FinalReport entity.
+// If the FinalReport object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FinalReportMutation) OldSuccessfulSubReportCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSuccessfulSubReportCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSuccessfulSubReportCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSuccessfulSubReportCount: %w", err)
+	}
+	return oldValue.SuccessfulSubReportCount, nil
+}
+
+// AddSuccessfulSubReportCount adds i to the "successful_sub_report_count" field.
+func (m *FinalReportMutation) AddSuccessfulSubReportCount(i int) {
+	if m.addsuccessful_sub_report_count != nil {
+		*m.addsuccessful_sub_report_count += i
+	} else {
+		m.addsuccessful_sub_report_count = &i
+	}
+}
+
+// AddedSuccessfulSubReportCount returns the value that was added to the "successful_sub_report_count" field in this mutation.
+func (m *FinalReportMutation) AddedSuccessfulSubReportCount() (r int, exists bool) {
+	v := m.addsuccessful_sub_report_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSuccessfulSubReportCount resets all changes to the "successful_sub_report_count" field.
+func (m *FinalReportMutation) ResetSuccessfulSubReportCount() {
+	m.successful_sub_report_count = nil
+	m.addsuccessful_sub_report_count = nil
+}
+
+// SetFailedSubReportCount sets the "failed_sub_report_count" field.
+func (m *FinalReportMutation) SetFailedSubReportCount(i int) {
+	m.failed_sub_report_count = &i
+	m.addfailed_sub_report_count = nil
+}
+
+// FailedSubReportCount returns the value of the "failed_sub_report_count" field in the mutation.
+func (m *FinalReportMutation) FailedSubReportCount() (r int, exists bool) {
+	v := m.failed_sub_report_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFailedSubReportCount returns the old "failed_sub_report_count" field's value of the FinalReport entity.
+// If the FinalReport object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *FinalReportMutation) OldFailedSubReportCount(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFailedSubReportCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFailedSubReportCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFailedSubReportCount: %w", err)
+	}
+	return oldValue.FailedSubReportCount, nil
+}
+
+// AddFailedSubReportCount adds i to the "failed_sub_report_count" field.
+func (m *FinalReportMutation) AddFailedSubReportCount(i int) {
+	if m.addfailed_sub_report_count != nil {
+		*m.addfailed_sub_report_count += i
+	} else {
+		m.addfailed_sub_report_count = &i
+	}
+}
+
+// AddedFailedSubReportCount returns the value that was added to the "failed_sub_report_count" field in this mutation.
+func (m *FinalReportMutation) AddedFailedSubReportCount() (r int, exists bool) {
+	v := m.addfailed_sub_report_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetFailedSubReportCount resets all changes to the "failed_sub_report_count" field.
+func (m *FinalReportMutation) ResetFailedSubReportCount() {
+	m.failed_sub_report_count = nil
+	m.addfailed_sub_report_count = nil
 }
 
 // SetSubreportSummaries sets the "subreport_summaries" field.
@@ -17880,7 +18091,7 @@ func (m *FinalReportMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *FinalReportMutation) Fields() []string {
-	fields := make([]string, 0, 15)
+	fields := make([]string, 0, 19)
 	if m.tenant != nil {
 		fields = append(fields, finalreport.FieldTenantID)
 	}
@@ -17901,6 +18112,18 @@ func (m *FinalReportMutation) Fields() []string {
 	}
 	if m.confidence != nil {
 		fields = append(fields, finalreport.FieldConfidence)
+	}
+	if m.generation_status != nil {
+		fields = append(fields, finalreport.FieldGenerationStatus)
+	}
+	if m.expected_sub_report_count != nil {
+		fields = append(fields, finalreport.FieldExpectedSubReportCount)
+	}
+	if m.successful_sub_report_count != nil {
+		fields = append(fields, finalreport.FieldSuccessfulSubReportCount)
+	}
+	if m.failed_sub_report_count != nil {
+		fields = append(fields, finalreport.FieldFailedSubReportCount)
 	}
 	if m.subreport_summaries != nil {
 		fields = append(fields, finalreport.FieldSubreportSummaries)
@@ -17948,6 +18171,14 @@ func (m *FinalReportMutation) Field(name string) (ent.Value, bool) {
 		return m.Severity()
 	case finalreport.FieldConfidence:
 		return m.Confidence()
+	case finalreport.FieldGenerationStatus:
+		return m.GenerationStatus()
+	case finalreport.FieldExpectedSubReportCount:
+		return m.ExpectedSubReportCount()
+	case finalreport.FieldSuccessfulSubReportCount:
+		return m.SuccessfulSubReportCount()
+	case finalreport.FieldFailedSubReportCount:
+		return m.FailedSubReportCount()
 	case finalreport.FieldSubreportSummaries:
 		return m.SubreportSummaries()
 	case finalreport.FieldRecommendedActions:
@@ -17987,6 +18218,14 @@ func (m *FinalReportMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldSeverity(ctx)
 	case finalreport.FieldConfidence:
 		return m.OldConfidence(ctx)
+	case finalreport.FieldGenerationStatus:
+		return m.OldGenerationStatus(ctx)
+	case finalreport.FieldExpectedSubReportCount:
+		return m.OldExpectedSubReportCount(ctx)
+	case finalreport.FieldSuccessfulSubReportCount:
+		return m.OldSuccessfulSubReportCount(ctx)
+	case finalreport.FieldFailedSubReportCount:
+		return m.OldFailedSubReportCount(ctx)
 	case finalreport.FieldSubreportSummaries:
 		return m.OldSubreportSummaries(ctx)
 	case finalreport.FieldRecommendedActions:
@@ -18061,6 +18300,34 @@ func (m *FinalReportMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetConfidence(v)
 		return nil
+	case finalreport.FieldGenerationStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGenerationStatus(v)
+		return nil
+	case finalreport.FieldExpectedSubReportCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpectedSubReportCount(v)
+		return nil
+	case finalreport.FieldSuccessfulSubReportCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSuccessfulSubReportCount(v)
+		return nil
+	case finalreport.FieldFailedSubReportCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFailedSubReportCount(v)
+		return nil
 	case finalreport.FieldSubreportSummaries:
 		v, ok := value.(json.RawMessage)
 		if !ok {
@@ -18125,6 +18392,15 @@ func (m *FinalReportMutation) SetField(name string, value ent.Value) error {
 // this mutation.
 func (m *FinalReportMutation) AddedFields() []string {
 	var fields []string
+	if m.addexpected_sub_report_count != nil {
+		fields = append(fields, finalreport.FieldExpectedSubReportCount)
+	}
+	if m.addsuccessful_sub_report_count != nil {
+		fields = append(fields, finalreport.FieldSuccessfulSubReportCount)
+	}
+	if m.addfailed_sub_report_count != nil {
+		fields = append(fields, finalreport.FieldFailedSubReportCount)
+	}
 	return fields
 }
 
@@ -18133,6 +18409,12 @@ func (m *FinalReportMutation) AddedFields() []string {
 // was not set, or was not defined in the schema.
 func (m *FinalReportMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
+	case finalreport.FieldExpectedSubReportCount:
+		return m.AddedExpectedSubReportCount()
+	case finalreport.FieldSuccessfulSubReportCount:
+		return m.AddedSuccessfulSubReportCount()
+	case finalreport.FieldFailedSubReportCount:
+		return m.AddedFailedSubReportCount()
 	}
 	return nil, false
 }
@@ -18142,6 +18424,27 @@ func (m *FinalReportMutation) AddedField(name string) (ent.Value, bool) {
 // type.
 func (m *FinalReportMutation) AddField(name string, value ent.Value) error {
 	switch name {
+	case finalreport.FieldExpectedSubReportCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddExpectedSubReportCount(v)
+		return nil
+	case finalreport.FieldSuccessfulSubReportCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSuccessfulSubReportCount(v)
+		return nil
+	case finalreport.FieldFailedSubReportCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddFailedSubReportCount(v)
+		return nil
 	}
 	return fmt.Errorf("unknown FinalReport numeric field %s", name)
 }
@@ -18210,6 +18513,18 @@ func (m *FinalReportMutation) ResetField(name string) error {
 		return nil
 	case finalreport.FieldConfidence:
 		m.ResetConfidence()
+		return nil
+	case finalreport.FieldGenerationStatus:
+		m.ResetGenerationStatus()
+		return nil
+	case finalreport.FieldExpectedSubReportCount:
+		m.ResetExpectedSubReportCount()
+		return nil
+	case finalreport.FieldSuccessfulSubReportCount:
+		m.ResetSuccessfulSubReportCount()
+		return nil
+	case finalreport.FieldFailedSubReportCount:
+		m.ResetFailedSubReportCount()
 		return nil
 	case finalreport.FieldSubreportSummaries:
 		m.ResetSubreportSummaries()
@@ -23285,6 +23600,8 @@ type ReportWorkflowPolicyMutation struct {
 	addgrouping_policy_id                     *int
 	report_notification_channel_profile_id    *int
 	addreport_notification_channel_profile_id *int
+	max_failed_sub_reports                    *int
+	addmax_failed_sub_reports                 *int
 	trigger_mode                              *string
 	report_scenario                           *string
 	diagnosis_follow_up                       *string
@@ -23651,6 +23968,62 @@ func (m *ReportWorkflowPolicyMutation) ResetReportNotificationChannelProfileID()
 	m.report_notification_channel_profile_id = nil
 	m.addreport_notification_channel_profile_id = nil
 	delete(m.clearedFields, reportworkflowpolicy.FieldReportNotificationChannelProfileID)
+}
+
+// SetMaxFailedSubReports sets the "max_failed_sub_reports" field.
+func (m *ReportWorkflowPolicyMutation) SetMaxFailedSubReports(i int) {
+	m.max_failed_sub_reports = &i
+	m.addmax_failed_sub_reports = nil
+}
+
+// MaxFailedSubReports returns the value of the "max_failed_sub_reports" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) MaxFailedSubReports() (r int, exists bool) {
+	v := m.max_failed_sub_reports
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMaxFailedSubReports returns the old "max_failed_sub_reports" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldMaxFailedSubReports(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMaxFailedSubReports is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMaxFailedSubReports requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMaxFailedSubReports: %w", err)
+	}
+	return oldValue.MaxFailedSubReports, nil
+}
+
+// AddMaxFailedSubReports adds i to the "max_failed_sub_reports" field.
+func (m *ReportWorkflowPolicyMutation) AddMaxFailedSubReports(i int) {
+	if m.addmax_failed_sub_reports != nil {
+		*m.addmax_failed_sub_reports += i
+	} else {
+		m.addmax_failed_sub_reports = &i
+	}
+}
+
+// AddedMaxFailedSubReports returns the value that was added to the "max_failed_sub_reports" field in this mutation.
+func (m *ReportWorkflowPolicyMutation) AddedMaxFailedSubReports() (r int, exists bool) {
+	v := m.addmax_failed_sub_reports
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetMaxFailedSubReports resets all changes to the "max_failed_sub_reports" field.
+func (m *ReportWorkflowPolicyMutation) ResetMaxFailedSubReports() {
+	m.max_failed_sub_reports = nil
+	m.addmax_failed_sub_reports = nil
 }
 
 // SetTriggerMode sets the "trigger_mode" field.
@@ -24028,7 +24401,7 @@ func (m *ReportWorkflowPolicyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ReportWorkflowPolicyMutation) Fields() []string {
-	fields := make([]string, 0, 13)
+	fields := make([]string, 0, 14)
 	if m.tenant != nil {
 		fields = append(fields, reportworkflowpolicy.FieldTenantID)
 	}
@@ -24043,6 +24416,9 @@ func (m *ReportWorkflowPolicyMutation) Fields() []string {
 	}
 	if m.report_notification_channel_profile_id != nil {
 		fields = append(fields, reportworkflowpolicy.FieldReportNotificationChannelProfileID)
+	}
+	if m.max_failed_sub_reports != nil {
+		fields = append(fields, reportworkflowpolicy.FieldMaxFailedSubReports)
 	}
 	if m.trigger_mode != nil {
 		fields = append(fields, reportworkflowpolicy.FieldTriggerMode)
@@ -24086,6 +24462,8 @@ func (m *ReportWorkflowPolicyMutation) Field(name string) (ent.Value, bool) {
 		return m.GroupingPolicyID()
 	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
 		return m.ReportNotificationChannelProfileID()
+	case reportworkflowpolicy.FieldMaxFailedSubReports:
+		return m.MaxFailedSubReports()
 	case reportworkflowpolicy.FieldTriggerMode:
 		return m.TriggerMode()
 	case reportworkflowpolicy.FieldReportScenario:
@@ -24121,6 +24499,8 @@ func (m *ReportWorkflowPolicyMutation) OldField(ctx context.Context, name string
 		return m.OldGroupingPolicyID(ctx)
 	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
 		return m.OldReportNotificationChannelProfileID(ctx)
+	case reportworkflowpolicy.FieldMaxFailedSubReports:
+		return m.OldMaxFailedSubReports(ctx)
 	case reportworkflowpolicy.FieldTriggerMode:
 		return m.OldTriggerMode(ctx)
 	case reportworkflowpolicy.FieldReportScenario:
@@ -24180,6 +24560,13 @@ func (m *ReportWorkflowPolicyMutation) SetField(name string, value ent.Value) er
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetReportNotificationChannelProfileID(v)
+		return nil
+	case reportworkflowpolicy.FieldMaxFailedSubReports:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMaxFailedSubReports(v)
 		return nil
 	case reportworkflowpolicy.FieldTriggerMode:
 		v, ok := value.(string)
@@ -24254,6 +24641,9 @@ func (m *ReportWorkflowPolicyMutation) AddedFields() []string {
 	if m.addreport_notification_channel_profile_id != nil {
 		fields = append(fields, reportworkflowpolicy.FieldReportNotificationChannelProfileID)
 	}
+	if m.addmax_failed_sub_reports != nil {
+		fields = append(fields, reportworkflowpolicy.FieldMaxFailedSubReports)
+	}
 	return fields
 }
 
@@ -24268,6 +24658,8 @@ func (m *ReportWorkflowPolicyMutation) AddedField(name string) (ent.Value, bool)
 		return m.AddedGroupingPolicyID()
 	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
 		return m.AddedReportNotificationChannelProfileID()
+	case reportworkflowpolicy.FieldMaxFailedSubReports:
+		return m.AddedMaxFailedSubReports()
 	}
 	return nil, false
 }
@@ -24297,6 +24689,13 @@ func (m *ReportWorkflowPolicyMutation) AddField(name string, value ent.Value) er
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddReportNotificationChannelProfileID(v)
+		return nil
+	case reportworkflowpolicy.FieldMaxFailedSubReports:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMaxFailedSubReports(v)
 		return nil
 	}
 	return fmt.Errorf("unknown ReportWorkflowPolicy numeric field %s", name)
@@ -24360,6 +24759,9 @@ func (m *ReportWorkflowPolicyMutation) ResetField(name string) error {
 		return nil
 	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
 		m.ResetReportNotificationChannelProfileID()
+		return nil
+	case reportworkflowpolicy.FieldMaxFailedSubReports:
+		m.ResetMaxFailedSubReports()
 		return nil
 	case reportworkflowpolicy.FieldTriggerMode:
 		m.ResetTriggerMode()

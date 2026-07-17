@@ -45,6 +45,14 @@ export function ReportListView({ result }: ReportListViewProps) {
             <Link className="report-list-title" href={`/reports/${report.id}`}>
               {report.title}
             </Link>
+            {report.generation_status === "partial" ? (
+              <Typography.Text type="warning">
+                {t("partialCoverage", {
+                  failed: report.failed_sub_report_count,
+                  expected: report.expected_sub_report_count,
+                })}
+              </Typography.Text>
+            ) : null}
             <Typography.Text className="report-list-summary" type="secondary">
               {report.executive_summary}
             </Typography.Text>

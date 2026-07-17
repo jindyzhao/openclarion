@@ -3943,6 +3943,7 @@ function workflowPolicy({
     enabled_at: enabled ? timestamp : null,
     grouping_policy_id: 1,
     id: 1,
+    max_failed_sub_reports: 0,
     name: "Default workflow",
     report_notification_channel_profile_id: 3,
     report_scenario: "single_alert",

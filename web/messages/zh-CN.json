@@ -1237,7 +1237,12 @@
     "retainedManualRooms": "因达到自动诊断室数量限制，已保留 {count} 个快照并等待手动创建 AI 诊断室。",
     "startReplay": "开始重放",
     "proofTraceLabel": "重放证明链路",
-    "proofTrace": "重放证明链路"
+    "proofTrace": "重放证明链路",
+    "failedSubReportCount": "允许失败 {count} 个",
+    "failureTolerance": "失败容忍度",
+    "maxFailedSubReports": "允许的子报告失败数",
+    "maxFailedSubReportsRange": "允许的子报告失败数必须在 0 到 100000 之间。",
+    "maxFailedSubReportsRequired": "允许的子报告失败数为必填项。"
   },
   "WorkflowScheduleSettings": {
     "refreshed": "工作流定时任务已刷新。",
@@ -1900,7 +1905,8 @@
       "high": "高",
       "medium": "中",
       "low": "低"
-    }
+    },
+    "partialCoverage": "部分完成：{expected} 份子报告中有 {failed} 份失败"
   },
   "ReportDetail": {
     "fallbackTitle": "报告 {id}",
@@ -2220,7 +2226,9 @@
       "window": "窗口 {seconds} 秒",
       "step": "步长 {seconds} 秒",
       "limit": "上限 {count}"
-    }
+    },
+    "partialCoverage": "{expected} 份子报告中有 {successful} 份成功，{failed} 份失败且未纳入报告。",
+    "partialReport": "部分报告"
   },
   "Alerts": {
     "title": "告警",
@@ -2490,9 +2498,9 @@
       "enableChannel": "启用通道",
       "switchChannel": "切换通道",
       "reviewScopes": "检查权限范围",
-    "useAutoRoom": "使用自动诊断室",
-    "fixChannel": "修复通道",
-    "testChannel": "测试通道",
+      "useAutoRoom": "使用自动诊断室",
+      "fixChannel": "修复通道",
+      "testChannel": "测试通道",
       "reviewChannel": "检查通道",
       "reviewSource": "检查告警源",
       "switchSource": "切换告警源",
@@ -2614,9 +2622,9 @@
         "noChannelDetail": "请绑定具备报告、诊断协作和诊断关闭权限范围的企业微信通道。",
         "disabledDetail": "执行 AI 通知在线验证前，请启用已绑定的企业微信通道。",
         "wrongKindDetail": "自动诊断上线需要企业微信，通用 Webhook 验证不足以完成验收。",
-      "missingScopesDetail": "接受企业微信上线前，请补充{scopes}。",
-      "followUpDetail": "企业微信已绑定，但工作流仍需使用自动诊断室后续动作才能自动发起 AI 协作。",
-      "readyDetail": "企业微信已具备所需权限范围，以及 AI 诊断和关闭通知样例证据。"
+        "missingScopesDetail": "接受企业微信上线前，请补充{scopes}。",
+        "followUpDetail": "企业微信已绑定，但工作流仍需使用自动诊断室后续动作才能自动发起 AI 协作。",
+        "readyDetail": "企业微信已具备所需权限范围，以及 AI 诊断和关闭通知样例证据。"
       },
       "autoRoom": {
         "title": "Alertmanager 自动诊断室",
@@ -2701,21 +2709,21 @@
       "allowed": "允许",
       "denied": "拒绝"
     },
-  "deliveryScopes": {
-    "report": "报告权限范围",
-    "consultation": "诊断协作权限范围",
-    "close": "诊断关闭权限范围"
-  },
-  "notificationProof": {
-    "blockedDetail": "运行投递测试前，请修复通知通道凭据配置。",
-    "reviewDetail": "接受投递前，请检查当前通知通道证据。",
-    "missingTestsDetail": "接受通知验证前，请在最近一次通道更新后运行{tests}。",
-    "tests": {
-      "transport": "传输样例测试",
-      "aiDiagnosis": "AI 诊断样例测试",
-      "diagnosisClose": "诊断关闭样例测试"
-    }
-  },
+    "deliveryScopes": {
+      "report": "报告权限范围",
+      "consultation": "诊断协作权限范围",
+      "close": "诊断关闭权限范围"
+    },
+    "notificationProof": {
+      "blockedDetail": "运行投递测试前，请修复通知通道凭据配置。",
+      "reviewDetail": "接受投递前，请检查当前通知通道证据。",
+      "missingTestsDetail": "接受通知验证前，请在最近一次通道更新后运行{tests}。",
+      "tests": {
+        "transport": "传输样例测试",
+        "aiDiagnosis": "AI 诊断样例测试",
+        "diagnosisClose": "诊断关闭样例测试"
+      }
+    },
     "sourceKinds": {
       "alertmanager": "Alertmanager",
       "prometheus": "Prometheus"
@@ -2826,18 +2834,24 @@
           "title": "告警源",
           "notAlertmanager": "{source} 不是 Alertmanager 告警源"
         },
-        "grouping": { "title": "分组" },
+        "grouping": {
+          "title": "分组"
+        },
         "evidence": {
           "title": "证据",
           "detail": "{alerts} 个活动告警工具 / {metrics} 个指标工具"
         },
-        "aiRoom": { "title": "AI 诊断室" },
+        "aiRoom": {
+          "title": "AI 诊断室"
+        },
         "delivery": {
           "title": "投递",
           "missingScopes": "{channel} 缺少{scopes}",
           "notWeCom": "{channel} 不是企业微信通道"
         },
-        "schedule": { "title": "调度" }
+        "schedule": {
+          "title": "调度"
+        }
       },
       "descriptions": {
         "policy": "策略",
@@ -2877,7 +2891,9 @@
           "title": "指标",
           "detail": "{count, plural, other {# 个指标工具}}"
         },
-        "aiRoom": { "title": "AI 诊断室" },
+        "aiRoom": {
+          "title": "AI 诊断室"
+        },
         "replay": {
           "title": "回放",
           "ready": "自动诊断已就绪",
@@ -2927,9 +2943,9 @@
         "noAIChannelDetail": "接受 AI 更新通知验证前，请绑定企业微信通道。",
         "noReportChannelDetail": "接受投递验证前，请绑定报告通知通道。",
         "disabledDetail": "执行在线通知验证前，请启用已绑定的通知通道。",
-      "missingScopesDetail": "执行在线 AI 通知验证前，请补充{scopes}。",
-      "wrongKindDetail": "尝试运维交接验证前，请将已绑定通知通道切换为企业微信。",
-      "autoRoomReadyDetail": "企业微信通道权限范围已满足报告、AI 更新和关闭验证。",
+        "missingScopesDetail": "执行在线 AI 通知验证前，请补充{scopes}。",
+        "wrongKindDetail": "尝试运维交接验证前，请将已绑定通知通道切换为企业微信。",
+        "autoRoomReadyDetail": "企业微信通道权限范围已满足报告、AI 更新和关闭验证。",
         "reportReadyDetail": "通知通道权限范围已满足报告投递验证。"
       }
     },
@@ -2959,9 +2975,9 @@
         "toolsDetail": "验证自动 AI 诊断前，请添加活动告警和指标证据工具。",
         "noChannelDetail": "验证 AI 诊断更新和最终结论投递前，请绑定企业微信通道。",
         "disabledChannelDetail": "留存自动诊断通知验证前，请启用企业微信通道。",
-      "wrongChannelDetail": "自动 AI 诊断验证需要企业微信，通用 Webhook 投递无法证明运维交接。",
-      "missingScopesDetail": "留存自动 AI 通知验证前，请补充{scopes}。",
-      "readyDetail": "输入已满足 Alertmanager Webhook 留存验证。请打开匹配的自动诊断室工作流，运行有界回放留存证据，并使用在线 Webhook 冒烟目标验证真实 Alertmanager 接入。",
+        "wrongChannelDetail": "自动 AI 诊断验证需要企业微信，通用 Webhook 投递无法证明运维交接。",
+        "missingScopesDetail": "留存自动 AI 通知验证前，请补充{scopes}。",
+        "readyDetail": "输入已满足 Alertmanager Webhook 留存验证。请打开匹配的自动诊断室工作流，运行有界回放留存证据，并使用在线 Webhook 冒烟目标验证真实 Alertmanager 接入。",
         "historyDetail": "{alert}在诊断室 {room} 的最新自动诊断留存证据：{detail}"
       },
       "replay": {

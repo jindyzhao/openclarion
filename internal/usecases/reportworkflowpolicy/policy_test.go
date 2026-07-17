@@ -25,7 +25,8 @@ func TestServiceCreateStoresDisabledDraftAndValidatesBindings(t *testing.T) {
 	if saved.Enabled || repo.savedReportPolicy.Enabled {
 		t.Fatalf("saved policy should be disabled: saved=%+v repo=%+v", saved, repo.savedReportPolicy)
 	}
-	if repo.savedReportPolicy.AlertSourceProfileID != 1 || repo.savedReportPolicy.GroupingPolicyID != 2 {
+	if repo.savedReportPolicy.AlertSourceProfileID != 1 || repo.savedReportPolicy.GroupingPolicyID != 2 ||
+		repo.savedReportPolicy.MaxFailedSubReports != 2 {
 		t.Fatalf("saved bindings = %+v", repo.savedReportPolicy)
 	}
 }
@@ -380,6 +381,7 @@ func TestServiceReplacePreservesEnablementAndValidatesEnabledBindings(t *testing
 		AlertSourceProfileID:               1,
 		GroupingPolicyID:                   2,
 		ReportNotificationChannelProfileID: 3,
+		MaxFailedSubReports:                3,
 		TriggerMode:                        domain.ReportWorkflowTriggerModeManualReplay,
 		ReportScenario:                     domain.ReportWorkflowScenarioCascade,
 		DiagnosisFollowUp:                  domain.DiagnosisFollowUpModeSuggestRoom,
@@ -390,7 +392,8 @@ func TestServiceReplacePreservesEnablementAndValidatesEnabledBindings(t *testing
 	if !replaced.Enabled ||
 		replaced.EnabledAt == nil ||
 		replaced.ReportScenario != domain.ReportWorkflowScenarioCascade ||
-		replaced.ReportNotificationChannelProfileID != 3 {
+		replaced.ReportNotificationChannelProfileID != 3 ||
+		replaced.MaxFailedSubReports != 3 {
 		t.Fatalf("replaced = %+v", replaced)
 	}
 }
@@ -409,6 +412,7 @@ func defaultWriteRequest() WriteRequest {
 		Name:                 "Default report workflow",
 		AlertSourceProfileID: 1,
 		GroupingPolicyID:     2,
+		MaxFailedSubReports:  2,
 		TriggerMode:          domain.ReportWorkflowTriggerModeManualReplay,
 		ReportScenario:       domain.ReportWorkflowScenarioSingleAlert,
 		DiagnosisFollowUp:    domain.DiagnosisFollowUpModeDisabled,
@@ -420,6 +424,7 @@ func defaultPolicy() domain.ReportWorkflowPolicy {
 		"Default report workflow",
 		1,
 		2,
+		0,
 		0,
 		domain.ReportWorkflowTriggerModeManualReplay,
 		domain.ReportWorkflowScenarioSingleAlert,

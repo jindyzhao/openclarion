@@ -1,4 +1,4 @@
-h1:YOiPDmo3AwQLxujrrCZNy9RyXOImbsPl3pYlvv93sks=
+h1:scyp9qwEivUkRo02bP4D4+V5Krf2W43zdvs8JWiNQBQ=
 20260525060310_initial_schema.sql h1:64NVxLTQU+MCtwcBMJ37cEb9Vsab5DAbwAv2BbvvjWc=
 20260528022647_report_schemas.sql h1:rajY/BH2BPn9zUR5wRnmUzfDrASeM4j3QL0MnftCpEA=
 20260528034745_report_notification_deliveries.sql h1:FrskNYvYNbC19C6cT5hDmnFr1UR/YYhDEhnsh46e+vs=
@@ -21,3 +21,4 @@ h1:YOiPDmo3AwQLxujrrCZNy9RyXOImbsPl3pYlvv93sks=
 20260711095636_add_chat_session_approvals.sql h1:oaYa1L7I8jzHFHeJaofzDyNDhKMdSUKDp4EMzo+gK28=
 20260711102607_add_report_retrieval.sql h1:kHp+8TAtmp5sEzzrPEKAu1IbEBcsdYQKxsP4uBP95Nk=
 20260714201751_multi_tenant_isolation.sql h1:IyV9mOavOo9VZUetVR7EpIv661tGsR9RnqwylfBGKys=
+20260716103102_report_partial_failure_policy.sql h1:B+nvoq4LgkQ6ZcZETacMCbbRSYORr/sr5GYkvR3kR7Q=

@@ -931,6 +931,7 @@ paths:
                         alert_source_profile_id: 1
                         grouping_policy_id: 1
                         report_notification_channel_profile_id: 1
+                        max_failed_sub_reports: 0
                         trigger_mode: manual_replay
                         report_scenario: single_alert
                         diagnosis_follow_up: suggest_room
@@ -979,6 +980,7 @@ paths:
                   alert_source_profile_id: 1
                   grouping_policy_id: 1
                   report_notification_channel_profile_id: 1
+                  max_failed_sub_reports: 0
                   trigger_mode: manual_replay
                   report_scenario: single_alert
                   diagnosis_follow_up: suggest_room
@@ -997,6 +999,7 @@ paths:
                     alert_source_profile_id: 1
                     grouping_policy_id: 1
                     report_notification_channel_profile_id: 1
+                    max_failed_sub_reports: 0
                     trigger_mode: manual_replay
                     report_scenario: single_alert
                     diagnosis_follow_up: suggest_room
@@ -1069,6 +1072,7 @@ paths:
                     alert_source_profile_id: 1
                     grouping_policy_id: 1
                     report_notification_channel_profile_id: 1
+                    max_failed_sub_reports: 0
                     trigger_mode: manual_replay
                     report_scenario: single_alert
                     diagnosis_follow_up: suggest_room
@@ -1119,6 +1123,7 @@ paths:
                   alert_source_profile_id: 1
                   grouping_policy_id: 1
                   report_notification_channel_profile_id: 1
+                  max_failed_sub_reports: 0
                   trigger_mode: manual_replay
                   report_scenario: cascade
                   diagnosis_follow_up: suggest_room
@@ -1137,6 +1142,7 @@ paths:
                     alert_source_profile_id: 1
                     grouping_policy_id: 1
                     report_notification_channel_profile_id: 1
+                    max_failed_sub_reports: 0
                     trigger_mode: manual_replay
                     report_scenario: cascade
                     diagnosis_follow_up: suggest_room
@@ -1209,6 +1215,7 @@ paths:
                     alert_source_profile_id: 1
                     grouping_policy_id: 1
                     report_notification_channel_profile_id: 1
+                    max_failed_sub_reports: 0
                     trigger_mode: manual_replay
                     report_scenario: single_alert
                     diagnosis_follow_up: suggest_room
@@ -1271,6 +1278,7 @@ paths:
                     alert_source_profile_id: 1
                     grouping_policy_id: 1
                     report_notification_channel_profile_id: 1
+                    max_failed_sub_reports: 0
                     trigger_mode: manual_replay
                     report_scenario: single_alert
                     diagnosis_follow_up: suggest_room
@@ -1332,6 +1340,7 @@ paths:
                   alert_source_profile_id: 1
                   grouping_policy_id: 1
                   report_notification_channel_profile_id: 1
+                  max_failed_sub_reports: 0
                   trigger_mode: manual_replay
                   report_scenario: single_alert
                   diagnosis_follow_up: auto_room
@@ -1354,6 +1363,7 @@ paths:
                     trigger_mode: manual_replay
                     report_scenario: single_alert
                     diagnosis_follow_up: auto_room
+                    max_failed_sub_reports: 0
                     alert_source_profile_id: 1
                     alert_source_kind: alertmanager
                     alert_source_auth_mode: none
@@ -1434,6 +1444,7 @@ paths:
                     trigger_mode: manual_replay
                     report_scenario: single_alert
                     diagnosis_follow_up: suggest_room
+                    max_failed_sub_reports: 0
                     alert_source_profile_id: 1
                     alert_source_kind: prometheus
                     alert_source_auth_mode: bearer
@@ -3239,6 +3250,10 @@ paths:
                         executive_summary: Checkout latency increased after a deployment.
                         severity: warning
                         confidence: high
+                        generation_status: complete
+                        expected_sub_report_count: 1
+                        successful_sub_report_count: 1
+                        failed_sub_report_count: 0
                         notification_text: Checkout latency incident requires review.
                         created_by_workflow: FinalReportWorkflow
                         created_at: "2026-05-27T09:05:00Z"
@@ -4371,6 +4386,10 @@ paths:
                     executive_summary: Checkout latency increased after a deployment.
                     severity: warning
                     confidence: high
+                    generation_status: complete
+                    expected_sub_report_count: 1
+                    successful_sub_report_count: 1
+                    failed_sub_report_count: 0
                     sub_reports:
                       - title: Checkout API latency
                         severity: warning
@@ -6781,6 +6800,13 @@ components:
           description: Optional notification channel profile identifier for final report delivery.
           examples:
             - 1
+        max_failed_sub_reports:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: Maximum failed SubReport children tolerated before report fan-in is rejected. At least one SubReport must always succeed.
+          examples:
+            - 0
         trigger_mode:
           $ref: "#/components/schemas/ReportWorkflowTriggerMode"
         report_scenario:
@@ -6824,6 +6850,7 @@ components:
         - alert_source_profile_id
         - grouping_policy_id
         - report_notification_channel_profile_id
+        - max_failed_sub_reports
         - trigger_mode
         - report_scenario
         - diagnosis_follow_up
@@ -6863,6 +6890,14 @@ components:
           description: Optional notification channel profile identifier for final report delivery.
           examples:
             - 1
+        max_failed_sub_reports:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          default: 0
+          description: Maximum failed SubReport children tolerated before report fan-in is rejected. Zero requires every SubReport to succeed.
+          examples:
+            - 0
         trigger_mode:
           type: string
           enum:
@@ -6900,6 +6935,7 @@ components:
                 alert_source_profile_id: 1
                 grouping_policy_id: 1
                 report_notification_channel_profile_id: null
+                max_failed_sub_reports: 0
                 trigger_mode: manual_replay
                 report_scenario: single_alert
                 diagnosis_follow_up: suggest_room
@@ -7519,6 +7555,13 @@ components:
           $ref: "#/components/schemas/ReportWorkflowScenario"
         diagnosis_follow_up:
           $ref: "#/components/schemas/DiagnosisFollowUpMode"
+        max_failed_sub_reports:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: Maximum failed SubReport children tolerated by this policy before fan-in is rejected.
+          examples:
+            - 0
         alert_source_profile_id:
           type: integer
           format: int64
@@ -7641,6 +7684,7 @@ components:
         - trigger_mode
         - report_scenario
         - diagnosis_follow_up
+        - max_failed_sub_reports
         - alert_source_profile_id
         - alert_source_kind
         - alert_source_auth_mode
@@ -8092,6 +8136,10 @@ components:
                 executive_summary: Checkout latency increased after a deployment.
                 severity: warning
                 confidence: high
+                generation_status: complete
+                expected_sub_report_count: 1
+                successful_sub_report_count: 1
+                failed_sub_report_count: 0
                 notification_text: Checkout latency incident requires review.
                 created_by_workflow: FinalReportWorkflow
                 created_at: "2026-05-27T09:05:00Z"
@@ -9576,6 +9624,14 @@ components:
         - id
         - group_index
         - event_count
+    FinalReportGenerationStatus:
+      type: string
+      description: Whether report fan-in included every expected SubReport or proceeded within the configured child-failure threshold.
+      enum:
+        - complete
+        - partial
+      examples:
+        - complete
     FinalReportSummary:
       type: object
       description: Final report summary for list views.
@@ -9595,6 +9651,23 @@ components:
           $ref: "#/components/schemas/ReportSeverity"
         confidence:
           $ref: "#/components/schemas/ReportConfidence"
+        generation_status:
+          $ref: "#/components/schemas/FinalReportGenerationStatus"
+        expected_sub_report_count:
+          type: integer
+          minimum: 1
+          examples:
+            - 1
+        successful_sub_report_count:
+          type: integer
+          minimum: 1
+          examples:
+            - 1
+        failed_sub_report_count:
+          type: integer
+          minimum: 0
+          examples:
+            - 0
         notification_text:
           type: string
         created_by_workflow:
@@ -9609,6 +9682,10 @@ components:
         - executive_summary
         - severity
         - confidence
+        - generation_status
+        - expected_sub_report_count
+        - successful_sub_report_count
+        - failed_sub_report_count
         - notification_text
         - created_by_workflow
         - created_at
@@ -9779,6 +9856,23 @@ components:
           $ref: "#/components/schemas/ReportSeverity"
         confidence:
           $ref: "#/components/schemas/ReportConfidence"
+        generation_status:
+          $ref: "#/components/schemas/FinalReportGenerationStatus"
+        expected_sub_report_count:
+          type: integer
+          minimum: 1
+          examples:
+            - 1
+        successful_sub_report_count:
+          type: integer
+          minimum: 1
+          examples:
+            - 1
+        failed_sub_report_count:
+          type: integer
+          minimum: 0
+          examples:
+            - 0
         sub_reports:
           type: array
           examples:
@@ -9938,6 +10032,10 @@ components:
         - executive_summary
         - severity
         - confidence
+        - generation_status
+        - expected_sub_report_count
+        - successful_sub_report_count
+        - failed_sub_report_count
         - sub_reports
         - recommended_actions
         - notification_text
