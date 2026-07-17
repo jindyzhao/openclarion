@@ -1,68 +1,55 @@
 import type {
   NotificationChannelProfile,
+  NotificationChannelTestContentKind,
 } from "@/features/settings/notification-channels/types";
 import {
   notificationChannelAIProofReadiness,
-  notificationChannelAIRoomUnavailableReason,
   notificationChannelEditHref,
   notificationChannelLaunchHref,
-  notificationChannelTestContentKindLabel,
   notificationChannelTestProofBundleFromResults,
 } from "@/features/settings/notification-channels/format";
 
-export type DiagnosisNotificationChannelOption = {
-  disabled?: boolean;
-  label: string;
-  title: string;
-  value: number;
-};
-
 export type DiagnosisNotificationChannelSetupAction = {
-  detail: string;
   href: string;
-  label: string;
+  kind: "empty" | "load-failed" | "not-ready" | "proof-review";
 };
 
 export type DiagnosisNotificationChannelProofSummary = {
-  detail: string;
-  label: string;
+  kind:
+    | "load-failed"
+    | "not-selected"
+    | "not-found"
+    | "not-ready"
+    | "ready"
+    | "review";
+  missingContentKinds: NotificationChannelTestContentKind[];
   status: "blocked" | "pending" | "ready" | "review";
 };
 
-export function diagnosisNotificationChannelOptions(
-  channels: NotificationChannelProfile[],
-): DiagnosisNotificationChannelOption[] {
-  return channels
-    .map((channel) => {
-      const unavailableReason =
-        diagnosisNotificationChannelUnavailableReason(channel);
-      const disabled = unavailableReason !== "";
-      return {
-        disabled: disabled ? true : undefined,
-        label: disabled
-          ? `#${channel.id} ${channel.name} (${unavailableReason})`
-          : `#${channel.id} ${channel.name}`,
-        title: disabled
-          ? `${channel.name}: ${unavailableReason}`
-          : `${channel.name}: ready for diagnosis room notifications`,
-        value: channel.id,
-      };
-    })
-    .sort((left, right) => {
-      const leftDisabled = left.disabled === true ? 1 : 0;
-      const rightDisabled = right.disabled === true ? 1 : 0;
-      if (leftDisabled !== rightDisabled) {
-        return leftDisabled - rightDisabled;
-      }
-      return left.label.localeCompare(right.label);
-    });
-}
+export type DiagnosisNotificationChannelReadinessIssue =
+  | "not-wecom"
+  | "disabled"
+  | "missing-consultation-scope"
+  | "missing-close-scope"
+  | "endpoint-secret"
+  | "missing-secret";
+
+export type DiagnosisNotificationChannelSelectionStatus =
+  | "none"
+  | "ready"
+  | "not-found"
+  | "not-ready";
+
+export type DiagnosisNotificationChannelCreateBlocker =
+  | "load-failed"
+  | "not-found"
+  | "not-ready";
 
 export function diagnosisDefaultNotificationChannelProfileID(
   channels: NotificationChannelProfile[],
 ): number | undefined {
   const readyChannels = channels.filter(
-    (channel) => diagnosisNotificationChannelUnavailableReason(channel) === "",
+    diagnosisNotificationChannelIsReady,
   );
   if (readyChannels.length === 0) {
     return undefined;
@@ -88,65 +75,48 @@ export function diagnosisNotificationChannelSetupAction({
   });
   if (failedToLoad) {
     return {
-      detail:
-        "Notification channels could not be loaded. Open the Enterprise WeChat preset to create or review a channel with diagnosis update and close scopes.",
       href,
-      label: "Open WeCom channel setup",
+      kind: "load-failed",
     };
   }
-  if (
-    channels.some(
-      (channel) => diagnosisNotificationChannelUnavailableReason(channel) === "",
-    )
-  ) {
+  if (channels.some(diagnosisNotificationChannelIsReady)) {
     return null;
   }
   if (channels.length === 0) {
     return {
-      detail:
-        "Create an Enterprise WeChat channel before relying on AI diagnosis room updates and close notifications.",
       href,
-      label: "Create WeCom channel",
+      kind: "empty",
     };
   }
   const proofReviewChannel =
     diagnosisNotificationChannelProofReviewChannel(channels);
   if (proofReviewChannel !== null) {
     return {
-      detail:
-        "The selected Enterprise WeChat channel has the required diagnosis scopes. Open it and run the missing AI diagnosis and close notification proof tests.",
       href: notificationChannelEditHref(proofReviewChannel.id),
-      label: "Run WeCom AI proof",
+      kind: "proof-review",
     };
   }
   return {
-    detail:
-      "No configured channel is ready for both AI diagnosis updates and close notifications. Use the Enterprise WeChat preset to add the required scopes.",
     href,
-    label: "Prepare WeCom channel",
+    kind: "not-ready",
   };
 }
 
-export function diagnosisNotificationChannelSelectionError(
+export function diagnosisNotificationChannelSelectionStatus(
   channelID: number | null | undefined,
   channels: NotificationChannelProfile[],
-): string {
+): DiagnosisNotificationChannelSelectionStatus {
   if (channelID === null || channelID === undefined) {
-    return "";
+    return "none";
   }
   const channel = channels.find((candidate) => candidate.id === channelID);
   if (channel === undefined) {
-    return "Selected notification channel was not found.";
+    return "not-found";
   }
-  const unavailableReason =
-    diagnosisNotificationChannelUnavailableReason(channel);
-  if (unavailableReason === "") {
-    return "";
-  }
-  return `Selected notification channel is not ready: ${unavailableReason}.`;
+  return diagnosisNotificationChannelIsReady(channel) ? "ready" : "not-ready";
 }
 
-export function diagnosisNotificationChannelCreateBlockReason({
+export function diagnosisNotificationChannelCreateBlocker({
   channelID,
   channels,
   failedToLoad = false,
@@ -154,14 +124,15 @@ export function diagnosisNotificationChannelCreateBlockReason({
   channelID: number | null | undefined;
   channels: NotificationChannelProfile[];
   failedToLoad?: boolean;
-}): string {
+}): DiagnosisNotificationChannelCreateBlocker | null {
   if (channelID === null || channelID === undefined) {
-    return "";
+    return null;
   }
   if (failedToLoad) {
-    return "Load notification channels before creating a diagnosis room with Enterprise WeChat delivery.";
+    return "load-failed";
   }
-  return diagnosisNotificationChannelSelectionError(channelID, channels);
+  const status = diagnosisNotificationChannelSelectionStatus(channelID, channels);
+  return status === "ready" || status === "none" ? null : status;
 }
 
 export function diagnosisNotificationChannelProofSummary({
@@ -175,33 +146,30 @@ export function diagnosisNotificationChannelProofSummary({
 }): DiagnosisNotificationChannelProofSummary {
   if (failedToLoad) {
     return {
-      detail:
-        "Notification channels could not be loaded, so Enterprise WeChat proof cannot be checked.",
-      label: "Channel proof unavailable.",
+      kind: "load-failed",
+      missingContentKinds: [],
       status: "blocked",
     };
   }
   if (channelID === null || channelID === undefined) {
     return {
-      detail:
-        "Select an Enterprise WeChat channel with current AI diagnosis and close sample proof.",
-      label: "Channel proof pending.",
+      kind: "not-selected",
+      missingContentKinds: [],
       status: "pending",
     };
   }
   const channel = channels.find((candidate) => candidate.id === channelID);
   if (channel === undefined) {
     return {
-      detail: "Selected notification channel was not found.",
-      label: "Channel proof unavailable.",
+      kind: "not-found",
+      missingContentKinds: [],
       status: "blocked",
     };
   }
-  const roomReason = notificationChannelAIRoomUnavailableReason(channel);
-  if (roomReason !== "") {
+  if (diagnosisNotificationChannelReadinessIssues(channel).length > 0) {
     return {
-      detail: roomReason,
-      label: "Channel is not ready.",
+      kind: "not-ready",
+      missingContentKinds: [],
       status: "blocked",
     };
   }
@@ -214,45 +182,61 @@ export function diagnosisNotificationChannelProofSummary({
   );
   if (proofReadiness.status === "ready") {
     return {
-      detail: diagnosisNotificationChannelProofReadyDetail(proofBundle),
-      label: "Channel proof ready.",
+      kind: "ready",
+      missingContentKinds: [],
       status: "ready",
     };
   }
   return {
-    detail: proofReadiness.detail,
-    label: proofReadiness.label,
-    status: proofReadiness.status,
+    kind: proofReadiness.status === "blocked" ? "not-ready" : "review",
+    missingContentKinds: proofReadiness.missingContentKinds,
+    status: proofReadiness.status === "blocked" ? "blocked" : "review",
   };
 }
 
-function diagnosisNotificationChannelUnavailableReason(
+export function diagnosisNotificationChannelReadinessIssues(
   channel: NotificationChannelProfile,
-): string {
-  const roomReason = notificationChannelAIRoomUnavailableReason(channel);
-  if (roomReason !== "") {
-    return roomReason;
+): DiagnosisNotificationChannelReadinessIssue[] {
+  const issues: DiagnosisNotificationChannelReadinessIssue[] = [];
+  if (channel.kind !== "wecom") {
+    issues.push("not-wecom");
+  }
+  if (!channel.enabled) {
+    issues.push("disabled");
+  }
+  if (!channel.delivery_scopes.includes("diagnosis_consultation")) {
+    issues.push("missing-consultation-scope");
+  }
+  if (!channel.delivery_scopes.includes("diagnosis_close")) {
+    issues.push("missing-close-scope");
+  }
+  if (secretRefLooksLikeEndpoint(channel.secret_ref)) {
+    issues.push("endpoint-secret");
+  }
+  if (channel.secret_ref.trim() === "") {
+    issues.push("missing-secret");
+  }
+  return issues;
+}
+
+function diagnosisNotificationChannelIsReady(
+  channel: NotificationChannelProfile,
+): boolean {
+  if (diagnosisNotificationChannelReadinessIssues(channel).length > 0) {
+    return false;
   }
   const proofReadiness = notificationChannelAIProofReadiness(
     channel,
     notificationChannelTestProofBundleFromResults(channel.latest_test_results),
   );
-  if (proofReadiness.status === "ready") {
-    return "";
-  }
-  if (proofReadiness.missingContentKinds.length > 0) {
-    return `missing current ${proofReadiness.missingContentKinds
-      .map((kind) => notificationChannelTestContentKindLabel(kind).toLowerCase())
-      .join(" and ")} proof`;
-  }
-  return proofReadiness.label;
+  return proofReadiness.status === "ready";
 }
 
 function diagnosisNotificationChannelProofReviewChannel(
   channels: NotificationChannelProfile[],
 ): NotificationChannelProfile | null {
   const candidates = channels.filter((channel) => {
-    if (notificationChannelAIRoomUnavailableReason(channel) !== "") {
+    if (diagnosisNotificationChannelReadinessIssues(channel).length > 0) {
       return false;
     }
     const proofReadiness = notificationChannelAIProofReadiness(
@@ -274,23 +258,6 @@ function diagnosisNotificationChannelProofReviewChannel(
     );
   }
   return candidates[0] ?? null;
-}
-
-function diagnosisNotificationChannelProofReadyDetail(
-  proof: ReturnType<typeof notificationChannelTestProofBundleFromResults>,
-): string {
-  const parts = [
-    proof.ai_diagnosis_sample === undefined
-      ? ""
-      : `AI diagnosis sample checked at ${proof.ai_diagnosis_sample.checked_at}`,
-    proof.diagnosis_close_sample === undefined
-      ? ""
-      : `Diagnosis close sample checked at ${proof.diagnosis_close_sample.checked_at}`,
-  ].filter((part) => part !== "");
-  if (parts.length === 0) {
-    return "Selected Enterprise WeChat channel has current AI delivery test proof.";
-  }
-  return parts.join("; ");
 }
 
 function uniqueHighestPreferenceNotificationChannelID(
@@ -330,4 +297,14 @@ function diagnosisNotificationChannelPreferenceScore(
     score += 2;
   }
   return score;
+}
+
+function secretRefLooksLikeEndpoint(secretRef: string): boolean {
+  try {
+    return ["http:", "https:", "smtp:", "smtps:"].includes(
+      new URL(secretRef).protocol,
+    );
+  } catch {
+    return false;
+  }
 }

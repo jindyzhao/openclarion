@@ -7,72 +7,14 @@ import type {
 
 import {
   diagnosisDefaultNotificationChannelProfileID,
-  diagnosisNotificationChannelCreateBlockReason,
-  diagnosisNotificationChannelOptions,
+  diagnosisNotificationChannelCreateBlocker,
   diagnosisNotificationChannelProofSummary,
-  diagnosisNotificationChannelSelectionError,
+  diagnosisNotificationChannelReadinessIssues,
+  diagnosisNotificationChannelSelectionStatus,
   diagnosisNotificationChannelSetupAction,
 } from "./notification-channel-options";
 
 describe("diagnosis notification channel options", () => {
-  it("keeps ready channels selectable and explains unavailable channels", () => {
-    const options = diagnosisNotificationChannelOptions([
-      channel({
-        delivery_scopes: ["report", "diagnosis_close"],
-        enabled: true,
-        id: 2,
-        name: "Close only",
-      }),
-      channel({
-        delivery_scopes: ["diagnosis_consultation", "diagnosis_close"],
-        enabled: true,
-        id: 3,
-        kind: "wecom",
-        name: "AI room",
-      }),
-      channel({
-        delivery_scopes: ["diagnosis_consultation", "diagnosis_close"],
-        enabled: true,
-        id: 4,
-        kind: "webhook",
-        name: "Generic webhook",
-      }),
-      channel({
-        delivery_scopes: ["diagnosis_consultation", "diagnosis_close"],
-        enabled: false,
-        id: 1,
-        name: "Disabled room",
-      }),
-    ]);
-
-    expect(options).toEqual([
-      {
-        disabled: undefined,
-        label: "#3 AI room",
-        title: "AI room: ready for diagnosis room notifications",
-        value: 3,
-      },
-      {
-        disabled: true,
-        label: "#1 Disabled room (disabled)",
-        title: "Disabled room: disabled",
-        value: 1,
-      },
-      {
-        disabled: true,
-        label: "#2 Close only (missing diagnosis_consultation)",
-        title: "Close only: missing diagnosis_consultation",
-        value: 2,
-      },
-      {
-        disabled: true,
-        label: "#4 Generic webhook (not Enterprise WeChat)",
-        title: "Generic webhook: not Enterprise WeChat",
-        value: 4,
-      },
-    ]);
-  });
-
   it("validates selected channel readiness", () => {
     const channels = [
       channel({
@@ -91,50 +33,56 @@ describe("diagnosis notification channel options", () => {
     ];
 
     expect(
-      diagnosisNotificationChannelSelectionError(undefined, channels),
-    ).toBe("");
-    expect(diagnosisNotificationChannelSelectionError(3, channels)).toBe("");
-    expect(diagnosisNotificationChannelSelectionError(9, channels)).toBe(
-      "Selected notification channel was not found.",
+      diagnosisNotificationChannelSelectionStatus(undefined, channels),
+    ).toBe("none");
+    expect(diagnosisNotificationChannelSelectionStatus(3, channels)).toBe(
+      "ready",
     );
-    expect(diagnosisNotificationChannelSelectionError(4, channels)).toBe(
-      "Selected notification channel is not ready: disabled; missing diagnosis_close.",
+    expect(diagnosisNotificationChannelSelectionStatus(9, channels)).toBe(
+      "not-found",
     );
+    expect(diagnosisNotificationChannelSelectionStatus(4, channels)).toBe(
+      "not-ready",
+    );
+    expect(diagnosisNotificationChannelReadinessIssues(channels[1]!)).toEqual([
+      "disabled",
+      "missing-close-scope",
+    ]);
+    const genericWebhook = channel({
+      delivery_scopes: ["diagnosis_consultation", "diagnosis_close"],
+      enabled: true,
+      id: 5,
+      kind: "webhook",
+      name: "Generic webhook",
+    });
     expect(
-      diagnosisNotificationChannelSelectionError(
+      diagnosisNotificationChannelSelectionStatus(
         5,
-        channels.concat(
-          channel({
-            delivery_scopes: ["diagnosis_consultation", "diagnosis_close"],
-            enabled: true,
-            id: 5,
-            kind: "webhook",
-            name: "Generic webhook",
-          }),
-        ),
+        channels.concat(genericWebhook),
       ),
-    ).toBe(
-      "Selected notification channel is not ready: not Enterprise WeChat.",
-    );
+    ).toBe("not-ready");
+    expect(diagnosisNotificationChannelReadinessIssues(genericWebhook)).toEqual([
+      "not-wecom",
+    ]);
+    const endpointChannel = channel({
+      delivery_scopes: ["diagnosis_consultation", "diagnosis_close"],
+      enabled: true,
+      id: 6,
+      kind: "wecom",
+      name: "Direct endpoint",
+      secret_ref: "https://endpoint.example.test/robot",
+    });
     expect(
-      diagnosisNotificationChannelSelectionError(
+      diagnosisNotificationChannelSelectionStatus(
         6,
-        channels.concat(
-          channel({
-            delivery_scopes: ["diagnosis_consultation", "diagnosis_close"],
-            enabled: true,
-            id: 6,
-            kind: "wecom",
-            name: "Direct endpoint",
-            secret_ref: "https://endpoint.example.test/robot",
-          }),
-        ),
+        channels.concat(endpointChannel),
       ),
-    ).toBe(
-      "Selected notification channel is not ready: credential secret reference stores an endpoint URL.",
-    );
+    ).toBe("not-ready");
+    expect(diagnosisNotificationChannelReadinessIssues(endpointChannel)).toEqual([
+      "endpoint-secret",
+    ]);
     expect(
-      diagnosisNotificationChannelSelectionError(
+      diagnosisNotificationChannelSelectionStatus(
         7,
         channels.concat(
           channel({
@@ -147,9 +95,7 @@ describe("diagnosis notification channel options", () => {
           }),
         ),
       ),
-    ).toBe(
-      "Selected notification channel is not ready: missing current ai diagnosis sample and diagnosis close sample proof.",
-    );
+    ).toBe("not-ready");
   });
 
   it("allows room creation without a notification channel and validates selected channels", () => {
@@ -168,39 +114,37 @@ describe("diagnosis notification channel options", () => {
     });
 
     expect(
-      diagnosisNotificationChannelCreateBlockReason({
+      diagnosisNotificationChannelCreateBlocker({
         channelID: undefined,
         channels: [ready],
       }),
-    ).toBe("");
+    ).toBeNull();
     expect(
-      diagnosisNotificationChannelCreateBlockReason({
+      diagnosisNotificationChannelCreateBlocker({
         channelID: 3,
         channels: [ready],
       }),
-    ).toBe("");
+    ).toBeNull();
     expect(
-      diagnosisNotificationChannelCreateBlockReason({
+      diagnosisNotificationChannelCreateBlocker({
         channelID: 4,
         channels: [ready, disabled],
       }),
-    ).toBe("Selected notification channel is not ready: disabled.");
+    ).toBe("not-ready");
     expect(
-      diagnosisNotificationChannelCreateBlockReason({
+      diagnosisNotificationChannelCreateBlocker({
         channelID: undefined,
         channels: [ready],
         failedToLoad: true,
       }),
-    ).toBe("");
+    ).toBeNull();
     expect(
-      diagnosisNotificationChannelCreateBlockReason({
+      diagnosisNotificationChannelCreateBlocker({
         channelID: 3,
         channels: [ready],
         failedToLoad: true,
       }),
-    ).toBe(
-      "Load notification channels before creating a diagnosis room with Enterprise WeChat delivery.",
-    );
+    ).toBe("load-failed");
   });
 
   it("summarizes selected Enterprise WeChat proof before room creation", () => {
@@ -226,9 +170,8 @@ describe("diagnosis notification channel options", () => {
         channels: [ready],
       }),
     ).toEqual({
-      detail:
-        "Select an Enterprise WeChat channel with current AI diagnosis and close sample proof.",
-      label: "Channel proof pending.",
+      kind: "not-selected",
+      missingContentKinds: [],
       status: "pending",
     });
     expect(
@@ -237,9 +180,8 @@ describe("diagnosis notification channel options", () => {
         channels: [ready],
       }),
     ).toEqual({
-      detail:
-        "AI diagnosis sample checked at 2026-06-21T01:01:00Z; Diagnosis close sample checked at 2026-06-21T01:01:00Z",
-      label: "Channel proof ready.",
+      kind: "ready",
+      missingContentKinds: [],
       status: "ready",
     });
     expect(
@@ -248,7 +190,11 @@ describe("diagnosis notification channel options", () => {
         channels: [ready, untested],
       }),
     ).toMatchObject({
-      label: "AI delivery test proof needs review.",
+      kind: "review",
+      missingContentKinds: [
+        "ai_diagnosis_sample",
+        "diagnosis_close_sample",
+      ],
       status: "review",
     });
     expect(
@@ -258,9 +204,8 @@ describe("diagnosis notification channel options", () => {
         failedToLoad: true,
       }),
     ).toEqual({
-      detail:
-        "Notification channels could not be loaded, so Enterprise WeChat proof cannot be checked.",
-      label: "Channel proof unavailable.",
+      kind: "load-failed",
+      missingContentKinds: [],
       status: "blocked",
     });
   });
@@ -367,10 +312,8 @@ describe("diagnosis notification channel options", () => {
     expect(
       diagnosisNotificationChannelSetupAction({ channels: [] }),
     ).toEqual({
-      detail:
-        "Create an Enterprise WeChat channel before relying on AI diagnosis room updates and close notifications.",
       href: "/settings/notification-channels?intent=diagnosis-room-channel",
-      label: "Create WeCom channel",
+      kind: "empty",
     });
 
     expect(
@@ -385,10 +328,8 @@ describe("diagnosis notification channel options", () => {
         ],
       }),
     ).toEqual({
-      detail:
-        "No configured channel is ready for both AI diagnosis updates and close notifications. Use the Enterprise WeChat preset to add the required scopes.",
       href: "/settings/notification-channels?intent=diagnosis-room-channel",
-      label: "Prepare WeCom channel",
+      kind: "not-ready",
     });
 
     expect(
@@ -405,10 +346,8 @@ describe("diagnosis notification channel options", () => {
         ],
       }),
     ).toEqual({
-      detail:
-        "The selected Enterprise WeChat channel has the required diagnosis scopes. Open it and run the missing AI diagnosis and close notification proof tests.",
       href: "/settings/notification-channels?channel_id=7",
-      label: "Run WeCom AI proof",
+      kind: "proof-review",
     });
 
     expect(
@@ -451,7 +390,7 @@ describe("diagnosis notification channel options", () => {
       }),
     ).toMatchObject({
       href: "/settings/notification-channels?channel_id=9",
-      label: "Run WeCom AI proof",
+      kind: "proof-review",
     });
   });
 
@@ -470,10 +409,8 @@ describe("diagnosis notification channel options", () => {
         failedToLoad: true,
       }),
     ).toEqual({
-      detail:
-        "Notification channels could not be loaded. Open the Enterprise WeChat preset to create or review a channel with diagnosis update and close scopes.",
       href: "/settings/notification-channels?intent=diagnosis-room-channel",
-      label: "Open WeCom channel setup",
+      kind: "load-failed",
     });
   });
 });

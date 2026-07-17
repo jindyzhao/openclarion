@@ -1,6 +1,7 @@
 "use client";
 
 import { Collapse, Segmented, Space, Tag, Typography } from "antd";
+import { useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
 import type {
@@ -19,6 +20,7 @@ export function DiagnosisAuthModeSelector({
   options: DiagnosisAuthModeOption[];
   value?: DiagnosisAuthMode;
 }) {
+  const t = useTranslations("DiagnosisAuth");
   const current = value ?? "session";
   const sessionOption =
     options.find((option) => option.value === "session") ?? null;
@@ -48,7 +50,7 @@ export function DiagnosisAuthModeSelector({
         options={[
           {
             disabled: sessionOption?.disabled,
-            label: sessionOption?.label ?? "IAM session",
+            label: sessionOption?.label ?? t("mode.session"),
             value: "session",
           },
         ]}
@@ -62,8 +64,7 @@ export function DiagnosisAuthModeSelector({
             children: (
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
                 <Typography.Text type="secondary">
-                  Use these paths only for staged rollout, debug access, or a
-                  deployment where IAM OIDC is not active.
+                  {t("fallback.description")}
                 </Typography.Text>
                 <Segmented<DiagnosisAuthMode>
                   block
@@ -76,7 +77,7 @@ export function DiagnosisAuthModeSelector({
             ),
             extra:
               selectedFallbackOption === null ? (
-                <Tag>optional</Tag>
+                <Tag>{t("fallback.optional")}</Tag>
               ) : (
                 <Tag
                   color={diagnosisAuthModeTagColor(
@@ -88,7 +89,7 @@ export function DiagnosisAuthModeSelector({
               ),
             forceRender: true,
             key: "fallback-auth",
-            label: "Fallback auth methods",
+            label: t("fallback.title"),
           },
         ]}
         onChange={onFallbackCollapseChange}

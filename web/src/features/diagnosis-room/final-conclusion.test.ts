@@ -5,9 +5,6 @@ import {
   diagnosisFinalConclusionReviewItems,
   diagnosisFinalConclusionReasonLabel,
   diagnosisFinalConclusionRetentionState,
-  diagnosisFinalConclusionSourceLabel,
-  diagnosisFinalConclusionStatusLabel,
-  diagnosisFinalConclusionText,
   diagnosisFinalConclusionTraceabilityStatus,
 } from "./final-conclusion";
 
@@ -21,43 +18,11 @@ describe("diagnosis final conclusion display", () => {
     );
   });
 
-  it("formats known sources and falls back for unknown enum values", () => {
-    expect(diagnosisFinalConclusionSourceLabel("latest_assistant_turn")).toBe(
-      "Latest assistant turn",
-    );
+  it("falls back for unknown reason enum values", () => {
     expect(diagnosisFinalConclusionReasonLabel("operator_confirmed_final")).toBe(
       "Operator confirmed final",
     );
     expect(diagnosisFinalConclusionReasonLabel("   ")).toBeUndefined();
-  });
-
-  it("uses content first and readable reason fallback for conclusion text", () => {
-    expect(
-      diagnosisFinalConclusionText({
-        content: "CPU saturation is bounded by rollout evidence.",
-        reason: "assistant_marked_ready_for_review",
-        status: "available",
-      }),
-    ).toBe("CPU saturation is bounded by rollout evidence.");
-    expect(
-      diagnosisFinalConclusionText({
-        reason: "assistant_marked_ready_for_review",
-        status: "available",
-      }),
-    ).toBe("AI marked ready for review");
-  });
-
-  it("keeps status summaries compact for room metadata", () => {
-    expect(
-      diagnosisFinalConclusionStatusLabel({
-        confidence: "medium",
-        status: "available",
-      }),
-    ).toBe("available (medium)");
-    expect(diagnosisFinalConclusionStatusLabel({ status: "not_available" })).toBe(
-      "Not available",
-    );
-    expect(diagnosisFinalConclusionStatusLabel(undefined)).toBe("-");
   });
 
   it("summarizes final conclusion retention state", () => {
@@ -268,6 +233,8 @@ describe("diagnosis final conclusion display", () => {
       finalConfidence: "high",
       initialConfidence: "low",
       label: "Confidence improved",
+      rationale:
+        "Supplemental restart logs and active alert evidence support the conclusion.",
       status: "improved",
     });
   });
@@ -283,6 +250,7 @@ describe("diagnosis final conclusion display", () => {
       finalConfidence: "medium",
       initialConfidence: "medium",
       label: "Confidence stable",
+      rationale: "Evidence is bounded.",
       status: "stable",
     });
 
@@ -296,6 +264,7 @@ describe("diagnosis final conclusion display", () => {
       finalConfidence: "low",
       initialConfidence: "high",
       label: "Confidence declined",
+      rationale: "",
       status: "declined",
     });
   });
@@ -312,6 +281,7 @@ describe("diagnosis final conclusion display", () => {
       finalConfidence: "high",
       initialConfidence: "unknown",
       label: "Confidence progress unavailable",
+      rationale: "",
       status: "unknown",
     });
   });
@@ -338,6 +308,7 @@ describe("diagnosis final conclusion display", () => {
       color: "success",
       detail:
         "Operator-confirmed conclusion is retained, review checklist is clear, and Enterprise WeChat AI delivery proof covers all required phases.",
+      kind: "complete",
       label: "Closure traceability complete",
       notificationLabel: "AI delivery complete",
       reviewOpenCount: 0,
@@ -374,6 +345,7 @@ describe("diagnosis final conclusion display", () => {
       color: "success",
       detail:
         "Operator-confirmed conclusion is retained, blocking review checklist is clear with 2 residual review item(s) documented, and Enterprise WeChat AI delivery proof covers all required phases.",
+      kind: "complete",
       label: "Closure traceability complete",
       notificationLabel: "AI delivery complete",
       reviewOpenCount: 0,
@@ -405,6 +377,7 @@ describe("diagnosis final conclusion display", () => {
       color: "warning",
       detail:
         "AI conclusion is available, but operator confirmation is required before final report notification. 2 blocking review item(s) are still open before closure can be accepted.",
+      kind: "conclusion_review",
       label: "Closure traceability needs review",
       notificationLabel: "AI delivery not started",
       reviewOpenCount: 2,
@@ -434,6 +407,7 @@ describe("diagnosis final conclusion display", () => {
       color: "error",
       detail:
         "Operator-confirmed conclusion is retained, but AI delivery proof is blocked: At least one required AI notification phase failed. Retry the failed delivery before treating the room as delivered.",
+      kind: "delivery_blocked",
       label: "Closure traceability blocked",
       notificationLabel: "AI delivery failed",
       reviewOpenCount: 0,
@@ -462,6 +436,7 @@ describe("diagnosis final conclusion display", () => {
       color: "default",
       detail:
         "Operator-confirmed conclusion is retained; AI delivery proof has not started (0 of 3 phase(s) complete).",
+      kind: "delivery_not_started",
       label: "Closure delivery proof pending",
       notificationLabel: "AI delivery not started",
       reviewOpenCount: 0,

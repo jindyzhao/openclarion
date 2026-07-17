@@ -11,7 +11,6 @@ import {
   diagnosisCollaborationParticipantProfile,
   diagnosisCollaborationParticipants,
   diagnosisCollaborationParticipantsFromSummary,
-  diagnosisCollaborationRoleLabel,
   diagnosisCollaborationSubjectIsSystem,
   type DiagnosisCollaborationParticipant,
 } from "./collaboration";
@@ -114,13 +113,6 @@ describe("diagnosis collaboration helpers", () => {
         supplementalEvidence: [],
       }),
     ).toEqual([]);
-  });
-
-  it("labels roles for compact UI tags", () => {
-    expect(diagnosisCollaborationRoleLabel("supplemental_evidence")).toBe(
-      "supplemental",
-    );
-    expect(diagnosisCollaborationRoleLabel("confirmation")).toBe("confirmed");
   });
 
   it("maps participants to local directory identities without replacing the audit subject", () => {
@@ -359,13 +351,9 @@ describe("diagnosis collaboration helpers", () => {
         directoryUsersBySubject,
       ),
     ).toEqual({
-      detail:
-        "Review local directory sync before relying on this room for multi-operator attribution.",
       humanParticipants: 3,
       inactiveParticipants: 1,
       status: "review",
-      summary:
-        "1/3 active directory matches, 1 not synced, 1 inactive profile, 1 system actor",
       syncedParticipants: 1,
       systemActors: 1,
       unsyncedParticipants: 1,
@@ -389,7 +377,6 @@ describe("diagnosis collaboration helpers", () => {
     ).toMatchObject({
       humanParticipants: 1,
       status: "ready",
-      summary: "1/1 active directory matches, 1 system actor",
     });
   });
 
@@ -402,7 +389,6 @@ describe("diagnosis collaboration helpers", () => {
     ).toMatchObject({
       humanParticipants: 0,
       status: "empty",
-      summary: "1 system actor, no human participants",
       systemActors: 1,
     });
   });

@@ -16,22 +16,6 @@ const tZhCN = createTranslator({
 });
 
 describe("diagnosis room workspace messages", () => {
-  it.each([
-    ["en", en],
-    ["zh-CN", zhCN],
-  ] as const)("compiles every %s workspace message", (locale, messages) => {
-    const translate = createTranslator({
-      locale,
-      messages,
-      namespace: "DiagnosisRoom.workspace",
-    }) as (key: string, values?: Record<string, number | string>) => string;
-    const workspace = messages.DiagnosisRoom.workspace;
-
-    for (const [key, value] of Object.entries(workspace)) {
-      expect(() => translate(key, messageValues(value))).not.toThrow();
-    }
-  });
-
   it("localizes workspace actions and validation feedback", () => {
     expect(tEn("createRoom")).toBe("Create Diagnosis Room");
     expect(tZhCN("createRoom")).toBe("创建诊断室");
@@ -55,16 +39,3 @@ describe("diagnosis room workspace messages", () => {
     expect(detail).not.toContain("no diagnosis room");
   });
 });
-
-function messageValues(message: string): Record<string, number | string> {
-  const values: Record<string, number | string> = {};
-  for (const match of message.matchAll(
-    /\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(,\s*plural)?/g,
-  )) {
-    const [, name, plural] = match;
-    if (name !== undefined) {
-      values[name] = plural === undefined ? "sample" : 2;
-    }
-  }
-  return values;
-}

@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  diagnosisActorApprovalBlockReason,
-  diagnosisApprovalAuthorityLabel,
-  diagnosisApprovalModeLabel,
+  diagnosisActorApprovalBlocker,
   diagnosisPendingApprovalAuthorities,
   diagnosisApprovalStatus,
 } from "./approval-state";
@@ -19,15 +17,6 @@ const approval: DiagnosisConclusionApproval = {
 };
 
 describe("diagnosis approval state", () => {
-  it("labels approval modes and authorities", () => {
-    expect(diagnosisApprovalModeLabel("single")).toBe("Single operator");
-    expect(diagnosisApprovalModeLabel("owner_and_leader")).toBe(
-      "Owner + leader",
-    );
-    expect(diagnosisApprovalAuthorityLabel("owner")).toBe("Owner");
-    expect(diagnosisApprovalAuthorityLabel("leader")).toBe("Leader");
-  });
-
   it("derives not-started, pending, and satisfied states", () => {
     expect(
       diagnosisApprovalStatus({
@@ -71,7 +60,7 @@ describe("diagnosis approval state", () => {
 
   it("blocks concurrent and duplicate actor approvals", () => {
     expect(
-      diagnosisActorApprovalBlockReason({
+      diagnosisActorApprovalBlocker({
         actorSubject: "iam:leader-1",
         approvalInFlight: true,
         approvals: [],
@@ -79,9 +68,9 @@ describe("diagnosis approval state", () => {
         mode: "owner_and_leader",
         ownerSubject: "iam:owner-1",
       }),
-    ).toBe("Another conclusion approval is in progress.");
+    ).toEqual({ kind: "approval_in_flight" });
     expect(
-      diagnosisActorApprovalBlockReason({
+      diagnosisActorApprovalBlocker({
         actorSubject: " iam:owner-1 ",
         approvalInFlight: false,
         approvals: [approval],
@@ -89,9 +78,9 @@ describe("diagnosis approval state", () => {
         mode: "owner_and_leader",
         ownerSubject: "iam:owner-1",
       }),
-    ).toBe("Current user has already approved this conclusion.");
+    ).toEqual({ kind: "already_approved" });
     expect(
-      diagnosisActorApprovalBlockReason({
+      diagnosisActorApprovalBlocker({
         actorSubject: "iam:leader-1",
         approvalInFlight: false,
         approvals: [approval],
@@ -99,9 +88,9 @@ describe("diagnosis approval state", () => {
         mode: "owner_and_leader",
         ownerSubject: "iam:owner-1",
       }),
-    ).toBe("");
+    ).toBeNull();
     expect(
-      diagnosisActorApprovalBlockReason({
+      diagnosisActorApprovalBlocker({
         actorSubject: "iam:leader-2",
         approvalInFlight: false,
         approvals: [
@@ -115,6 +104,6 @@ describe("diagnosis approval state", () => {
         mode: "owner_and_leader",
         ownerSubject: "iam:owner-1",
       }),
-    ).toBe("Leader approval is already satisfied.");
+    ).toEqual({ authority: "leader", kind: "authority_satisfied" });
   });
 });

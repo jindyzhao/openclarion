@@ -20,8 +20,43 @@ export type DiagnosisWorkflowReadinessStatus =
   | "pending"
   | "ready";
 
+export type DiagnosisWorkflowReadinessDetailKey =
+  | "connectionClosed"
+  | "connectionConnected"
+  | "connectionConnecting"
+  | "connectionError"
+  | "connectionHandshake"
+  | "connectionIdle"
+  | "connectionRoomClosed"
+  | "connectionSelectRoom"
+  | "connectionWorkflowUnavailable"
+  | "conclusionBlockReason"
+  | "conclusionExternal"
+  | "conclusionNotReady"
+  | "conclusionReady"
+  | "conclusionStatus"
+  | "evidenceCollected"
+  | "evidenceFailed"
+  | "evidenceNoInsight"
+  | "evidenceNoRequirements"
+  | "evidenceOpen"
+  | "identityCurrentActor"
+  | "identityRequired"
+  | "permissionsChecking"
+  | "permissionsDenied"
+  | "permissionsDirect"
+  | "permissionsReady"
+  | "permissionsSelectRoom"
+  | "roomError"
+  | "roomLoading"
+  | "roomNotSelected"
+  | "roomReady"
+  | "roomWorkflowUnavailable";
+
 export type DiagnosisWorkflowReadinessItem = {
   detail: string;
+  detailKey: DiagnosisWorkflowReadinessDetailKey;
+  detailValues?: Readonly<Record<string, number | string>>;
   key:
     | "conclusion"
     | "connection"
@@ -31,6 +66,7 @@ export type DiagnosisWorkflowReadinessItem = {
     | "room";
   label: string;
   metric?: string;
+  metricValues?: { collected: number; total: number };
   status: DiagnosisWorkflowReadinessStatus;
 };
 
@@ -102,6 +138,9 @@ export function diagnosisWorkflowReadiness(input: {
         : input.summaryEvidence,
     ),
     diagnosisWorkflowConclusionItem({
+      authorizationBlocked: input.permissionItems.some(
+        (item) => item.action === "approve" && item.status === "denied",
+      ),
       canConfirmConclusion: input.canConfirmConclusion,
       confirmConclusionBlockReason: input.confirmConclusionBlockReason,
       latestInsight: input.latestInsight,
@@ -125,17 +164,6 @@ export function diagnosisWorkflowReadinessReviewQueueSource(input: {
   return "none";
 }
 
-export function diagnosisActionIdentityBlockReason(
-  actorSubject: string | undefined,
-  actionLabel: string,
-): string {
-  const normalizedSubject = actorSubject?.trim() ?? "";
-  if (normalizedSubject !== "") {
-    return "";
-  }
-  return `Authenticate as an operator before ${actionLabel}.`;
-}
-
 function diagnosisWorkflowIdentityItem(
   actorSubject: string | undefined,
 ): DiagnosisWorkflowReadinessItem {
@@ -143,6 +171,7 @@ function diagnosisWorkflowIdentityItem(
   if (normalizedSubject === "") {
     return {
       detail: "Sign in or connect with operator credentials before taking room actions.",
+      detailKey: "identityRequired",
       key: "identity",
       label: "Identity",
       status: "pending",
@@ -150,6 +179,8 @@ function diagnosisWorkflowIdentityItem(
   }
   return {
     detail: `Current actor: ${normalizedSubject}.`,
+    detailKey: "identityCurrentActor",
+    detailValues: { actor: normalizedSubject },
     key: "identity",
     label: "Identity",
     status: "ready",
@@ -166,6 +197,7 @@ function diagnosisWorkflowRoomItem(input: {
   if (sessionID === "") {
     return {
       detail: "No diagnosis room is selected.",
+      detailKey: "roomNotSelected",
       key: "room",
       label: "Room",
       status: "pending",
@@ -174,6 +206,11 @@ function diagnosisWorkflowRoomItem(input: {
   if (input.state?.latest_error) {
     return {
       detail: `${input.state.latest_error.code}: ${input.state.latest_error.message}`,
+      detailKey: "roomError",
+      detailValues: {
+        code: input.state.latest_error.code,
+        message: input.state.latest_error.message,
+      },
       key: "room",
       label: "Room",
       status: "blocked",
@@ -188,6 +225,8 @@ function diagnosisWorkflowRoomItem(input: {
   ) {
     return {
       detail: `Temporal reports workflow status ${input.workflowVisibility?.status ?? "unknown"}; inspect the workflow before continuing this room.`,
+      detailKey: "roomWorkflowUnavailable",
+      detailValues: { status: input.workflowVisibility?.status ?? "unknown" },
       key: "room",
       label: "Room",
       status: "blocked",
@@ -196,6 +235,8 @@ function diagnosisWorkflowRoomItem(input: {
   if (roomStatus.trim() === "") {
     return {
       detail: `Room ${sessionID} is selected; metadata is still loading.`,
+      detailKey: "roomLoading",
+      detailValues: { session: sessionID },
       key: "room",
       label: "Room",
       status: "pending",
@@ -203,6 +244,8 @@ function diagnosisWorkflowRoomItem(input: {
   }
   return {
     detail: `Room ${sessionID} is ${roomStatus}.`,
+    detailKey: "roomReady",
+    detailValues: { session: sessionID, status: roomStatus },
     key: "room",
     label: "Room",
     status: "ready",
@@ -220,6 +263,7 @@ function diagnosisWorkflowConnectionItem(input: {
   if (input.selectedSessionID.trim() === "") {
     return {
       detail: "Select a room before opening a live connection.",
+      detailKey: "connectionSelectRoom",
       key: "connection",
       label: "Connection",
       status: "pending",
@@ -234,6 +278,8 @@ function diagnosisWorkflowConnectionItem(input: {
   ) {
     return {
       detail: `Live conversation cannot continue because Temporal reports workflow status ${input.workflowVisibility?.status ?? "unknown"}.`,
+      detailKey: "connectionWorkflowUnavailable",
+      detailValues: { status: input.workflowVisibility?.status ?? "unknown" },
       key: "connection",
       label: "Connection",
       status: "blocked",
@@ -242,6 +288,7 @@ function diagnosisWorkflowConnectionItem(input: {
   if (input.connected) {
     return {
       detail: "WebSocket is connected for live conversation and state refresh.",
+      detailKey: "connectionConnected",
       key: "connection",
       label: "Connection",
       status: "ready",
@@ -250,6 +297,7 @@ function diagnosisWorkflowConnectionItem(input: {
   if (roomStatus.trim().toLowerCase() === "closed") {
     return {
       detail: "Room is closed; live WebSocket is not required for read-only review.",
+      detailKey: "connectionRoomClosed",
       key: "connection",
       label: "Connection",
       status: "ready",
@@ -260,6 +308,7 @@ function diagnosisWorkflowConnectionItem(input: {
     case "ticketing":
       return {
         detail: "Connection is being established.",
+        detailKey: "connectionConnecting",
         key: "connection",
         label: "Connection",
         status: "pending",
@@ -267,6 +316,7 @@ function diagnosisWorkflowConnectionItem(input: {
     case "closed":
       return {
         detail: "Connection closed; reopen it before sending new evidence or confirmation.",
+        detailKey: "connectionClosed",
         key: "connection",
         label: "Connection",
         status: "attention",
@@ -274,6 +324,7 @@ function diagnosisWorkflowConnectionItem(input: {
     case "error":
       return {
         detail: "Connection failed; reconnect before continuing the live review.",
+        detailKey: "connectionError",
         key: "connection",
         label: "Connection",
         status: "blocked",
@@ -281,6 +332,7 @@ function diagnosisWorkflowConnectionItem(input: {
     case "connected":
       return {
         detail: "Connection handshake completed but the browser socket is not open.",
+        detailKey: "connectionHandshake",
         key: "connection",
         label: "Connection",
         status: "attention",
@@ -288,6 +340,7 @@ function diagnosisWorkflowConnectionItem(input: {
     case "idle":
       return {
         detail: "Open a connection to continue live diagnosis.",
+        detailKey: "connectionIdle",
         key: "connection",
         label: "Connection",
         status: "pending",
@@ -302,6 +355,7 @@ function diagnosisWorkflowPermissionItem(
   if (scopedItems.some((item) => item.status === "denied")) {
     return {
       detail: "At least one selected-room action is denied for the current actor.",
+      detailKey: "permissionsDenied",
       key: "permissions",
       label: "Permissions",
       status: "blocked",
@@ -310,6 +364,7 @@ function diagnosisWorkflowPermissionItem(
   if (permissionItems.some((item) => item.status === "checking")) {
     return {
       detail: "RBAC decisions are still being checked.",
+      detailKey: "permissionsChecking",
       key: "permissions",
       label: "Permissions",
       status: "pending",
@@ -318,6 +373,7 @@ function diagnosisWorkflowPermissionItem(
   if (scopedItems.every((item) => item.status === "not-selected")) {
     return {
       detail: "Select a room to evaluate scoped room permissions.",
+      detailKey: "permissionsSelectRoom",
       key: "permissions",
       label: "Permissions",
       status: "pending",
@@ -326,6 +382,7 @@ function diagnosisWorkflowPermissionItem(
   if (permissionItems.every((item) => item.status === "not-enforced")) {
     return {
       detail: "Direct credential flow is active; local RBAC is not enforced.",
+      detailKey: "permissionsDirect",
       key: "permissions",
       label: "Permissions",
       status: "ready",
@@ -333,6 +390,7 @@ function diagnosisWorkflowPermissionItem(
   }
   return {
     detail: "Required selected-room actions are available to the current actor.",
+    detailKey: "permissionsReady",
     key: "permissions",
     label: "Permissions",
     status: "ready",
@@ -345,6 +403,7 @@ function diagnosisWorkflowEvidenceItem(
   if (!evidence) {
     return {
       detail: "No AI consultation insight has been retained for the selected room.",
+      detailKey: "evidenceNoInsight",
       key: "evidence",
       label: "Evidence",
       status: "pending",
@@ -372,35 +431,61 @@ function diagnosisWorkflowEvidenceItem(
   if (failedResults > 0) {
     return {
       detail: `${failedResults} evidence collection result(s) need operator attention.`,
+      detailKey: "evidenceFailed",
+      detailValues: { count: failedResults },
       key: "evidence",
       label: "Evidence",
       metric,
+      metricValues: {
+        collected: collectedResults,
+        total: evidence.collectionResults.length,
+      },
       status: "blocked",
     };
   }
   if (pendingPlans > 0 || missingRequests > 0 || suggestions > 0) {
     return {
       detail: `${pendingPlans} executable plan(s), ${missingRequests} missing request(s), and ${suggestions} suggestion(s) remain open.`,
+      detailKey: "evidenceOpen",
+      detailValues: {
+        missing: missingRequests,
+        plans: pendingPlans,
+        suggestions,
+      },
       key: "evidence",
       label: "Evidence",
       metric,
+      metricValues: {
+        collected: collectedResults,
+        total: evidence.collectionResults.length,
+      },
       status: "attention",
     };
   }
   if (collectedResults > 0 || supplemental > 0) {
     return {
       detail: "Evidence has been collected or supplied for AI review.",
+      detailKey: "evidenceCollected",
       key: "evidence",
       label: "Evidence",
       metric,
+      metricValues: {
+        collected: collectedResults,
+        total: evidence.collectionResults.length,
+      },
       status: "ready",
     };
   }
   return {
     detail: "AI did not retain additional evidence requirements for this insight.",
+    detailKey: "evidenceNoRequirements",
     key: "evidence",
     label: "Evidence",
     metric,
+    metricValues: {
+      collected: collectedResults,
+      total: evidence.collectionResults.length,
+    },
     status: "ready",
   };
 }
@@ -420,6 +505,7 @@ function diagnosisWorkflowEvidenceFromLatestInsight(
 }
 
 function diagnosisWorkflowConclusionItem(input: {
+  authorizationBlocked: boolean;
   canConfirmConclusion: boolean;
   confirmConclusionBlockReason: string;
   latestInsight?: DiagnosisWorkflowReadinessLatestInsight | null;
@@ -436,6 +522,7 @@ function diagnosisWorkflowConclusionItem(input: {
   if (traceability.status === "complete") {
     return {
       detail: traceability.detail,
+      detailKey: "conclusionExternal",
       key: "conclusion",
       label: "Conclusion",
       status: "ready",
@@ -444,6 +531,7 @@ function diagnosisWorkflowConclusionItem(input: {
   if (traceability.status === "blocked") {
     return {
       detail: traceability.detail,
+      detailKey: "conclusionExternal",
       key: "conclusion",
       label: "Conclusion",
       status: "blocked",
@@ -452,6 +540,7 @@ function diagnosisWorkflowConclusionItem(input: {
   if (input.canConfirmConclusion) {
     return {
       detail: "AI conclusion is ready for operator confirmation.",
+      detailKey: "conclusionReady",
       key: "conclusion",
       label: "Conclusion",
       status: "ready",
@@ -463,6 +552,7 @@ function diagnosisWorkflowConclusionItem(input: {
   ) {
     return {
       detail: traceability.detail,
+      detailKey: "conclusionExternal",
       key: "conclusion",
       label: "Conclusion",
       status: "attention",
@@ -474,6 +564,7 @@ function diagnosisWorkflowConclusionItem(input: {
   ) {
     return {
       detail: traceability.detail,
+      detailKey: "conclusionExternal",
       key: "conclusion",
       label: "Conclusion",
       status: "pending",
@@ -484,18 +575,16 @@ function diagnosisWorkflowConclusionItem(input: {
   if (input.confirmConclusionBlockReason !== "") {
     return {
       detail: input.confirmConclusionBlockReason,
+      detailKey: "conclusionBlockReason",
       key: "conclusion",
       label: "Conclusion",
-      status: conclusionBlockReasonIsAuthorization(
-        input.confirmConclusionBlockReason,
-      )
-        ? "blocked"
-        : "pending",
+      status: input.authorizationBlocked ? "blocked" : "pending",
     };
   }
   if (conclusionStatus === "") {
     return {
       detail: "AI has not produced a reviewable conclusion yet.",
+      detailKey: "conclusionNotReady",
       key: "conclusion",
       label: "Conclusion",
       status: "pending",
@@ -503,6 +592,8 @@ function diagnosisWorkflowConclusionItem(input: {
   }
   return {
     detail: `Latest conclusion status is ${conclusionStatus}.`,
+    detailKey: "conclusionStatus",
+    detailValues: { status: conclusionStatus },
     key: "conclusion",
     label: "Conclusion",
     status: "pending",
@@ -573,11 +664,4 @@ function evidenceRequestsMatch(
 
 function normalizedValue(value: string | undefined): string {
   return value?.trim().toLowerCase() ?? "";
-}
-
-function conclusionBlockReasonIsAuthorization(reason: string): boolean {
-  const normalized = reason.toLowerCase();
-  return (
-    normalized.includes("not authorized") || normalized.includes("permission")
-  );
 }

@@ -23,7 +23,11 @@ export type DiagnosisFinalConclusionRetentionState = {
 
 export type DiagnosisFinalConclusionReviewItem = {
   detail: string;
-  key: string;
+  key:
+    | "conclusion-available"
+    | "confidence-rationale"
+    | "evidence-gaps"
+    | "retention";
   status: "attention" | "done" | "ready" | "residual";
   title: string;
 };
@@ -40,6 +44,7 @@ export type DiagnosisFinalConclusionConfidenceProgress = {
   finalConfidence: string;
   initialConfidence: string;
   label: string;
+  rationale: string;
   status: "declined" | "improved" | "stable" | "unknown";
 };
 
@@ -52,6 +57,19 @@ export type DiagnosisFinalConclusionTraceabilityStatus = {
   reviewResidualCount: number;
   status: "complete" | "review" | "blocked" | "pending";
 };
+
+export type DiagnosisFinalConclusionTraceabilityResult =
+  DiagnosisFinalConclusionTraceabilityStatus & {
+    kind:
+    | "conclusion_pending"
+    | "conclusion_review"
+    | "retained_blockers"
+    | "delivery_unchecked"
+    | "complete"
+    | "delivery_blocked"
+    | "delivery_incomplete"
+    | "delivery_not_started";
+  };
 
 export type DiagnosisFinalConclusionTraceabilityInput = {
   conclusion: DiagnosisFinalConclusionDisplayInput;
@@ -66,26 +84,11 @@ type EvidenceGapSummaryKind =
   | "Missing"
   | "Suggestion";
 
-const sourceLabels: Record<string, string> = {
-  latest_assistant_turn: "Latest assistant turn",
-  none: "No assistant conclusion",
-};
-
 const reasonLabels: Record<string, string> = {
   assistant_marked_final: "AI marked final",
   assistant_marked_ready_for_review: "AI marked ready for review",
   room_closed_without_assistant_turn: "Room closed without assistant turn",
 };
-
-export function diagnosisFinalConclusionSourceLabel(
-  source: string | null | undefined,
-): string | undefined {
-  const normalized = normalizeEnumValue(source);
-  if (normalized === "") {
-    return undefined;
-  }
-  return sourceLabels[normalized] ?? humanizeEnumValue(normalized);
-}
 
 export function diagnosisFinalConclusionReasonLabel(
   reason: string | null | undefined,
@@ -95,39 +98,6 @@ export function diagnosisFinalConclusionReasonLabel(
     return undefined;
   }
   return reasonLabels[normalized] ?? humanizeEnumValue(normalized);
-}
-
-export function diagnosisFinalConclusionStatusLabel(
-  conclusion: DiagnosisFinalConclusionDisplayInput,
-): string {
-  if (!conclusion) {
-    return "-";
-  }
-  const status = normalizeEnumValue(conclusion.status);
-  if (status === "") {
-    return "-";
-  }
-  if (status === "available") {
-    const confidence = normalizeEnumValue(conclusion.confidence);
-    return confidence === "" ? "available" : `available (${confidence})`;
-  }
-  return humanizeEnumValue(status);
-}
-
-export function diagnosisFinalConclusionText(
-  conclusion: DiagnosisFinalConclusionDisplayInput,
-): string {
-  if (!conclusion) {
-    return "";
-  }
-  const content = conclusion.content?.trim();
-  if (content) {
-    return content;
-  }
-  return (
-    diagnosisFinalConclusionReasonLabel(conclusion.reason) ??
-    diagnosisFinalConclusionStatusLabel(conclusion)
-  );
 }
 
 export function diagnosisFinalConclusionRetentionState(
@@ -365,6 +335,7 @@ export function diagnosisFinalConclusionConfidenceProgress(
       finalConfidence: finalConfidence || "unknown",
       initialConfidence: initialConfidence || "unknown",
       label: "Confidence progress unavailable",
+      rationale: "",
       status: "unknown",
     };
   }
@@ -383,6 +354,7 @@ export function diagnosisFinalConclusionConfidenceProgress(
       finalConfidence,
       initialConfidence,
       label: "Confidence progress recorded",
+      rationale: latestRationale,
       status: "unknown",
     };
   }
@@ -392,6 +364,7 @@ export function diagnosisFinalConclusionConfidenceProgress(
       finalConfidence,
       initialConfidence,
       label: "Confidence improved",
+      rationale: latestRationale,
       status: "improved",
     };
   }
@@ -401,6 +374,7 @@ export function diagnosisFinalConclusionConfidenceProgress(
       finalConfidence,
       initialConfidence,
       label: "Confidence declined",
+      rationale: latestRationale,
       status: "declined",
     };
   }
@@ -409,6 +383,7 @@ export function diagnosisFinalConclusionConfidenceProgress(
     finalConfidence,
     initialConfidence,
     label: "Confidence stable",
+    rationale: latestRationale,
     status: "stable",
   };
 }
@@ -416,7 +391,7 @@ export function diagnosisFinalConclusionConfidenceProgress(
 export function diagnosisFinalConclusionTraceabilityStatus({
   conclusion,
   notificationDelivery,
-}: DiagnosisFinalConclusionTraceabilityInput): DiagnosisFinalConclusionTraceabilityStatus {
+}: DiagnosisFinalConclusionTraceabilityInput): DiagnosisFinalConclusionTraceabilityResult {
   const retention = diagnosisFinalConclusionRetentionState(conclusion);
   const reviewItems = diagnosisFinalConclusionReviewItems(conclusion);
   const reviewOpenCount = reviewItems.filter(
@@ -433,6 +408,7 @@ export function diagnosisFinalConclusionTraceabilityStatus({
       color: "default",
       detail:
         "Wait for AI to retain a reviewable final conclusion before checking operator confirmation and notification delivery proof.",
+      kind: "conclusion_pending",
       label: "Closure traceability pending",
       notificationLabel,
       reviewOpenCount,
@@ -445,6 +421,7 @@ export function diagnosisFinalConclusionTraceabilityStatus({
     return {
       color: "warning",
       detail: `${retention.detail} ${reviewOpenCount} blocking review item(s) are still open before closure can be accepted.`,
+      kind: "conclusion_review",
       label: "Closure traceability needs review",
       notificationLabel,
       reviewOpenCount,
@@ -457,6 +434,7 @@ export function diagnosisFinalConclusionTraceabilityStatus({
     return {
       color: "warning",
       detail: `Operator-confirmed conclusion is retained, but ${reviewOpenCount} blocking review item(s) are still open in the retained output.`,
+      kind: "retained_blockers",
       label: "Retained with blockers",
       notificationLabel,
       reviewOpenCount,
@@ -470,6 +448,7 @@ export function diagnosisFinalConclusionTraceabilityStatus({
       color: "default",
       detail:
         "Operator-confirmed conclusion is retained; load the notification timeline to verify AI delivery proof.",
+      kind: "delivery_unchecked",
       label: "Closure delivery proof pending",
       notificationLabel,
       reviewOpenCount,
@@ -486,6 +465,7 @@ export function diagnosisFinalConclusionTraceabilityStatus({
     return {
       color: "success",
       detail: `Operator-confirmed conclusion is retained, ${residualDetail}, and Enterprise WeChat AI delivery proof covers all required phases.`,
+      kind: "complete",
       label: "Closure traceability complete",
       notificationLabel,
       reviewOpenCount,
@@ -498,6 +478,7 @@ export function diagnosisFinalConclusionTraceabilityStatus({
     return {
       color: "error",
       detail: `Operator-confirmed conclusion is retained, but AI delivery proof is blocked: ${notificationDelivery.detail}`,
+      kind: "delivery_blocked",
       label: "Closure traceability blocked",
       notificationLabel,
       reviewOpenCount,
@@ -510,6 +491,7 @@ export function diagnosisFinalConclusionTraceabilityStatus({
     return {
       color: "warning",
       detail: `Operator-confirmed conclusion is retained, but AI delivery proof is incomplete: ${notificationDelivery.detail}`,
+      kind: "delivery_incomplete",
       label: "Closure delivery proof incomplete",
       notificationLabel,
       reviewOpenCount,
@@ -521,6 +503,7 @@ export function diagnosisFinalConclusionTraceabilityStatus({
   return {
     color: "default",
     detail: `Operator-confirmed conclusion is retained; AI delivery proof has not started (${notificationDelivery.readyCount} of ${notificationDelivery.requiredCount} phase(s) complete).`,
+    kind: "delivery_not_started",
     label: "Closure delivery proof pending",
     notificationLabel,
     reviewOpenCount,

@@ -42,8 +42,6 @@ export type DiagnosisCollaborationIdentityCoverage = {
   syncedParticipants: number;
   inactiveParticipants: number;
   unsyncedParticipants: number;
-  summary: string;
-  detail: string;
 };
 
 export type DiagnosisCollaborationDirectoryUser = NonNullable<
@@ -151,25 +149,6 @@ export function diagnosisCollaborationParticipantsFromSummary(
         participant !== null,
     )
     .sort(collaborationParticipantSort);
-}
-
-export function diagnosisCollaborationRoleLabel(
-  role: DiagnosisCollaborationParticipantRole,
-): string {
-  switch (role) {
-    case "assistant":
-      return "AI";
-    case "confirmation":
-      return "confirmed";
-    case "evidence":
-      return "evidence";
-    case "message":
-      return "message";
-    case "owner":
-      return "owner";
-    case "supplemental_evidence":
-      return "supplemental";
-  }
 }
 
 export function diagnosisCollaborationDirectoryIndex(
@@ -322,14 +301,6 @@ export function diagnosisCollaborationIdentityCoverage(
     syncedParticipants,
     inactiveParticipants,
     unsyncedParticipants,
-    summary: diagnosisCollaborationIdentityCoverageSummary({
-      humanParticipants,
-      inactiveParticipants,
-      syncedParticipants,
-      systemActors,
-      unsyncedParticipants,
-    }),
-    detail: diagnosisCollaborationIdentityCoverageDetail(status),
   };
 }
 
@@ -488,55 +459,6 @@ function isSystemSubject(subject: string): boolean {
     subject.startsWith("openclarion:") ||
     subject.startsWith("openclarion.")
   );
-}
-
-function diagnosisCollaborationIdentityCoverageSummary({
-  humanParticipants,
-  inactiveParticipants,
-  syncedParticipants,
-  systemActors,
-  unsyncedParticipants,
-}: Pick<
-  DiagnosisCollaborationIdentityCoverage,
-  | "humanParticipants"
-  | "inactiveParticipants"
-  | "syncedParticipants"
-  | "systemActors"
-  | "unsyncedParticipants"
->): string {
-  if (humanParticipants === 0) {
-    return `${systemActors} system ${systemActors === 1 ? "actor" : "actors"}, no human participants`;
-  }
-  const parts = [
-    `${syncedParticipants}/${humanParticipants} active directory matches`,
-  ];
-  if (unsyncedParticipants > 0) {
-    parts.push(`${unsyncedParticipants} not synced`);
-  }
-  if (inactiveParticipants > 0) {
-    parts.push(
-      `${inactiveParticipants} inactive ${inactiveParticipants === 1 ? "profile" : "profiles"}`,
-    );
-  }
-  if (systemActors > 0) {
-    parts.push(
-      `${systemActors} system ${systemActors === 1 ? "actor" : "actors"}`,
-    );
-  }
-  return parts.join(", ");
-}
-
-function diagnosisCollaborationIdentityCoverageDetail(
-  status: DiagnosisCollaborationIdentityCoverageStatus,
-): string {
-  switch (status) {
-    case "empty":
-      return "Only OpenClarion-owned actors are present. Human identity attribution starts after an operator participates.";
-    case "ready":
-      return "Every human participant is backed by an active local directory projection.";
-    case "review":
-      return "Review local directory sync before relying on this room for multi-operator attribution.";
-  }
 }
 
 function firstNonEmpty(...values: string[]): string {

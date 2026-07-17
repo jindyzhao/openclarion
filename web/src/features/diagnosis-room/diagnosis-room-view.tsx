@@ -110,11 +110,13 @@ import {
 import { DiagnosisAuthModeSelector } from "./auth-mode-selector";
 import { DiagnosisAuditTimelineSection } from "./audit-timeline";
 import {
-  diagnosisActorApprovalBlockReason,
-  diagnosisApprovalModeLabel,
   diagnosisPendingApprovalAuthorities,
   diagnosisApprovalStatus,
 } from "./approval-state";
+import {
+  localizeDiagnosisActorApprovalBlockReason,
+  type DiagnosisApprovalTranslator,
+} from "./approval-copy";
 import {
   diagnosisConnectionTargetSessionID,
   diagnosisReconnectDecision,
@@ -125,6 +127,13 @@ import {
   type DiagnosisConsultationConclusionLifecycleStatus,
 } from "./consultation-progress";
 import {
+  localizeDiagnosisCollectionProgressSummary,
+  localizeDiagnosisConsultationLifecycle,
+  localizeDiagnosisConsultationReassessment,
+  localizeDiagnosisSupplementalEvidenceSummary,
+  type DiagnosisConsultationProgressTranslator,
+} from "./consultation-progress-copy";
+import {
   diagnosisCollaborationActorProfile,
   diagnosisCollaborationDirectoryIndex,
   diagnosisCollaborationDirectoryUsersFromDirectoryUsers,
@@ -133,12 +142,12 @@ import {
   diagnosisCollaborationParticipantProfile,
   diagnosisCollaborationParticipants,
   diagnosisCollaborationParticipantsFromSummary,
-  diagnosisCollaborationRoleLabel,
   diagnosisCollaborationSubjectIsSystem,
   type DiagnosisCollaborationDirectoryUser,
   type DiagnosisCollaborationParticipant,
   type DiagnosisCollaborationParticipantRole,
 } from "./collaboration";
+import { localizeDiagnosisCollaborationIdentityCoverage } from "./collaboration-copy";
 import {
   diagnosisEvidencePlanIdentity,
   diagnosisEvidencePlanSearchParam,
@@ -147,10 +156,17 @@ import {
   diagnosisFinalConclusionConfidenceProgress,
   diagnosisFinalConclusionReviewItems,
   diagnosisFinalConclusionRetentionState,
-  diagnosisFinalConclusionStatusLabel,
-  diagnosisFinalConclusionText,
   diagnosisFinalConclusionTraceabilityStatus,
 } from "./final-conclusion";
+import {
+  localizeFinalConclusionConfidenceProgress,
+  localizeFinalConclusionRetention,
+  localizeFinalConclusionReviewItems,
+  localizeFinalConclusionReviewStatus,
+  localizeFinalConclusionText,
+  localizeFinalConclusionTraceability,
+  type FinalConclusionTranslator,
+} from "./final-conclusion-copy";
 import {
   diagnosisHandoffListLimit,
   diagnosisHandoffListQueryKey,
@@ -189,10 +205,8 @@ import {
   diagnosisTurnResultTranscript,
   type DiagnosisTranscriptTurn,
 } from "./transcript";
-import {
-  diagnosisServerErrorDisplay,
-  type DiagnosisServerError,
-} from "./server-error";
+import { localizeDiagnosisServerErrorDisplay } from "./server-error-copy";
+import type { DiagnosisServerError } from "./server-error";
 import {
   latestDiagnosisFollowUpTurn,
   latestDiagnosisTurnCount,
@@ -208,12 +222,12 @@ import {
   refreshDiagnosisRooms,
 } from "./client-api";
 import {
-  diagnosisNotificationChannelCreateBlockReason,
-  diagnosisNotificationChannelOptions,
-  diagnosisNotificationChannelProofSummary,
-  diagnosisNotificationChannelSelectionError,
-  diagnosisNotificationChannelSetupAction,
-} from "./notification-channel-options";
+  localizeDiagnosisNotificationChannelCreateBlockReason,
+  localizeDiagnosisNotificationChannelOptions,
+  localizeDiagnosisNotificationChannelProofSummary,
+  localizeDiagnosisNotificationChannelSelectionError,
+  localizeDiagnosisNotificationChannelSetupAction,
+} from "./notification-channel-copy";
 import {
   diagnosisNotificationContentProofRetryEntry,
   diagnosisNotificationContentProofDisplay,
@@ -222,11 +236,18 @@ import {
   diagnosisNotificationDeliveryCoverage,
   diagnosisNotificationDeliveryCoveragePhaseColor,
   diagnosisNotificationDeliveryProofExpected,
-  diagnosisNotificationDeliveryRecoveryHint,
   diagnosisNotificationTimelineReviewActionRequired,
   diagnosisNotificationTimelineAnchorID,
   diagnosisNotificationTimelineHref,
 } from "./notification-content-proof";
+import {
+  localizeDiagnosisNotificationContentProof,
+  localizeDiagnosisNotificationContentProofSummary,
+  localizeDiagnosisNotificationDeliveryCoverage,
+  localizeDiagnosisNotificationEvent,
+  localizeDiagnosisNotificationRecoveryHint,
+  type DiagnosisNotificationTranslator,
+} from "./notification-copy";
 import type {
   DiagnosisHandoffListResponse,
   DiagnosisRoomListResponse,
@@ -236,10 +257,8 @@ import type {
 import {
   diagnosisReviewQueueActionGate,
   diagnosisReviewQueueActionPlan,
-  diagnosisReviewQueueBlockingReason,
   diagnosisReviewQueueConnectionGateAllowsPreparation,
   diagnosisReviewQueueItems,
-  diagnosisReviewQueueNextAction,
   diagnosisReviewQueuePostEvidenceStatus,
   diagnosisReviewQueueReassessmentInput,
   diagnosisReviewQueueSummary,
@@ -251,6 +270,18 @@ import {
   type DiagnosisReviewQueuePostEvidenceStatus,
   type DiagnosisReviewQueueTaskPhaseAction,
 } from "./review-queue";
+import {
+  localizeDiagnosisReviewQueueActionGate,
+  localizeDiagnosisReviewQueueActionPlan,
+  localizeDiagnosisReviewQueueBlocker,
+  localizeDiagnosisReviewQueueItem,
+  localizeDiagnosisReviewQueueNextAction,
+  localizeDiagnosisReviewQueuePostEvidenceStatus,
+  localizeDiagnosisReviewQueueSummary,
+  localizeDiagnosisReviewQueueTaskProgress,
+  localizeReviewQueueStatus,
+  type DiagnosisReviewQueueTranslator,
+} from "./review-queue-copy";
 import { diagnosisRoomSummaryReviewQueueInput } from "./rest-review-queue";
 import {
   diagnosisRoomNextStep,
@@ -259,20 +290,26 @@ import {
   filterDiagnosisRoomsByQueue,
   type DiagnosisRoomQueueFilter,
 } from "./next-step";
+import { localizeDiagnosisRoomNextStep } from "./next-step-copy";
+import {
+  localizeDiagnosisRoomStatus,
+  type DiagnosisRoomStatusTranslator,
+} from "./status-copy";
 import {
   operatorEvidenceRangeValues,
   operatorEvidenceTemplateHasParameterizedQuery,
   operatorEvidenceTemplateQuery,
-  operatorEvidenceTemplateSourceDisabledReason,
   type OperatorEvidenceRangeField,
 } from "./operator-evidence";
 import {
   supplementalEvidencePriorityFromText,
-  supplementalEvidenceReassessmentMessage,
-  supplementalEvidenceResidualBoundaryTemplate,
-  supplementalEvidenceSubmissionMessage,
   supplementalEvidenceWirePayload,
 } from "./supplemental-evidence";
+import {
+  localizeSupplementalEvidenceReassessmentMessage,
+  localizeSupplementalEvidenceResidualBoundaryTemplate,
+  localizeSupplementalEvidenceSubmissionMessage,
+} from "./supplemental-evidence-copy";
 import { diagnosisReportReturnHref } from "./report-return";
 import {
   canCreateDiagnosisRoomByRBAC,
@@ -280,12 +317,14 @@ import {
   diagnosisRoomApproveAuthorizationKey,
   diagnosisRoomParticipateAuthorizationKey,
   diagnosisRoomRBACAuthorizationChecks,
-  diagnosisRoomRBACBlockReason,
   diagnosisRoomRBACPermissionItems,
   diagnosisRoomReadAuthorizationKey,
   type DiagnosisRoomRBACPermissionItem,
   type DiagnosisRoomRBACPermissionStatus,
 } from "./rbac-capabilities";
+import {
+  localizeDiagnosisRoomRBACBlockReason,
+} from "./rbac-copy";
 import { diagnosisOIDCLoginHref } from "./oidc-login";
 import { diagnosisCloseRoomBlockReason } from "./room-close";
 import {
@@ -300,12 +339,15 @@ import {
   type DiagnosisRoomWeComLaunchContext,
 } from "./url-state";
 import {
-  diagnosisActionIdentityBlockReason,
   diagnosisWorkflowReadiness,
   diagnosisWorkflowReadinessReviewQueueSource,
   type DiagnosisWorkflowReadinessItem,
   type DiagnosisWorkflowReadinessStatus,
 } from "./workflow-readiness";
+import {
+  localizeDiagnosisWorkflowReadinessItem,
+  localizeDiagnosisWorkflowReadinessStatus,
+} from "./workflow-readiness-copy";
 import type {
   DiagnosisActiveAlert,
   DiagnosisApprovalAuthority,
@@ -333,6 +375,9 @@ type AuthCheckContext = "create" | "connection";
 type AuthCheckRevisions = Record<AuthCheckContext, number>;
 type DiagnosisWorkspaceTranslator = ReturnType<
   typeof useTranslations<"DiagnosisRoom.workspace">
+>;
+type DiagnosisAuthErrorTranslator = ReturnType<
+  typeof useTranslations<"DiagnosisRoom.authError">
 >;
 
 type AuthCheckResult = DiagnosisAuthBackendCheck & {
@@ -1139,10 +1184,24 @@ export function DiagnosisRoomView({
   recentRoomsResult,
 }: DiagnosisRoomViewProps) {
   const { message, modal } = AntdApp.useApp();
-  const locale = useLocale();
   const diagnosisRoomT = useTranslations("DiagnosisRoom");
+  const approvalT = useTranslations("DiagnosisRoom.approval");
+  const authErrorT = useTranslations("DiagnosisRoom.authError");
   const t = useTranslations("DiagnosisRoom.workspace");
+  const finalT = useTranslations("DiagnosisRoom.finalConclusion");
+  const notificationChannelT = useTranslations(
+    "DiagnosisRoom.notificationChannel",
+  );
+  const notificationT = useTranslations("DiagnosisRoom.notification");
+  const reviewT = useTranslations("DiagnosisRoom.reviewQueue");
+  const rbacT = useTranslations("DiagnosisRoom.rbac");
+  const serverErrorT = useTranslations("DiagnosisRoom.serverError");
+  const statusT = useTranslations("DiagnosisRoom.status");
+  const supplementalEvidenceT = useTranslations(
+    "DiagnosisRoom.supplementalEvidencePrompt",
+  );
   const authT = useTranslations("DiagnosisAuth");
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const router = useRouter();
@@ -1277,7 +1336,12 @@ export function DiagnosisRoomView({
     });
   const [workQueueFilter, setWorkQueueFilter] =
     useState<DiagnosisWorkQueueFilter>("all");
-  const pageContext = diagnosisPageContext(searchParams, alertContext);
+  const pageContext = diagnosisPageContext(
+    searchParams,
+    t,
+    statusT,
+    alertContext,
+  );
   const hasWeComAuthErrorParam = searchParams.has("wecom_auth_error");
   const weComAuthErrorSource = hasWeComAuthErrorParam
     ? searchParams.toString()
@@ -1296,7 +1360,7 @@ export function DiagnosisRoomView({
   const weComAuthErrorDetail =
     visibleWeComAuthError === null
       ? null
-      : diagnosisWeComAuthErrorDetail(visibleWeComAuthError);
+      : diagnosisWeComAuthErrorDetail(visibleWeComAuthError, authErrorT);
   const hasOIDCAuthErrorParam = searchParams.has("oidc_auth_error");
   const oidcAuthErrorSource = hasOIDCAuthErrorParam
     ? searchParams.toString()
@@ -1315,7 +1379,7 @@ export function DiagnosisRoomView({
   const oidcAuthErrorDetail =
     visibleOIDCAuthError === null
       ? null
-      : diagnosisOIDCAuthErrorDetail(visibleOIDCAuthError);
+      : diagnosisOIDCAuthErrorDetail(visibleOIDCAuthError, authErrorT);
   const [connectionSessionID, setConnectionSessionID] = useState<string | null>(
     null,
   );
@@ -1432,40 +1496,40 @@ export function DiagnosisRoomView({
       diagnosisRoomAuthorization.can(
         diagnosisRoomAdministerAuthorizationKey(selectedSessionID.trim()),
       ));
-  const createRBACBlockReason = diagnosisRoomRBACBlockReason({
+  const createRBACBlockReason = localizeDiagnosisRoomRBACBlockReason({
     action: "create",
     allowed: canCreateDiagnosisRoom,
     checking: diagnosisRoomAuthorizationChecking,
     enforced: diagnosisRoomAuthorizationEnforced,
-  });
-  const selectedParticipateRBACBlockReason = diagnosisRoomRBACBlockReason({
+  }, rbacT);
+  const selectedParticipateRBACBlockReason = localizeDiagnosisRoomRBACBlockReason({
     action: "participate",
     allowed: canParticipateSelectedRoomByRBAC,
     checking: diagnosisRoomAuthorizationChecking,
     enforced:
       diagnosisRoomAuthorizationEnforced && selectedSessionID.trim() !== "",
-  });
-  const selectedReadRBACBlockReason = diagnosisRoomRBACBlockReason({
+  }, rbacT);
+  const selectedReadRBACBlockReason = localizeDiagnosisRoomRBACBlockReason({
     action: "read",
     allowed: canReadSelectedRoomByRBAC,
     checking: diagnosisRoomAuthorizationChecking,
     enforced:
       diagnosisRoomAuthorizationEnforced && selectedSessionID.trim() !== "",
-  });
-  const selectedApproveRBACBlockReason = diagnosisRoomRBACBlockReason({
+  }, rbacT);
+  const selectedApproveRBACBlockReason = localizeDiagnosisRoomRBACBlockReason({
     action: "approve",
     allowed: canApproveSelectedRoomByRBAC,
     checking: diagnosisRoomAuthorizationChecking,
     enforced:
       diagnosisRoomAuthorizationEnforced && selectedSessionID.trim() !== "",
-  });
-  const selectedAdministerRBACBlockReason = diagnosisRoomRBACBlockReason({
+  }, rbacT);
+  const selectedAdministerRBACBlockReason = localizeDiagnosisRoomRBACBlockReason({
     action: "administer",
     allowed: canAdministerSelectedRoomByRBAC,
     checking: diagnosisRoomAuthorizationChecking,
     enforced:
       diagnosisRoomAuthorizationEnforced && selectedSessionID.trim() !== "",
-  });
+  }, rbacT);
   const canAdministerDiagnosisRoom = useCallback(
     (sessionID: string) =>
       !diagnosisRoomAuthorizationEnforced ||
@@ -1476,16 +1540,17 @@ export function DiagnosisRoomView({
   );
   const diagnosisRoomAdministerBlockReason = useCallback(
     (sessionID: string) =>
-      diagnosisRoomRBACBlockReason({
+      localizeDiagnosisRoomRBACBlockReason({
         action: "administer",
         allowed: canAdministerDiagnosisRoom(sessionID),
         checking: diagnosisRoomAuthorizationChecking,
         enforced: diagnosisRoomAuthorizationEnforced,
-      }),
+      }, rbacT),
     [
       canAdministerDiagnosisRoom,
       diagnosisRoomAuthorizationChecking,
       diagnosisRoomAuthorizationEnforced,
+      rbacT,
     ],
   );
   const operatorEvidenceTemplates = useMemo(
@@ -1497,16 +1562,24 @@ export function DiagnosisRoomView({
     [notificationChannelsQuery.data],
   );
   const notificationChannelOptions = useMemo(
-    () => diagnosisNotificationChannelOptions(notificationChannels),
-    [notificationChannels],
+    () =>
+      localizeDiagnosisNotificationChannelOptions(
+        notificationChannels,
+        locale,
+        notificationChannelT,
+      ),
+    [locale, notificationChannelT, notificationChannels],
   );
   const notificationChannelSetupAction = useMemo(
     () =>
-      diagnosisNotificationChannelSetupAction({
-        channels: notificationChannels,
-        failedToLoad: notificationChannelsQuery.data?.ok === false,
-      }),
-    [notificationChannels, notificationChannelsQuery.data],
+      localizeDiagnosisNotificationChannelSetupAction(
+        {
+          channels: notificationChannels,
+          failedToLoad: notificationChannelsQuery.data?.ok === false,
+        },
+        notificationChannelT,
+      ),
+    [notificationChannelT, notificationChannels, notificationChannelsQuery.data],
   );
   const authBackendStatusSnapshot = useMemo(
     () => diagnosisAuthBackendStatusSnapshot(diagnosisAuthStatusQuery.data),
@@ -1736,15 +1809,15 @@ export function DiagnosisRoomView({
       void queryClient.invalidateQueries({
         queryKey: diagnosisRoomBrowserSessionQueryKey,
       });
-      message.success("OpenClarion browser session cleared.");
+      message.success(t("browserSessionCleared"));
     },
     onError: (error) => {
-      const errorMessage = diagnosisActionErrorMessage(error);
+      const errorMessage = diagnosisActionErrorMessage(error, t);
       pushLog(
         "error",
-        `Failed to clear OpenClarion browser session: ${errorMessage}`,
+        t("browserSessionClearFailedDetail", { error: errorMessage }),
       );
-      message.error("Failed to clear OpenClarion browser session.");
+      message.error(t("browserSessionClearFailed"));
     },
   });
 
@@ -1896,6 +1969,7 @@ export function DiagnosisRoomView({
     closeInFlight: closeRequestInFlight,
     connected,
     rbacBlockReason: selectedParticipateRBACBlockReason,
+    t,
     turnInFlight,
   });
 
@@ -1942,7 +2016,7 @@ export function DiagnosisRoomView({
     authCheckContext === "connection" && authMutationPending;
   const connectDisabledReason =
     selectedRoomSummary?.room_status === "closed"
-      ? "Closed diagnosis rooms are read-only. Review the retained conclusion or create a replacement room from the evidence snapshot."
+      ? t("closedRoomReadOnly")
       : "";
   const createAuthValues = diagnosisAuthInputValuesFromWatchedFields({
     authMode: watchedCreateAuthMode,
@@ -1993,21 +2067,28 @@ export function DiagnosisRoomView({
     createBackendSubmitDisabledReason ||
     browserSessionBlockReason(createAuthValues, "action");
   const createNotificationChannelBlockReason =
-    diagnosisNotificationChannelCreateBlockReason({
-      channelID: watchedCreateNotificationChannelID,
-      channels: notificationChannels,
-      failedToLoad: notificationChannelsQuery.data?.ok === false,
-    });
-  const createNotificationChannelProofSummary = useMemo(
-    () =>
-      diagnosisNotificationChannelProofSummary({
+    localizeDiagnosisNotificationChannelCreateBlockReason(
+      {
         channelID: watchedCreateNotificationChannelID,
         channels: notificationChannels,
         failedToLoad: notificationChannelsQuery.data?.ok === false,
-      }),
+      },
+      notificationChannelT,
+    );
+  const createNotificationChannelProofSummary = useMemo(
+    () =>
+      localizeDiagnosisNotificationChannelProofSummary(
+        {
+          channelID: watchedCreateNotificationChannelID,
+          channels: notificationChannels,
+          failedToLoad: notificationChannelsQuery.data?.ok === false,
+        },
+        notificationChannelT,
+      ),
     [
       notificationChannels,
       notificationChannelsQuery.data,
+      notificationChannelT,
       watchedCreateNotificationChannelID,
     ],
   );
@@ -2097,7 +2178,7 @@ export function DiagnosisRoomView({
         setLastAuthCheck({
           context: plan.context,
           inputRevision: plan.inputRevision,
-          message: diagnosisActionErrorMessage(error),
+          message: diagnosisActionErrorMessage(error, t),
           mode: plan.values.authMode ?? "session",
           roles: [],
           status: "failed",
@@ -2121,6 +2202,7 @@ export function DiagnosisRoomView({
     diagnosisBrowserSessionQuery.data,
     lastAuthCheck,
     selectedSessionID,
+    t,
   ]);
 
   const confirmConclusionBlockReason = diagnosisConfirmConclusionBlockReason({
@@ -2129,7 +2211,10 @@ export function DiagnosisRoomView({
     connected,
     confirmInFlight,
     latestInsight: selectedLatestInsight,
+    tApproval: approvalT,
     rbacBlockReason: selectedApproveRBACBlockReason,
+    t,
+    tReview: reviewT,
     state: selectedRoomState,
   });
   const canConfirmConclusion =
@@ -2139,7 +2224,15 @@ export function DiagnosisRoomView({
     closeInFlight: closeRequestInFlight,
     confirmInFlight,
     connected,
-    locale,
+    messages: {
+      alreadyClosed: diagnosisRoomT("closeAlreadyClosed"),
+      closeProcessing: diagnosisRoomT("closeRequestProcessing"),
+      connectRequired: diagnosisRoomT("closeConnectRequired"),
+      identityRequired: diagnosisRoomT("closeIdentityRequired"),
+      refreshRequired: diagnosisRoomT("closeRefreshRequired"),
+      waitForConfirmation: diagnosisRoomT("closeWaitForConfirmation"),
+      waitForTurn: diagnosisRoomT("closeWaitForTurn"),
+    },
     rbacBlockReason: selectedAdministerRBACBlockReason,
     state:
       selectedRoomSummary?.room_status === "closed"
@@ -2220,7 +2313,10 @@ export function DiagnosisRoomView({
     confirmConclusionBlockReason !== ""
       ? confirmConclusionBlockReason
       : "";
-  const serverErrorDisplay = diagnosisServerErrorDisplay(serverError);
+  const serverErrorDisplay = localizeDiagnosisServerErrorDisplay(
+    serverError,
+    serverErrorT,
+  );
   const alertSnapshotNeedsRoom =
     alertContext !== undefined &&
     pageContext.evidenceSnapshotID !== undefined &&
@@ -2298,7 +2394,7 @@ export function DiagnosisRoomView({
       if (handleBrowserSessionRejected(error, authorization)) {
         return;
       }
-      const errorMessage = diagnosisActionErrorMessage(error);
+      const errorMessage = diagnosisActionErrorMessage(error, t);
       setLastAuthCheck({
         context,
         inputRevision,
@@ -2347,7 +2443,7 @@ export function DiagnosisRoomView({
       if (!session.authenticated) {
         pushLog(
           "info",
-          "Warning: backend accepted LDAP credentials, but did not return an authenticated browser session.",
+          t("ldapSessionNotReturned"),
         );
         return;
       }
@@ -2367,17 +2463,20 @@ export function DiagnosisRoomView({
         status: "success",
         subject: session.subject,
       });
-      pushLog("info", `Browser session established for ${session.subject}.`);
-      message.success(`Browser session established for ${session.subject}.`);
-    } catch (error) {
-      const errorMessage = diagnosisActionErrorMessage(error);
       pushLog(
         "info",
-        `Warning: LDAP auth succeeded, but browser session issuance failed: ${errorMessage}`,
+        t("browserSessionEstablished", { subject: session.subject }),
       );
-      message.warning(
-        "LDAP auth succeeded, but browser session issuance is unavailable.",
+      message.success(
+        t("browserSessionEstablished", { subject: session.subject }),
       );
+    } catch (error) {
+      const errorMessage = diagnosisActionErrorMessage(error, t);
+      pushLog(
+        "info",
+        t("ldapSessionIssuanceFailed", { error: errorMessage }),
+      );
+      message.warning(t("ldapBrowserSessionUnavailable"));
       setLastAuthCheck({
         checkedAt: result.checked_at,
         context,
@@ -2451,11 +2550,11 @@ export function DiagnosisRoomView({
     });
     pushLog(
       "error",
-      `OpenClarion browser session was rejected by the backend: ${diagnosisActionErrorMessage(error)}`,
+      t("browserSessionRejected", {
+        error: diagnosisActionErrorMessage(error, t),
+      }),
     );
-    message.warning(
-      "OpenClarion browser session was rejected. Sign in again before continuing.",
-    );
+    message.warning(t("browserSessionSignInAgain"));
     return true;
   }
 
@@ -2475,14 +2574,18 @@ export function DiagnosisRoomView({
       return true;
     }
     if (decision.kind === "exhausted") {
-      pushLog("error", `${reason} Reconnect attempts exhausted.`);
+      pushLog("error", t("reconnectExhausted", { reason }));
       return false;
     }
     reconnectAttemptRef.current = decision.attempt;
     setStatus("connecting");
     pushLog(
       "info",
-      `${reason} Reconnecting (${decision.attempt}/${diagnosisReconnectMaxAttempts}).`,
+      t("reconnecting", {
+        attempt: decision.attempt,
+        max: diagnosisReconnectMaxAttempts,
+        reason,
+      }),
     );
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null;
@@ -2602,7 +2705,7 @@ export function DiagnosisRoomView({
     }
     const credentials = normalizedConnectionCredentials(values);
     if (credentials === null) {
-      pushLog("error", "Session and authorization credentials are required.");
+      pushLog("error", t("sessionAuthorizationRequired"));
       setStatus("error");
       return;
     }
@@ -2635,8 +2738,8 @@ export function DiagnosisRoomView({
     pushLog(
       "info",
       options.reconnect
-        ? "Reconnecting diagnosis room WebSocket."
-        : "Requesting WebSocket ticket.",
+        ? t("reconnectingWebSocket")
+        : t("requestingWebSocketTicket"),
     );
 
     let ticket: DiagnosisWSTicketBundle;
@@ -2650,7 +2753,7 @@ export function DiagnosisRoomView({
       if (handleBrowserSessionRejected(error, credentials.authorization)) {
         return;
       }
-      pushLog("error", diagnosisActionErrorMessage(error));
+      pushLog("error", diagnosisActionErrorMessage(error, t));
       return;
     }
 
@@ -2682,7 +2785,7 @@ export function DiagnosisRoomView({
       } catch (error) {
         pushLog(
           "error",
-          error instanceof Error ? error.message : "Invalid diagnosis frame.",
+          error instanceof Error ? error.message : t("invalidDiagnosisFrame"),
         );
       }
     };
@@ -2691,12 +2794,12 @@ export function DiagnosisRoomView({
         return;
       }
       setSocketOpen(false);
-      if (!scheduleReconnect("WebSocket error.")) {
+      if (!scheduleReconnect(t("webSocketError"))) {
         setStatus("error");
         setConfirmInFlight(false);
         setCloseInFlight(false);
         clearTurnInFlight();
-        pushLog("error", "WebSocket error.");
+        pushLog("error", t("webSocketError"));
       }
     };
     socket.onclose = () => {
@@ -2704,12 +2807,12 @@ export function DiagnosisRoomView({
         return;
       }
       setSocketOpen(false);
-      if (!scheduleReconnect("WebSocket closed.")) {
+      if (!scheduleReconnect(t("webSocketClosed"))) {
         setStatus((current) => (current === "error" ? current : "closed"));
         setConfirmInFlight(false);
         setCloseInFlight(false);
         clearTurnInFlight();
-        pushLog("info", "WebSocket closed.");
+        pushLog("info", t("webSocketClosed"));
       }
     };
   }
@@ -2730,21 +2833,24 @@ export function DiagnosisRoomView({
     const closeNotificationChannelProfileID =
       values.closeNotificationChannelProfileID ?? undefined;
     const notificationChannelBlockReason =
-      diagnosisNotificationChannelCreateBlockReason({
-        channelID: closeNotificationChannelProfileID,
-        channels: notificationChannels,
-        failedToLoad: notificationChannelsQuery.data?.ok === false,
-      });
+      localizeDiagnosisNotificationChannelCreateBlockReason(
+        {
+          channelID: closeNotificationChannelProfileID,
+          channels: notificationChannels,
+          failedToLoad: notificationChannelsQuery.data?.ok === false,
+        },
+        notificationChannelT,
+      );
     if (!isPositiveSafeInteger(evidenceSnapshotID) || authorization === null) {
       pushLog(
         "error",
-        "Evidence snapshot and authorization credentials are required.",
+        t("snapshotAuthorizationRequired"),
       );
       setStatus("error");
       return;
     }
     if (approvalMode !== "single" && approvalMode !== "owner_and_leader") {
-      pushLog("error", "Select a supported approval quorum.");
+      pushLog("error", t("approvalQuorumRequired"));
       setStatus("error");
       return;
     }
@@ -2760,15 +2866,17 @@ export function DiagnosisRoomView({
     ) {
       pushLog(
         "error",
-        "Notification channel must be a positive integer when provided.",
+        t("notificationChannelPositiveInteger"),
       );
       setStatus("error");
       return;
     }
-    const notificationChannelError = diagnosisNotificationChannelSelectionError(
-      closeNotificationChannelProfileID,
-      notificationChannels,
-    );
+    const notificationChannelError =
+      localizeDiagnosisNotificationChannelSelectionError(
+        closeNotificationChannelProfileID,
+        notificationChannels,
+        notificationChannelT,
+      );
     if (notificationChannelError !== "") {
       pushLog("error", notificationChannelError);
       setStatus("error");
@@ -2785,10 +2893,19 @@ export function DiagnosisRoomView({
     const notificationChannelSuffix =
       closeNotificationChannelProfileID === undefined
         ? ""
-        : ` with notification channel #${closeNotificationChannelProfileID}`;
+        : t("withNotificationChannel", {
+            id: closeNotificationChannelProfileID,
+          });
     pushLog(
       "info",
-      `Creating diagnosis room from evidence snapshot #${evidenceSnapshotID}${notificationChannelSuffix} with ${diagnosisApprovalModeLabel(approvalMode).toLowerCase()} approval.`,
+      t("creatingDiagnosisRoom", {
+        approval:
+          approvalMode === "single"
+            ? t("singleOperator")
+            : t("ownerAndLeader"),
+        channel: notificationChannelSuffix,
+        snapshot: evidenceSnapshotID,
+      }),
     );
     let room: DiagnosisRoomCreateBundle;
     try {
@@ -2803,11 +2920,11 @@ export function DiagnosisRoomView({
       if (handleBrowserSessionRejected(error, authorization)) {
         return;
       }
-      pushLog("error", diagnosisActionErrorMessage(error));
+      pushLog("error", diagnosisActionErrorMessage(error, t));
       return;
     }
 
-    message.success("Diagnosis room created.");
+    message.success(t("diagnosisRoomCreated"));
     const connectionCredentials = {
       authorization,
       sessionID: room.session_id,
@@ -2820,7 +2937,10 @@ export function DiagnosisRoomView({
     replaceRoomURL(room.session_id, room.evidence_snapshot_id);
     pushLog(
       "info",
-      `Created ${room.session_id} from snapshot #${room.evidence_snapshot_id}.`,
+      t("diagnosisRoomCreatedDetail", {
+        session: room.session_id,
+        snapshot: room.evidence_snapshot_id,
+      }),
     );
     void invalidateDiagnosisRoomQueries(room.session_id);
     await handleConnect(connectionCredentials);
@@ -2934,7 +3054,7 @@ export function DiagnosisRoomView({
         setServerError(null);
         setStatus("connected");
         setReadySubject(frame.subject);
-        pushLog("info", `Connected as ${frame.subject}.`);
+        pushLog("info", t("connectedAs", { subject: frame.subject }));
         sendFrame({ type: "query_state" });
         break;
       case "state":
@@ -2971,12 +3091,17 @@ export function DiagnosisRoomView({
         void invalidateDiagnosisRoomQueries(frame.session_id);
         pushLog(
           "info",
-          `Loaded state: ${frame.status}, ${frame.turn_count} turn(s).`,
+          t("loadedRoomState", {
+            count: frame.turn_count,
+            status: localizeDiagnosisRoomStatus(frame.status, statusT),
+          }),
         );
         if ((frame.follow_up_turns ?? []).length > 0) {
           pushLog(
             "info",
-            `Auto evidence follow-up completed ${(frame.follow_up_turns ?? []).length} turn(s).`,
+            t("autoEvidenceFollowUpCompleted", {
+              count: (frame.follow_up_turns ?? []).length,
+            }),
           );
         }
         break;
@@ -3015,11 +3140,18 @@ export function DiagnosisRoomView({
           ...diagnosisTurnResultTranscript(frame),
         ]);
         void invalidateDiagnosisRoomQueries(frame.session_id);
-        pushLog("info", `Turn ${latestDiagnosisTurnCount(frame)} completed.`);
+        pushLog(
+          "info",
+          t("diagnosisTurnCompleted", {
+            turn: latestDiagnosisTurnCount(frame),
+          }),
+        );
         if ((frame.follow_up_turns ?? []).length > 0) {
           pushLog(
             "info",
-            `Auto evidence follow-up completed ${(frame.follow_up_turns ?? []).length} turn(s).`,
+            t("autoEvidenceFollowUpCompleted", {
+              count: (frame.follow_up_turns ?? []).length,
+            }),
           );
         }
         if (shouldQueryDiagnosisStateAfterTurn(frame)) {
@@ -3092,9 +3224,11 @@ export function DiagnosisRoomView({
       return;
     }
     const messageID = nextDiagnosisMessageID();
-    const outboundMessage = supplementalEvidenceSubmissionMessage(
+    const outboundMessage = localizeSupplementalEvidenceSubmissionMessage(
       request,
       evidence,
+      supplementalEvidenceT,
+      statusT,
     );
     if (
       !sendFrame({
@@ -3133,7 +3267,7 @@ export function DiagnosisRoomView({
     });
     supplementalEvidenceForm.resetFields();
     composerForm.resetFields();
-    pushLog("info", `Submitted supplemental evidence for ${request.label}.`);
+    pushLog("info", t("supplementalEvidenceSubmitted", { label: request.label }));
   }
 
   function handleQueryState() {
@@ -3155,7 +3289,7 @@ export function DiagnosisRoomView({
       return;
     }
     setServerError(null);
-    pushLog("info", "Recording conclusion approval.");
+    pushLog("info", t("recordingConclusionApproval"));
     setConfirmInFlight(true);
     if (!sendFrame({ type: "confirm_conclusion", reason: "human_confirmed" })) {
       setConfirmInFlight(false);
@@ -3201,9 +3335,9 @@ export function DiagnosisRoomView({
     });
     pushLog(
       "info",
-      `Prepared supplemental evidence follow-up for ${request.label}.`,
+      t("supplementalFollowUpPreparedFor", { label: request.label }),
     );
-    message.info("Supplemental evidence follow-up prepared.");
+    message.info(t("supplementalFollowUpPrepared"));
   }
 
   function handleReviewEvidenceTasks() {
@@ -3243,7 +3377,6 @@ export function DiagnosisRoomView({
     if (
       !canSubmitTurn &&
       diagnosisReviewQueueConnectionGateAllowsPreparation({
-        actionDisabledReason: submitTurnBlockReason,
         connected,
       })
     ) {
@@ -3251,8 +3384,8 @@ export function DiagnosisRoomView({
       setManualPendingSupplementalEvidence(null);
       supplementalEvidenceForm.resetFields();
       handleOpenConnectionControls({ returnToReviewQueue: true });
-      pushLog("info", `Staged planned evidence for ${request.tool}.`);
-      message.info("Evidence plan staged. Connect before collecting evidence.");
+      pushLog("info", t("plannedEvidenceStagedFor", { tool: request.tool }));
+      message.info(t("evidencePlanStaged"));
       return;
     }
     if (showActionBlockReason(submitTurnBlockReason)) {
@@ -3262,7 +3395,7 @@ export function DiagnosisRoomView({
       return;
     }
     const messageID = nextDiagnosisMessageID();
-    const outboundMessage = evidencePlanFollowUpMessage(request);
+    const outboundMessage = evidencePlanFollowUpMessage(request, t, "planned");
     setServerError(null);
     if (
       !sendFrame({
@@ -3297,8 +3430,8 @@ export function DiagnosisRoomView({
         content: outboundMessage,
       },
     ]);
-    pushLog("info", `Collecting planned evidence for ${request.tool}.`);
-    message.info("Collecting planned evidence.");
+    pushLog("info", t("collectingPlannedEvidenceFor", { tool: request.tool }));
+    message.info(t("collectingPlannedEvidence"));
   }
 
   function handleRequestAIReassessment() {
@@ -3313,21 +3446,25 @@ export function DiagnosisRoomView({
       selectedSavedReviewQueueInput === null
         ? undefined
         : diagnosisReviewQueueReassessmentInput(selectedSavedReviewQueueInput);
-    const outboundMessage = supplementalEvidenceReassessmentMessage({
-      collectionResults:
-        selectedLatestInsight?.collectionResults ??
-        selectedRoomState?.evidence_collection_results ??
-        savedReassessmentInput?.collectionResults ??
-        [],
-      latestAssistantSequence:
-        selectedLatestInsight?.assistantSequence ??
-        selectedRoomState?.final_conclusion?.assistant_sequence ??
-        savedReassessmentInput?.latestAssistantSequence,
-      records:
-        selectedRoomState?.supplemental_evidence ??
-        savedReassessmentInput?.records ??
-        [],
-    });
+    const outboundMessage = localizeSupplementalEvidenceReassessmentMessage(
+      {
+        collectionResults:
+          selectedLatestInsight?.collectionResults ??
+          selectedRoomState?.evidence_collection_results ??
+          savedReassessmentInput?.collectionResults ??
+          [],
+        latestAssistantSequence:
+          selectedLatestInsight?.assistantSequence ??
+          selectedRoomState?.final_conclusion?.assistant_sequence ??
+          savedReassessmentInput?.latestAssistantSequence,
+        records:
+          selectedRoomState?.supplemental_evidence ??
+          savedReassessmentInput?.records ??
+          [],
+      },
+      supplementalEvidenceT,
+      statusT,
+    );
     setServerError(null);
     if (
       !sendFrame({
@@ -3348,8 +3485,8 @@ export function DiagnosisRoomView({
         content: outboundMessage,
       },
     ]);
-    pushLog("info", "Requested AI reassessment of submitted evidence.");
-    message.info("AI reassessment requested.");
+    pushLog("info", t("aiReassessmentRequestedDetail"));
+    message.info(t("aiReassessmentRequested"));
   }
 
   function handleCollectOperatorEvidence(values: OperatorEvidenceFormValues) {
@@ -3362,20 +3499,20 @@ export function DiagnosisRoomView({
 
     let request: DiagnosisEvidenceRequest;
     try {
-      validateOperatorSelectedTemplate(values, operatorEvidenceTemplates);
-      request = operatorEvidenceRequest(values);
+      validateOperatorSelectedTemplate(values, operatorEvidenceTemplates, t);
+      request = operatorEvidenceRequest(values, t);
     } catch (error) {
       const detail =
         error instanceof Error
           ? error.message
-          : "Operator evidence request is invalid.";
+          : t("operatorEvidenceInvalid");
       pushLog("error", detail);
       message.error(detail);
       return;
     }
 
     const messageID = nextDiagnosisMessageID();
-    const outboundMessage = operatorEvidenceFollowUpMessage(request);
+    const outboundMessage = operatorEvidenceFollowUpMessage(request, t);
     setServerError(null);
     if (
       !sendFrame({
@@ -3410,8 +3547,8 @@ export function DiagnosisRoomView({
         content: outboundMessage,
       },
     ]);
-    pushLog("info", `Collecting operator evidence for ${request.tool}.`);
-    message.info("Collecting operator evidence.");
+    pushLog("info", t("collectingOperatorEvidenceFor", { tool: request.tool }));
+    message.info(t("collectingOperatorEvidenceFeedback"));
   }
 
   function handleClearSupplementalEvidence() {
@@ -3423,7 +3560,7 @@ export function DiagnosisRoomView({
     replaceRoomURLWithoutOneShotParams({
       supplementalFollowUp: urlSupplementalFollowUpKey !== "",
     });
-    pushLog("info", "Cleared supplemental evidence follow-up.");
+    pushLog("info", t("supplementalFollowUpCleared"));
   }
 
   function handleClearEvidencePlan() {
@@ -3434,7 +3571,7 @@ export function DiagnosisRoomView({
     replaceRoomURLWithoutOneShotParams({
       evidencePlan: urlEvidencePlanKey !== "",
     });
-    pushLog("info", "Cleared URL evidence plan.");
+    pushLog("info", t("evidencePlanCleared"));
   }
 
   function handleDisconnect() {
@@ -3461,8 +3598,8 @@ export function DiagnosisRoomView({
       room.room_status === "closed" ? "room" : "setup",
       room.room_status === "closed" ? roomStatePanelRef : connectionPanelRef,
     );
-    pushLog("info", `Selected ${room.session_id}.`);
-    message.info("Diagnosis room selected.");
+    pushLog("info", t("roomSelectedDetail", { session: room.session_id }));
+    message.info(t("diagnosisRoomSelected"));
   }
 
   function handlePrepareAlertRoom() {
@@ -3476,10 +3613,8 @@ export function DiagnosisRoomView({
       composerForm.setFieldValue("message", pageContext.suggestedPrompt);
     }
     scrollToWorkbenchSection("setup", createRoomPanelRef);
-    pushLog("info", "Prepared alert snapshot for diagnosis room creation.");
-    message.info(
-      "Enter authorization credentials to create the diagnosis room.",
-    );
+    pushLog("info", t("alertSnapshotPrepared"));
+    message.info(t("enterAuthorizationToCreate"));
   }
 
   function handlePrepareHandoffRoom(item: DiagnosisHandoffBacklogItem) {
@@ -3491,19 +3626,21 @@ export function DiagnosisRoomView({
         "message",
         diagnosisSuggestedPrompt({
           alertContext: { alert, snapshot: item.evidence_snapshot },
-          contextRef: `evidence snapshot #${evidenceSnapshotID}`,
+          contextRef: t("evidenceSnapshotReference", {
+            id: evidenceSnapshotID,
+          }),
           intent: "confidence_review",
+          t,
+          tStatus: statusT,
         }),
       );
     }
     scrollToWorkbenchSection("setup", createRoomPanelRef);
     pushLog(
       "info",
-      `Prepared handoff snapshot #${evidenceSnapshotID} for diagnosis room creation.`,
+      t("handoffSnapshotPrepared", { snapshot: evidenceSnapshotID }),
     );
-    message.info(
-      "Enter authorization credentials to create the diagnosis room.",
-    );
+    message.info(t("enterAuthorizationToCreate"));
   }
 
   async function handlePrepareRoomRebuild(room: DiagnosisRoomSummary) {
@@ -3519,15 +3656,15 @@ export function DiagnosisRoomView({
     scrollToWorkbenchSection("setup", createRoomPanelRef);
     pushLog(
       "info",
-      `Prepared replacement room from evidence snapshot #${room.evidence_snapshot_id}.`,
+      t("replacementRoomPrepared", {
+        snapshot: room.evidence_snapshot_id,
+      }),
     );
     const authorization = normalizedDiagnosisAuthorization(
       diagnosisAuthorizationFromFormValues(connectionForm.getFieldsValue()),
     );
     if (authorization === null) {
-      message.warning(
-        "Evidence snapshot prepared. Enter authorization credentials to close the unavailable room before rebuilding.",
-      );
+      message.warning(t("rebuildAuthorizationRequired"));
       return;
     }
     setClosingUnavailableSessionID(room.session_id);
@@ -3538,15 +3675,13 @@ export function DiagnosisRoomView({
       });
       pushLog(
         "info",
-        `Closed unavailable diagnosis room ${closedRoom.session_id}.`,
+        t("unavailableRoomClosed", { session: closedRoom.session_id }),
       );
-      message.success(
-        "Unavailable room closed. Create a replacement room with the prepared evidence snapshot.",
-      );
+      message.success(t("replacementRoomReady"));
       void invalidateDiagnosisRoomQueries(room.session_id);
     } catch (error) {
-      pushLog("error", diagnosisActionErrorMessage(error));
-      message.error(diagnosisActionErrorMessage(error));
+      pushLog("error", diagnosisActionErrorMessage(error, t));
+      message.error(diagnosisActionErrorMessage(error, t));
     } finally {
       setClosingUnavailableSessionID("");
     }
@@ -3571,14 +3706,13 @@ export function DiagnosisRoomView({
       diagnosisAuthorizationFromFormValues(connectionForm.getFieldsValue()),
     );
     if (authorization === null) {
-      const detail =
-        "Authorization credentials are required before retrying a notification.";
+      const detail = t("notificationRetryAuthorizationRequired");
       pushLog("error", detail);
       message.error(detail);
       return;
     }
     if (!isDiagnosisNotificationRetryEventKind(entry.event_kind)) {
-      const detail = "Notification event kind cannot be retried.";
+      const detail = t("notificationRetryUnsupported");
       pushLog("error", detail);
       message.error(detail);
       return;
@@ -3587,7 +3721,10 @@ export function DiagnosisRoomView({
     setRetryingNotificationKey(retryKey);
     pushLog(
       "info",
-      `Retrying ${notificationEventLabel(entry.event_kind)} for ${room.session_id}.`,
+      t("retryingNotification", {
+        event: notificationEventLabel(entry.event_kind, notificationT),
+        session: room.session_id,
+      }),
     );
     try {
       const result = await diagnosisNotificationRetryMutation.mutateAsync({
@@ -3595,23 +3732,25 @@ export function DiagnosisRoomView({
         eventKind: entry.event_kind,
         room,
       });
-      const alreadyDelivered =
-        result.retry_state === "already_delivered"
-          ? " The notification was already delivered by a later attempt."
-          : "";
       pushLog(
         "info",
-        `Notification retry result: ${result.retry_state}.${alreadyDelivered}`,
+        t("notificationRetryResult", {
+          detail:
+            result.retry_state === "already_delivered"
+              ? t("notificationRetryAlreadyDeliveredDetail")
+              : "",
+          status: localizeDiagnosisRoomStatus(result.retry_state, statusT),
+        }),
       );
       message.success(
         result.retry_state === "already_delivered"
-          ? "Notification already delivered."
-          : "Notification retry sent.",
+          ? t("notificationAlreadyDelivered")
+          : t("notificationRetrySent"),
       );
       void invalidateDiagnosisRoomQueries(room.session_id);
     } catch (error) {
-      pushLog("error", diagnosisActionErrorMessage(error));
-      message.error(diagnosisActionErrorMessage(error));
+      pushLog("error", diagnosisActionErrorMessage(error, t));
+      message.error(diagnosisActionErrorMessage(error, t));
     } finally {
       setRetryingNotificationKey("");
     }
@@ -3622,14 +3761,14 @@ export function DiagnosisRoomView({
       return;
     }
     composerForm.setFieldValue("message", pageContext.suggestedPrompt);
-    pushLog("info", "Prepared suggested diagnosis prompt.");
-    message.info("Suggested prompt prepared.");
+    pushLog("info", t("suggestedPromptPrepared"));
+    message.info(t("suggestedPromptPrepared"));
   }
 
   function sendFrame(frame: DiagnosisClientFrame): boolean {
     const socket = socketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      pushLog("error", "WebSocket is not connected.");
+      pushLog("error", t("webSocketNotConnected"));
       return false;
     }
     socket.send(JSON.stringify(frame));
@@ -3644,7 +3783,7 @@ export function DiagnosisRoomView({
         ? { ...current, in_flight: true, latest_error: undefined }
         : current,
     );
-    pushLog("info", "AI review in progress.");
+    pushLog("info", t("aiReviewInProgress"));
   }
 
   function clearTurnInFlight() {
@@ -3661,6 +3800,10 @@ export function DiagnosisRoomView({
     connectionForm.getFieldValue("sessionID"),
     status,
     collaborationDirectoryUsersBySubject,
+    locale,
+    t,
+    finalT,
+    statusT,
   );
   const roomPermissionItems = diagnosisRoomRBACPermissionItems({
     can: diagnosisRoomAuthorization.can,
@@ -3734,10 +3877,10 @@ export function DiagnosisRoomView({
         <FormOutlined />
       ),
       label: canConfirmConclusion
-        ? "Confirm"
+        ? t("confirm")
         : retainedConclusionNeedsDeliveryReview
-          ? "Review delivery"
-          : "Review blockers",
+          ? t("reviewDelivery")
+          : t("reviewBlockers"),
       onClick: canConfirmConclusion
         ? handleConfirmConclusion
         : retainedConclusionNeedsDeliveryReview
@@ -3745,20 +3888,20 @@ export function DiagnosisRoomView({
               scrollToWorkbenchSection("room", notificationTimelinePanelRef)
           : handleReviewEvidenceTasks,
       title: canConfirmConclusion
-        ? "Confirm and retain the AI conclusion."
+        ? t("confirmConclusionHint")
         : retainedConclusionNeedsDeliveryReview
-          ? "Open the notification timeline for delivery proof."
-          : "Open the review queue for remaining conclusion blockers.",
+          ? t("openNotificationTimeline")
+          : t("openReviewQueue"),
     },
     connection: {
       icon: connected ? <ReloadOutlined /> : <ApiOutlined />,
-      label: connected ? "Refresh state" : "Open connection",
+      label: connected ? t("refreshState") : t("openConnection"),
       onClick: connected
         ? handleQueryState
         : handleOpenConnectionControls,
       title: connected
-        ? "Refresh the selected room state."
-        : "Open the connection controls.",
+        ? t("refreshSelectedRoomState")
+        : t("openConnectionControls"),
     },
     evidence: {
       disabled:
@@ -3769,16 +3912,16 @@ export function DiagnosisRoomView({
         <ApiOutlined />
       ),
       label: workflowReadinessReviewQueueLoaded
-        ? "Review evidence"
-        : "Open connection",
+        ? t("reviewEvidence")
+        : t("openConnection"),
       onClick:
         workflowReadinessReviewQueueLoaded
           ? handleReviewEvidenceTasks
           : handleOpenConnectionControls,
       title:
         workflowReadinessReviewQueueLoaded
-          ? "Open the evidence review queue."
-          : "Open the connection controls to load room state.",
+          ? t("openEvidenceReviewQueue")
+          : t("openConnectionToLoadRoom"),
     },
     identity: {
       icon: currentActorSubject ? (
@@ -3786,7 +3929,7 @@ export function DiagnosisRoomView({
       ) : (
         <LoginOutlined />
       ),
-      label: currentActorSubject ? "Review identity" : "Authenticate",
+      label: currentActorSubject ? t("reviewIdentity") : t("authenticate"),
       onClick: () =>
         scrollToWorkbenchSection(
           "setup",
@@ -3795,27 +3938,30 @@ export function DiagnosisRoomView({
             : createRoomPanelRef,
         ),
       title: currentActorSubject
-        ? "Open authentication and session controls."
-        : "Open authentication controls.",
+        ? t("openAuthenticationSessionControls")
+        : t("openAuthenticationControls"),
     },
     permissions: {
       icon: <SafetyCertificateOutlined />,
-      label: "Review permissions",
+      label: t("reviewPermissions"),
       onClick: () =>
         scrollToWorkbenchSection("room", permissionsPanelRef),
-      title: "Open selected-room permission details.",
+      title: t("openPermissionDetails"),
     },
     room: {
       icon: selectedSessionID.trim() === "" ? <FormOutlined /> : <ReloadOutlined />,
-      label: selectedSessionID.trim() === "" ? "Select room" : "Refresh room",
+      label:
+        selectedSessionID.trim() === ""
+          ? t("dockSelectRoom")
+          : t("refreshRoom"),
       onClick:
         selectedSessionID.trim() === ""
           ? () => scrollToWorkbenchSection("queue", roomSelectionPanelRef)
           : handleQueryState,
       title:
         selectedSessionID.trim() === ""
-          ? "Open the room queue."
-          : "Refresh the selected room state.",
+          ? t("openRoomQueue")
+          : t("refreshSelectedRoomState"),
     },
   };
   function handleWorkbenchSectionChange(section: DiagnosisWorkbenchSection) {
@@ -3853,7 +3999,7 @@ export function DiagnosisRoomView({
           color={statusColor(status)}
           role="status"
         >
-          {statusLabel(status)}
+          {statusLabel(status, statusT)}
         </Tag>
       </section>
 
@@ -4126,9 +4272,10 @@ export function DiagnosisRoomView({
                             );
                           }
                           const selectionError =
-                            diagnosisNotificationChannelSelectionError(
+                            localizeDiagnosisNotificationChannelSelectionError(
                               value,
                               notificationChannels,
+                              notificationChannelT,
                             );
                           if (selectionError !== "") {
                             throw new Error(selectionError);
@@ -4136,12 +4283,15 @@ export function DiagnosisRoomView({
                           return;
                         }
                         const blockReason =
-                          diagnosisNotificationChannelCreateBlockReason({
-                            channelID: undefined,
-                            channels: notificationChannels,
-                            failedToLoad:
-                              notificationChannelsQuery.data?.ok === false,
-                          });
+                          localizeDiagnosisNotificationChannelCreateBlockReason(
+                            {
+                              channelID: undefined,
+                              channels: notificationChannels,
+                              failedToLoad:
+                                notificationChannelsQuery.data?.ok === false,
+                            },
+                            notificationChannelT,
+                          );
                         if (blockReason !== "") {
                           throw new Error(blockReason);
                         }
@@ -4784,7 +4934,10 @@ export function DiagnosisRoomView({
           selectedLatestInsight ? (
             <Space className="diagnosis-insight-meta" size={[6, 6]} wrap>
               <Tag color={confidenceColor(selectedLatestInsight.confidence)}>
-                {selectedLatestInsight.confidence || "unknown"}
+                {localizeDiagnosisRoomStatus(
+                  selectedLatestInsight.confidence || "unknown",
+                  statusT,
+                )}
               </Tag>
               <Tag
                 color={
@@ -4794,12 +4947,14 @@ export function DiagnosisRoomView({
                 }
               >
                 {selectedLatestInsight.requiresHumanReview
-                  ? "review required"
-                  : "review optional"}
+                  ? t("reviewRequired")
+                  : t("reviewOptional")}
               </Tag>
               {selectedLatestInsight.autoFollowUpCount > 0 ? (
                 <Tag color="processing">
-                  auto evidence x{selectedLatestInsight.autoFollowUpCount}
+                  {t("autoEvidenceCount", {
+                    count: selectedLatestInsight.autoFollowUpCount,
+                  })}
                 </Tag>
               ) : null}
             </Space>
@@ -4816,7 +4971,11 @@ export function DiagnosisRoomView({
           <>
             <Descriptions
               column={{ xs: 1, sm: 2 }}
-              items={consultationInsightItems(selectedLatestInsight)}
+              items={consultationInsightItems(
+                selectedLatestInsight,
+                t,
+                statusT,
+              )}
               size="small"
             />
             {selectedLatestInsight.insight.confidence_rationale ? (
@@ -5088,6 +5247,7 @@ export function DiagnosisRoomView({
             />
           ) : null}
           <ActionBlockedNotice
+            informational={!connected}
             message={t("evidenceUpdatesUnavailable")}
             reason={submitTurnBlockReason}
           />
@@ -5189,9 +5349,11 @@ function DiagnosisTurnProgressNotice() {
 }
 
 function ActionBlockedNotice({
+  informational = false,
   message,
   reason,
 }: {
+  informational?: boolean;
   message: string;
   reason: string;
 }) {
@@ -5205,7 +5367,7 @@ function ActionBlockedNotice({
       description={reason}
       message={message}
       showIcon
-      type={reason.startsWith("Connect ") ? "info" : "warning"}
+      type={informational ? "info" : "warning"}
     />
   );
 }
@@ -5228,11 +5390,18 @@ function SupplementalEvidenceEntryPanel({
   request: DiagnosisConsultationEvidenceRequest;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tStatus = useTranslations("DiagnosisRoom.status");
+  const tSupplemental = useTranslations(
+    "DiagnosisRoom.supplementalEvidencePrompt",
+  );
   const actionDisabled = !connected || actionDisabledReason !== "";
 
   function useResidualBoundaryTemplate() {
     form.setFieldsValue({
-      evidence: supplementalEvidenceResidualBoundaryTemplate(request),
+      evidence: localizeSupplementalEvidenceResidualBoundaryTemplate(
+        request,
+        tSupplemental,
+      ),
     });
   }
 
@@ -5247,7 +5416,9 @@ function SupplementalEvidenceEntryPanel({
           <Typography.Title level={3}>{t("supplementalHeading")}</Typography.Title>
           <Typography.Text type="secondary">{request.detail}</Typography.Text>
         </div>
-        <Tag color={priorityColor(request.priority)}>{request.priority}</Tag>
+        <Tag color={priorityColor(request.priority)}>
+          {localizeDiagnosisRoomStatus(request.priority, tStatus)}
+        </Tag>
       </div>
       <Alert
         description={t("supplementalGuidance")}
@@ -5256,6 +5427,7 @@ function SupplementalEvidenceEntryPanel({
         type="warning"
       />
       <ActionBlockedNotice
+        informational={!connected}
         message={t("supplementalUnavailable")}
         reason={actionDisabledReason}
       />
@@ -5330,7 +5502,9 @@ function DiagnosisAlertContextPanel({
 }: {
   context: DiagnosisAlertContext;
 }) {
+  const locale = useLocale();
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const { alert, snapshot } = context;
   const labelItems = sortedRecordEntries(alert.labels);
   const annotationItems = sortedRecordEntries(alert.annotations);
@@ -5341,22 +5515,22 @@ function DiagnosisAlertContextPanel({
       className="diagnosis-alert-context settings-overview-card"
       title={
         <Space size={[6, 6]} wrap>
-          <span>{alertName(alert)}</span>
+          <span>{alertName(alert, t)}</span>
           <Tag color={alert.status === "firing" ? "red" : "green"}>
-            {alert.status}
+            {localizeDiagnosisRoomStatus(alert.status, tStatus)}
           </Tag>
           <Tag color={severityColor(alertSeverity(alert))}>
-            {alertSeverity(alert)}
+            {localizeDiagnosisRoomStatus(alertSeverity(alert), tStatus)}
           </Tag>
           <Tag color={snapshotStatusColor(snapshot.status)}>
-            snapshot #{snapshot.id}
+            {t("snapshotNumber", { id: snapshot.id })}
           </Tag>
         </Space>
       }
     >
       <Descriptions
         column={{ xs: 1, md: 2 }}
-        items={alertContextDescriptionItems(alert, snapshot)}
+        items={alertContextDescriptionItems(alert, snapshot, locale, t)}
         size="small"
       />
       <div className="diagnosis-alert-context-grid">
@@ -5431,7 +5605,7 @@ function AlertRoomCreationNotice({
       className="diagnosis-alert-room-notice"
       description={t("noRoomLinkedDetail", {
         id: context.snapshot.id,
-        alert: alertName(context.alert),
+        alert: alertName(context.alert, t),
       })}
       message={t("noRoomLinked")}
       showIcon
@@ -5453,7 +5627,10 @@ function DiagnosisHandoffPanel({
   pageContext: DiagnosisPageContext;
   selectedRoom?: DiagnosisRoomSummary;
 }) {
+  const locale = useLocale();
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tNotification = useTranslations("DiagnosisRoom.notification");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   if (
     !pageContext.hasContext &&
     selectedRoom === undefined &&
@@ -5467,6 +5644,9 @@ function DiagnosisHandoffPanel({
     alertSnapshotNeedsRoom,
     pageContext,
     selectedRoom,
+    locale,
+    t,
+    tNotification,
   });
   const conclusion = selectedRoom?.latest_conclusion;
   const failedNotification =
@@ -5491,7 +5671,10 @@ function DiagnosisHandoffPanel({
             <Tag
               color={confidenceColor(selectedRoom.latest_conclusion.confidence)}
             >
-              {selectedRoom.latest_conclusion.confidence}
+              {localizeDiagnosisRoomStatus(
+                selectedRoom.latest_conclusion.confidence,
+                tStatus,
+              )}
             </Tag>
           ) : null}
           {selectedRoom?.latest_conclusion?.requires_human_review ? (
@@ -5510,7 +5693,14 @@ function DiagnosisHandoffPanel({
         />
         <Descriptions
           column={{ xs: 1, md: 2 }}
-          items={diagnosisHandoffItems(pageContext, selectedRoom)}
+          items={diagnosisHandoffItems(
+            pageContext,
+            selectedRoom,
+            locale,
+            t,
+            tNotification,
+            tStatus,
+          )}
           size="small"
         />
         {conclusion ? (
@@ -5552,11 +5742,17 @@ function diagnosisHandoffStatus({
   alertSnapshotNeedsRoom,
   pageContext,
   selectedRoom,
+  locale,
+  t,
+  tNotification,
 }: {
   alertContext?: DiagnosisAlertContext;
   alertSnapshotNeedsRoom: boolean;
   pageContext: DiagnosisPageContext;
   selectedRoom?: DiagnosisRoomSummary;
+  locale: string;
+  t: DiagnosisWorkspaceTranslator;
+  tNotification: DiagnosisNotificationTranslator;
 }): {
   alertType: "info" | "success" | "warning";
   color: string;
@@ -5569,10 +5765,13 @@ function diagnosisHandoffStatus({
     return {
       alertType: "warning",
       color: "warning",
-      detail: `Evidence snapshot #${pageContext.evidenceSnapshotID ?? alertContext?.snapshot.id} is ready for ${alertContext ? alertName(alertContext.alert) : "diagnosis"}, but no AI room is linked yet.`,
-      label: "Create room",
-      message: "Evidence ready",
-      promptActionLabel: "Use diagnosis prompt",
+      detail: t("handoffEvidenceReadyDetail", {
+        id: pageContext.evidenceSnapshotID ?? alertContext?.snapshot.id ?? "",
+        target: alertContext ? alertName(alertContext.alert, t) : t("title"),
+      }),
+      label: t("createRoom"),
+      message: t("evidenceReady"),
+      promptActionLabel: t("useDiagnosisPrompt"),
     };
   }
   const failedNotification =
@@ -5583,10 +5782,16 @@ function diagnosisHandoffStatus({
     return {
       alertType: "warning",
       color: "error",
-      detail: `${notificationEventLabel(failedNotification.event_kind)} failed at ${formatDateTime(failedNotification.occurred_at)}. Review notification channel delivery before relying on downstream handoff.`,
-      label: "Notification failed",
-      message: "Notification delivery failed",
-      promptActionLabel: "Use review prompt",
+      detail: t("handoffNotificationFailedDetail", {
+        event: notificationEventLabel(
+          failedNotification.event_kind,
+          tNotification,
+        ),
+        time: formatDateTime(failedNotification.occurred_at, locale),
+      }),
+      label: t("notificationFailed"),
+      message: t("notificationDeliveryFailed"),
+      promptActionLabel: t("useReviewPrompt"),
     };
   }
   const notificationDeliveryCoverage =
@@ -5600,13 +5805,17 @@ function diagnosisHandoffStatus({
     (notificationDeliveryCoverage.status === "blocked" ||
       notificationDeliveryCoverage.status === "review")
   ) {
+    const localizedCoverage = localizeDiagnosisNotificationDeliveryCoverage(
+      notificationDeliveryCoverage,
+      tNotification,
+    );
     return {
       alertType: "warning",
       color: notificationDeliveryCoverage.color,
-      detail: notificationDeliveryCoverage.detail,
-      label: notificationDeliveryCoverage.label,
-      message: "AI notification delivery incomplete",
-      promptActionLabel: "Use review prompt",
+      detail: localizedCoverage.detail,
+      label: localizedCoverage.label,
+      message: t("aiNotificationDeliveryIncomplete"),
+      promptActionLabel: t("useReviewPrompt"),
     };
   }
   const notificationProofSummary =
@@ -5619,13 +5828,17 @@ function diagnosisHandoffStatus({
     notificationProofSummary !== undefined &&
     notificationProofSummary.missingCount > 0
   ) {
+    const localizedProof = localizeDiagnosisNotificationContentProofSummary(
+      notificationProofSummary,
+      tNotification,
+    );
     return {
       alertType: "warning",
       color: "warning",
-      detail: notificationProofSummary.detail,
-      label: "AI proof missing",
-      message: "AI notification proof incomplete",
-      promptActionLabel: "Use review prompt",
+      detail: localizedProof.detail,
+      label: localizedProof.label,
+      message: t("aiNotificationProofIncomplete"),
+      promptActionLabel: t("useReviewPrompt"),
     };
   }
   if (selectedRoom?.room_status === "closed") {
@@ -5633,10 +5846,10 @@ function diagnosisHandoffStatus({
       alertType: "success",
       color: "default",
       detail:
-        selectedRoom.close_reason || "The diagnosis room has been closed.",
-      label: "Closed",
-      message: "Room closed",
-      promptActionLabel: "Use review prompt",
+        selectedRoom.close_reason || t("roomClosedFallback"),
+      label: t("closed"),
+      message: t("roomClosed"),
+      promptActionLabel: t("useReviewPrompt"),
     };
   }
   if (selectedRoom?.latest_conclusion) {
@@ -5646,19 +5859,19 @@ function diagnosisHandoffStatus({
         alertType: "warning",
         color: "warning",
         detail:
-          "AI produced a retained conclusion that still needs operator review.",
-        label: "Human review",
-        message: "Conclusion needs review",
-        promptActionLabel: "Use review prompt",
+          t("conclusionNeedsReviewDetail"),
+        label: t("humanReview"),
+        message: t("conclusionNeedsReview"),
+        promptActionLabel: t("useReviewPrompt"),
       };
     }
     return {
       alertType: "success",
       color: "success",
-      detail: "AI produced a retained conclusion for operator confirmation.",
-      label: "Review conclusion",
-      message: "Conclusion ready",
-      promptActionLabel: "Use review prompt",
+      detail: t("conclusionReadyDetail"),
+      label: t("review"),
+      message: t("conclusionReady"),
+      promptActionLabel: t("useReviewPrompt"),
     };
   }
   if (selectedRoom) {
@@ -5666,43 +5879,50 @@ function diagnosisHandoffStatus({
       ? {
           alertType: "info",
           color: "processing",
-          detail: `Room ${selectedRoom.session_id} has ${selectedRoom.turn_count} turn(s) and no retained conclusion yet.`,
-          label: "Continue review",
-          message: "AI review in progress",
-          promptActionLabel: "Use diagnosis prompt",
+          detail: t("reviewInProgressDetail", {
+            count: selectedRoom.turn_count,
+            session: selectedRoom.session_id,
+          }),
+          label: t("continueReview"),
+          message: t("aiReviewInProgress"),
+          promptActionLabel: t("useDiagnosisPrompt"),
         }
       : {
           alertType: "info",
           color: "processing",
-          detail: `Room ${selectedRoom.session_id} is ready for the first AI diagnosis turn.`,
-          label: "Start review",
-          message: "Room ready",
-          promptActionLabel: "Use diagnosis prompt",
+          detail: t("firstReviewDetail", { session: selectedRoom.session_id }),
+          label: t("startReview"),
+          message: t("roomReady"),
+          promptActionLabel: t("useDiagnosisPrompt"),
         };
   }
   if (pageContext.evidenceSnapshotID !== undefined) {
     return {
       alertType: "info",
       color: "processing",
-      detail: `Evidence snapshot #${pageContext.evidenceSnapshotID} is selected for AI diagnosis.`,
-      label: "Evidence selected",
-      message: "Snapshot selected",
-      promptActionLabel: "Use diagnosis prompt",
+      detail: t("evidenceSelectedDetail", { id: pageContext.evidenceSnapshotID }),
+      label: t("evidenceSelected"),
+      message: t("snapshotSelected"),
+      promptActionLabel: t("useDiagnosisPrompt"),
     };
   }
   return {
     alertType: "info",
     color: "default",
     detail: pageContext.description,
-    label: "Room selected",
-    message: pageContext.title || "Diagnosis room selected",
-    promptActionLabel: "Use diagnosis prompt",
+    label: t("roomSelected"),
+    message: pageContext.title || t("diagnosisRoomSelected"),
+    promptActionLabel: t("useDiagnosisPrompt"),
   };
 }
 
 function diagnosisHandoffItems(
   pageContext: DiagnosisPageContext,
-  selectedRoom?: DiagnosisRoomSummary,
+  selectedRoom: DiagnosisRoomSummary | undefined,
+  locale: string,
+  t: DiagnosisWorkspaceTranslator,
+  tNotification: DiagnosisNotificationTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
 ): DescriptionsProps["items"] {
   const latestNotification =
     selectedRoom === undefined
@@ -5711,44 +5931,52 @@ function diagnosisHandoffItems(
   return [
     {
       key: "snapshot",
-      label: "Evidence snapshot",
+      label: t("evidenceSnapshot"),
       children: String(
         selectedRoom?.evidence_snapshot_id ??
           pageContext.evidenceSnapshotID ??
-          "-",
+          t("none"),
       ),
     },
     {
       key: "session",
-      label: "Session",
-      children: selectedRoom?.session_id ?? pageContext.sessionID ?? "-",
+      label: t("sessionID"),
+      children: selectedRoom?.session_id ?? pageContext.sessionID ?? t("none"),
     },
     {
       key: "room-status",
-      label: "Room status",
-      children: selectedRoom?.room_status ?? "-",
+      label: t("roomState"),
+      children: selectedRoom
+        ? localizeDiagnosisRoomStatus(selectedRoom.room_status, tStatus)
+        : t("none"),
     },
     {
       key: "task-status",
-      label: "Task status",
-      children: selectedRoom?.task_status ?? "-",
+      label: t("taskStatus"),
+      children: selectedRoom
+        ? localizeDiagnosisRoomStatus(selectedRoom.task_status, tStatus)
+        : t("none"),
     },
     {
       key: "turns",
-      label: "Turns",
-      children: selectedRoom ? String(selectedRoom.turn_count) : "-",
+      label: t("turns"),
+      children: selectedRoom
+        ? t("turnCount", { count: selectedRoom.turn_count })
+        : t("none"),
     },
     {
       key: "notification",
-      label: "Latest notification",
+      label: t("latestNotification"),
       children: latestNotification
-        ? `${notificationEventLabel(latestNotification.event_kind)} / ${latestNotification.provider_status}`
-        : "-",
+        ? `${notificationEventLabel(latestNotification.event_kind, tNotification)} / ${localizeDiagnosisRoomStatus(latestNotification.provider_status, tStatus)}`
+        : t("none"),
     },
     {
       key: "updated",
-      label: "Last activity",
-      children: selectedRoom ? formatDateTime(selectedRoom.updated_at) : "-",
+      label: t("lastActivity"),
+      children: selectedRoom
+        ? formatDateTime(selectedRoom.updated_at, locale)
+        : t("none"),
     },
   ];
 }
@@ -5787,19 +6015,55 @@ function DiagnosisReviewQueuePanel({
   title?: string;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
-  const items = diagnosisReviewQueueItems(queueInput);
-  const summary = diagnosisReviewQueueSummary(items, queueInput);
-  const actionPlan = diagnosisReviewQueueActionPlan(items, summary);
-  const postEvidenceStatus = diagnosisReviewQueuePostEvidenceStatus(queueInput);
-  const taskProgress = diagnosisReviewQueueTaskProgress(
-    items,
-    summary,
-    postEvidenceStatus,
+  const tReview = useTranslations("DiagnosisRoom.reviewQueue");
+  const tStatus = useTranslations("DiagnosisRoom.status");
+  const rawItems = diagnosisReviewQueueItems(queueInput);
+  const rawSummary = diagnosisReviewQueueSummary(rawItems, queueInput);
+  const rawActionPlan = diagnosisReviewQueueActionPlan(rawItems, rawSummary);
+  const rawPostEvidenceStatus =
+    diagnosisReviewQueuePostEvidenceStatus(queueInput);
+  const rawTaskProgress = diagnosisReviewQueueTaskProgress(
+    rawItems,
+    rawSummary,
+    rawPostEvidenceStatus,
   );
-  const actionGate = diagnosisReviewQueueActionGate({
+  const items = rawItems.map((item) =>
+    localizeDiagnosisReviewQueueItem(item, queueInput, tReview, tStatus),
+  );
+  const summary = localizeDiagnosisReviewQueueSummary(
+    rawSummary,
+    queueInput,
+    tReview,
+  );
+  const actionPlan = localizeDiagnosisReviewQueueActionPlan(
+    rawActionPlan,
+    rawSummary,
+    queueInput,
+    items,
+    tReview,
+  );
+  const postEvidenceStatus = localizeDiagnosisReviewQueuePostEvidenceStatus(
+    rawPostEvidenceStatus,
+    queueInput,
+    tReview,
+    tStatus,
+  );
+  const taskProgress = localizeDiagnosisReviewQueueTaskProgress(
+    rawTaskProgress,
+    rawItems,
+    rawSummary,
+    queueInput,
+    postEvidenceStatus,
+    tReview,
+  );
+  const rawActionGate = diagnosisReviewQueueActionGate({
     actionDisabledReason,
     connected,
   });
+  const actionGate = localizeDiagnosisReviewQueueActionGate(
+    rawActionGate,
+    tReview,
+  );
 
   return (
     <section
@@ -5858,8 +6122,8 @@ function DiagnosisReviewQueuePanel({
           className="diagnosis-review-task-timeline"
           items={reviewQueueTaskProgressTimelineItems({
             canConfirmConclusion,
-            connected: !actionGate.disabled,
-            actionDisabledReason: actionGate.reason,
+            connected,
+            actionDisabledReason: rawActionGate.reason,
             items,
             onConfirmConclusion,
             onOpenConnection,
@@ -5968,12 +6232,13 @@ function DiagnosisReviewQueuePanel({
           <List.Item
             actions={reviewQueueActions(
               item,
-              !actionGate.disabled,
+              connected,
               canConfirmConclusion,
               onUseFollowUp,
               onUseEvidencePlan,
               onConfirmConclusion,
-              actionGate.reason,
+              rawActionGate.reason,
+              t,
             )}
           >
             <List.Item.Meta
@@ -5982,7 +6247,7 @@ function DiagnosisReviewQueuePanel({
                 <Space size={[6, 6]} wrap>
                   <span>{item.title}</span>
                   <Tag color={reviewQueueStatusColor(item.status)}>
-                    {item.status}
+                    {localizeReviewQueueStatus(item.status, tReview)}
                   </Tag>
                   <Tag>{item.tag}</Tag>
                 </Space>
@@ -6043,7 +6308,9 @@ function SupplementalEvidenceHistoryPanel({
   items: DiagnosisSupplementalEvidenceRecord[];
   missingEvidenceRequests: DiagnosisConsultationEvidenceRequest[];
 }) {
+  const locale = useLocale();
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   if (items.length === 0) {
     return null;
   }
@@ -6096,7 +6363,7 @@ function SupplementalEvidenceHistoryPanel({
                     <Typography.Text type="secondary">
                       {t("turnRange", {
                         from: item.user_sequence,
-                        time: formatDateTime(item.provided_at),
+                        time: formatDateTime(item.provided_at, locale),
                         to: item.assistant_sequence,
                       })}
                     </Typography.Text>
@@ -6110,7 +6377,10 @@ function SupplementalEvidenceHistoryPanel({
                         unresolvedRequest?.priority ?? item.priority,
                       )}
                     >
-                      {unresolvedRequest?.priority ?? item.priority}
+                      {localizeDiagnosisRoomStatus(
+                        unresolvedRequest?.priority ?? item.priority,
+                        tStatus,
+                      )}
                     </Tag>
                     <Tag color={unresolvedRequest ? "warning" : "success"}>
                       {unresolvedRequest ? t("latestRequestTag") : t("retained")}
@@ -6144,6 +6414,8 @@ function CollaborationParticipantsPanel({
     participants,
     directoryUsersBySubject,
   );
+  const identityCoverageCopy =
+    localizeDiagnosisCollaborationIdentityCoverage(identityCoverage, t);
   return (
     <section
       aria-label={t("participantsLabel")}
@@ -6156,8 +6428,10 @@ function CollaborationParticipantsPanel({
         </Typography.Text>
       </div>
       <Alert
-        description={identityCoverage.detail}
-        message={t("identityCoverage", { summary: identityCoverage.summary })}
+        description={identityCoverageCopy.detail}
+        message={t("identityCoverage", {
+          summary: identityCoverageCopy.summary,
+        })}
         showIcon
         type={diagnosisCollaborationIdentityCoverageAlertType(
           identityCoverage.status,
@@ -6176,7 +6450,7 @@ function CollaborationParticipantsPanel({
               <List.Item.Meta
                 description={
                   <Space size={[6, 6]} wrap>
-                    <Tag>{participantActivityLabel(participant)}</Tag>
+                    <Tag>{participantActivityLabel(participant, t)}</Tag>
                     {profile.detailTags.map((tag) => (
                       <Tag key={tag}>{tag}</Tag>
                     ))}
@@ -6198,7 +6472,7 @@ function CollaborationParticipantsPanel({
                     </Typography.Text>
                     {participant.roles.map((role) => (
                       <Tag color={collaborationRoleColor(role)} key={role}>
-                        {diagnosisCollaborationRoleLabel(role)}
+                        {collaborationRoleLabel(role, t)}
                       </Tag>
                     ))}
                   </Space>
@@ -6228,6 +6502,7 @@ function ConclusionApprovalPanel({
   mode: DiagnosisApprovalMode;
   pendingAuthorities: readonly DiagnosisApprovalAuthority[] | undefined;
 }) {
+  const locale = useLocale();
   const t = useTranslations("DiagnosisRoom.workspace");
   const effectivePendingAuthorities =
     pendingAuthorities ??
@@ -6303,7 +6578,7 @@ function ConclusionApprovalPanel({
                 description={
                   <Space size={[6, 6]} wrap>
                     <Typography.Text type="secondary">
-                      {formatDateTime(approval.approved_at)}
+                      {formatDateTime(approval.approved_at, locale)}
                     </Typography.Text>
                     <Typography.Text type="secondary">
                       {approval.reason}
@@ -6366,16 +6641,25 @@ function DiagnosisWorkflowReadinessPanel({
   items: DiagnosisWorkflowReadinessItem[];
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
-  const readyCount = items.filter((item) => item.status === "ready").length;
+  const tReadiness = useTranslations("DiagnosisRoom.workflowReadiness");
+  const tStatus = useTranslations("DiagnosisRoom.status");
+  const localizedItems = items.map((item) =>
+    localizeDiagnosisWorkflowReadinessItem(item, tReadiness, tStatus),
+  );
+  const readyCount = localizedItems.filter(
+    (item) => item.status === "ready",
+  ).length;
   const percent =
-    items.length === 0 ? 0 : Math.round((readyCount / items.length) * 100);
+    localizedItems.length === 0
+      ? 0
+      : Math.round((readyCount / localizedItems.length) * 100);
   const nextItem =
-    items.find((item) => item.status === "blocked") ??
-    items.find((item) => item.status === "attention") ??
-    items.find((item) => item.status === "pending") ??
-    items[0];
+    localizedItems.find((item) => item.status === "blocked") ??
+    localizedItems.find((item) => item.status === "attention") ??
+    localizedItems.find((item) => item.status === "pending") ??
+    localizedItems[0];
   const nextAction = nextItem ? actions[nextItem.key] : undefined;
-  const summaryStatus = workflowReadinessSummaryStatus(items);
+  const summaryStatus = workflowReadinessSummaryStatus(localizedItems);
   return (
     <section
       aria-label={t("workflowReadinessLabel")}
@@ -6385,11 +6669,17 @@ function DiagnosisWorkflowReadinessPanel({
         <Space size={[8, 8]} wrap>
           <Typography.Title level={3}>{t("operationalReadiness")}</Typography.Title>
           <Tag color={workflowReadinessStatusColor(summaryStatus)}>
-            {workflowReadinessStatusLabel(summaryStatus)}
+            {localizeDiagnosisWorkflowReadinessStatus(
+              summaryStatus,
+              tReadiness,
+            )}
           </Tag>
         </Space>
         <Typography.Text type="secondary">
-          {t("readyRatio", { ready: readyCount, total: items.length })}
+          {t("readyRatio", {
+            ready: readyCount,
+            total: localizedItems.length,
+          })}
         </Typography.Text>
       </div>
       <Progress
@@ -6407,13 +6697,13 @@ function DiagnosisWorkflowReadinessPanel({
           }
           className="diagnosis-workflow-readiness-next"
           description={nextItem.detail}
-          message={`${nextItem.label}: ${workflowReadinessStatusLabel(nextItem.status)}`}
+          message={`${nextItem.label}: ${localizeDiagnosisWorkflowReadinessStatus(nextItem.status, tReadiness)}`}
           showIcon
           type={workflowReadinessAlertType(nextItem.status)}
         />
       ) : null}
       <div className="diagnosis-workflow-readiness-grid">
-        {items.map((item) => {
+        {localizedItems.map((item) => {
           const action = actions[item.key];
           return (
             <div
@@ -6424,7 +6714,10 @@ function DiagnosisWorkflowReadinessPanel({
                 <Space size={[6, 6]} wrap>
                   <Typography.Text strong>{item.label}</Typography.Text>
                   <Tag color={workflowReadinessStatusColor(item.status)}>
-                    {workflowReadinessStatusLabel(item.status)}
+                    {localizeDiagnosisWorkflowReadinessStatus(
+                      item.status,
+                      tReadiness,
+                    )}
                   </Tag>
                   {item.metric ? <Tag>{item.metric}</Tag> : null}
                 </Space>
@@ -6508,16 +6801,18 @@ function DiagnosisRoomPermissionPanel({
               description={
                 <Space size={[6, 6]} wrap>
                   <Tag>{item.permission}</Tag>
-                  <Tag>{item.scopeLabel}</Tag>
+                  <Tag>{diagnosisRoomPermissionScopeLabel(item, t)}</Tag>
                 </Space>
               }
               title={
                 <Space size={[6, 6]} wrap>
-                  <Typography.Text strong>{item.label}</Typography.Text>
+                  <Typography.Text strong>
+                    {diagnosisRoomPermissionItemLabel(item, t)}
+                  </Typography.Text>
                   <Tag
                     color={diagnosisRoomRBACPermissionStatusColor(item.status)}
                   >
-                    {diagnosisRoomRBACPermissionStatusLabel(item.status)}
+                    {diagnosisRoomRBACPermissionStatusLabel(item.status, t)}
                   </Tag>
                 </Space>
               }
@@ -6557,21 +6852,6 @@ function workflowReadinessStatusColor(
       return "processing";
     case "ready":
       return "success";
-  }
-}
-
-function workflowReadinessStatusLabel(
-  status: DiagnosisWorkflowReadinessStatus,
-): string {
-  switch (status) {
-    case "attention":
-      return "Needs attention";
-    case "blocked":
-      return "Blocked";
-    case "pending":
-      return "Pending";
-    case "ready":
-      return "Ready";
   }
 }
 
@@ -6734,18 +7014,59 @@ function diagnosisRoomRBACPermissionStatusColor(
 
 function diagnosisRoomRBACPermissionStatusLabel(
   status: DiagnosisRoomRBACPermissionStatus,
+  t: DiagnosisWorkspaceTranslator,
 ): string {
   switch (status) {
     case "allowed":
-      return "Allowed";
+      return t("permissionAllowed");
     case "checking":
-      return "Checking";
+      return t("permissionChecking");
     case "denied":
-      return "Denied";
+      return t("permissionDenied");
     case "not-enforced":
-      return "Not enforced";
+      return t("permissionNotEnforced");
     case "not-selected":
-      return "No room";
+      return t("permissionNoRoom");
+  }
+}
+
+function diagnosisRoomPermissionItemLabel(
+  item: DiagnosisRoomRBACPermissionItem,
+  t: DiagnosisWorkspaceTranslator,
+): string {
+  if (item.action === "create") {
+    switch (item.permission) {
+      case "operations.read":
+        return t("permissionReadEvidence");
+      case "notification_channel.test":
+        return t("permissionUseCloseChannel");
+      default:
+        return t("permissionCreateRooms");
+    }
+  }
+  switch (item.action) {
+    case "read":
+      return t("permissionReadRoom");
+    case "participate":
+      return t("permissionParticipate");
+    case "approve":
+      return t("permissionApprove");
+    case "administer":
+      return t("permissionAdminister");
+  }
+}
+
+function diagnosisRoomPermissionScopeLabel(
+  item: DiagnosisRoomRBACPermissionItem,
+  t: DiagnosisWorkspaceTranslator,
+): string {
+  switch (item.scope.kind) {
+    case "global":
+      return t("globalScope");
+    case "notification-channel":
+      return t("notificationChannelScope", { id: item.scope.channelID });
+    case "room":
+      return item.scope.sessionID ?? t("noRoomSelected");
   }
 }
 
@@ -6758,6 +7079,7 @@ function ActorSubjectTags({
   label?: string;
   subject?: string;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const normalizedSubject = subject?.trim() ?? "";
   if (normalizedSubject === "") {
     return null;
@@ -6779,32 +7101,57 @@ function ActorSubjectTags({
       {profile.detailTags.slice(0, 2).map((tag) => (
         <Tag key={tag}>{tag}</Tag>
       ))}
-      {profile.active === false ? <Tag color="warning">inactive</Tag> : null}
+      {profile.active === false ? <Tag color="warning">{t("inactive")}</Tag> : null}
       {!isSystem && !profile.matchedDirectoryUser ? (
-        <Tag color="default">not synced</Tag>
+        <Tag color="default">{t("notSynced")}</Tag>
       ) : null}
-      {isSystem ? <Tag color="default">system</Tag> : null}
+      {isSystem ? <Tag color="default">{t("system")}</Tag> : null}
     </Space>
   );
 }
 
 function participantActivityLabel(
   participant: DiagnosisCollaborationParticipant,
+  t: DiagnosisWorkspaceTranslator,
 ): string {
   const parts: string[] = [];
   if (participant.messageCount > 0) {
-    parts.push(`${participant.messageCount} message`);
+    parts.push(t("participantMessageCount", { count: participant.messageCount }));
   }
   if (participant.evidenceCollectionCount > 0) {
-    parts.push(`${participant.evidenceCollectionCount} evidence`);
+    parts.push(t("participantEvidenceCount", {
+      count: participant.evidenceCollectionCount,
+    }));
   }
   if (participant.supplementalEvidenceCount > 0) {
-    parts.push(`${participant.supplementalEvidenceCount} supplemental`);
+    parts.push(t("participantSupplementalCount", {
+      count: participant.supplementalEvidenceCount,
+    }));
   }
   if (participant.confirmedConclusion) {
-    parts.push("confirmed");
+    parts.push(t("participantConfirmed"));
   }
-  return parts.length > 0 ? parts.join(" / ") : "no activity";
+  return parts.length > 0 ? parts.join(" / ") : t("participantNoActivity");
+}
+
+function collaborationRoleLabel(
+  role: DiagnosisCollaborationParticipantRole,
+  t: DiagnosisWorkspaceTranslator,
+): string {
+  switch (role) {
+    case "assistant":
+      return t("roleAI");
+    case "confirmation":
+      return t("roleConfirmation");
+    case "evidence":
+      return t("roleEvidence");
+    case "message":
+      return t("roleMessage");
+    case "owner":
+      return t("roleOwner");
+    case "supplemental_evidence":
+      return t("roleSupplemental");
+  }
 }
 
 function collaborationRoleColor(
@@ -6866,8 +7213,8 @@ function OperatorEvidenceCollectionPanel({
     selectedTemplate.tool !== "active_alerts" &&
     !selectedTemplateParameterized;
   const recommendations = useMemo(
-    () => operatorEvidenceRecommendations(templates, alertContext),
-    [alertContext, templates],
+    () => operatorEvidenceRecommendations(templates, alertContext, t),
+    [alertContext, t, templates],
   );
 
   return (
@@ -6922,7 +7269,7 @@ function OperatorEvidenceCollectionPanel({
       <Form<OperatorEvidenceFormValues>
         form={form}
         initialValues={{
-          reason: "Collect operator-selected evidence.",
+          reason: t("operatorSelectedEvidenceReason"),
           tool: "active_alerts",
         }}
         layout="vertical"
@@ -6935,17 +7282,17 @@ function OperatorEvidenceCollectionPanel({
             disabled={!connected}
             loading={templatesLoading}
             onChange={(value: number | undefined) => {
-              applyOperatorEvidenceTemplate(form, templates, value);
+              applyOperatorEvidenceTemplate(form, templates, value, t);
             }}
             optionFilterProp="label"
-            options={operatorEvidenceTemplateOptions(templates)}
+            options={operatorEvidenceTemplateOptions(templates, t)}
             placeholder={t("selectEnabledTemplate")}
             showSearch
           />
         </Form.Item>
         {selectedTemplate ? (
           <Alert
-            description={operatorEvidenceTemplateSummary(selectedTemplate)}
+            description={operatorEvidenceTemplateSummary(selectedTemplate, t)}
             message={t("templateSummary", {
               id: selectedTemplate.id,
               name: selectedTemplate.name,
@@ -6983,7 +7330,7 @@ function OperatorEvidenceCollectionPanel({
               { required: true, message: t("reasonRequired") },
               {
                 validator: (_, value: unknown) =>
-                  operatorEvidenceSingleLine(value, t("reason"), 500),
+                  operatorEvidenceSingleLine(value, t("reason"), 500, t),
               },
             ]}
           >
@@ -6995,7 +7342,11 @@ function OperatorEvidenceCollectionPanel({
             rules={[
               {
                 validator: (_, value: unknown) =>
-                  operatorEvidenceOptionalInteger(value, t("templateID")),
+                  operatorEvidenceOptionalInteger(
+                    value,
+                    t("templateID"),
+                    t,
+                  ),
               },
             ]}
           >
@@ -7015,6 +7366,7 @@ function OperatorEvidenceCollectionPanel({
                   operatorEvidenceOptionalInteger(
                     value,
                     t("alertSourceProfile"),
+                    t,
                   ),
               },
             ]}
@@ -7063,6 +7415,7 @@ function OperatorEvidenceCollectionPanel({
                       value,
                       t("query"),
                       500,
+                      t,
                     );
                   },
                 }),
@@ -7091,6 +7444,7 @@ function OperatorEvidenceCollectionPanel({
                         peerValue: getFieldValue("stepSeconds"),
                         templateID: getFieldValue("templateID"),
                         templateLabel: t("templateID"),
+                        t,
                         value,
                       }),
                   }),
@@ -7118,6 +7472,7 @@ function OperatorEvidenceCollectionPanel({
                         peerValue: getFieldValue("windowSeconds"),
                         templateID: getFieldValue("templateID"),
                         templateLabel: t("templateID"),
+                        t,
                         value,
                       }),
                   }),
@@ -7138,7 +7493,7 @@ function OperatorEvidenceCollectionPanel({
             rules={[
               {
                 validator: (_, value: unknown) =>
-                  operatorEvidenceOptionalInteger(value, t("limit")),
+                  operatorEvidenceOptionalInteger(value, t("limit"), t),
               },
             ]}
           >
@@ -7348,7 +7703,9 @@ function DiagnosisHandoffBacklogPanel({
   result: ApiResult<DiagnosisHandoffListResponse>;
   selectedEvidenceSnapshotID?: number;
 }) {
+  const locale = useLocale();
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   return (
     <Card
       className="diagnosis-room-panel settings-overview-card"
@@ -7378,7 +7735,7 @@ function DiagnosisHandoffBacklogPanel({
           description={result.error.message}
           message={
             result.error.status
-              ? `HTTP ${result.error.status}`
+              ? t("httpStatus", { status: result.error.status })
               : t("requestFailed")
           }
           showIcon
@@ -7430,10 +7787,14 @@ function DiagnosisHandoffBacklogPanel({
                       size={[6, 6]}
                       wrap
                     >
-                      <span>group #{snapshot.alert_group_id}</span>
-                      <span>{item.alerts.length} alert(s)</span>
-                      <span>{snapshot.created_by_workflow || "manual"}</span>
-                      <span>created {formatDateTime(snapshot.created_at)}</span>
+                      <span>{t("groupNumber", { id: snapshot.alert_group_id })}</span>
+                      <span>{t("alertCount", { count: item.alerts.length })}</span>
+                      <span>{snapshot.created_by_workflow || t("manual")}</span>
+                      <span>
+                        {t("createdAt", {
+                          time: formatDateTime(snapshot.created_at, locale),
+                        })}
+                      </span>
                       {primaryAlert !== undefined ? (
                         <span>{alertSummary(primaryAlert)}</span>
                       ) : null}
@@ -7443,15 +7804,17 @@ function DiagnosisHandoffBacklogPanel({
                     <Space size={[6, 6]} wrap>
                       <span>
                         {primaryAlert === undefined
-                          ? `Evidence snapshot #${snapshot.id}`
-                          : alertName(primaryAlert)}
+                          ? t("evidenceSnapshotNumber", { id: snapshot.id })
+                          : alertName(primaryAlert, t)}
                       </span>
-                      {selected ? <Tag color="processing">selected</Tag> : null}
-                      <Tag color={severityColor(severity)}>{severity}</Tag>
-                      <Tag color={snapshotStatusColor(snapshot.status)}>
-                        snapshot #{snapshot.id}
+                      {selected ? <Tag color="processing">{t("selected")}</Tag> : null}
+                      <Tag color={severityColor(severity)}>
+                        {localizeDiagnosisRoomStatus(severity, tStatus)}
                       </Tag>
-                      <Tag color="warning">needs room</Tag>
+                      <Tag color={snapshotStatusColor(snapshot.status)}>
+                        {t("snapshotNumber", { id: snapshot.id })}
+                      </Tag>
+                      <Tag color="warning">{t("needsRoom")}</Tag>
                     </Space>
                   }
                 />
@@ -7496,6 +7859,10 @@ function RecentDiagnosisRoomsPanel({
   selectedSessionID: string;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const locale = useLocale();
+  const tNextStep = useTranslations("DiagnosisRoom.nextStep");
+  const tNotification = useTranslations("DiagnosisRoom.notification");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const rooms = result.ok ? result.data.items : [];
   const filteredRooms = result.ok
     ? filterDiagnosisRoomsByQueue(rooms, filter)
@@ -7529,7 +7896,7 @@ function RecentDiagnosisRoomsPanel({
           description={result.error.message}
           message={
             result.error.status
-              ? `HTTP ${result.error.status}`
+              ? t("httpStatus", { status: result.error.status })
               : t("requestFailed")
           }
           showIcon
@@ -7574,7 +7941,16 @@ function RecentDiagnosisRoomsPanel({
                     failedNotification,
                     notificationDeliveryCoverage,
                   );
-                const nextStep = diagnosisRoomNextStep(room);
+                const rawNextStep = diagnosisRoomNextStep(room);
+                const nextStep = {
+                  ...rawNextStep,
+                  ...localizeDiagnosisRoomNextStep(
+                    rawNextStep,
+                    locale,
+                    tNextStep,
+                    tStatus,
+                  ),
+                };
                 const workflowUnavailable =
                   diagnosisRoomWorkflowUnavailable(room);
                 const closeUnavailableInFlight =
@@ -7583,10 +7959,13 @@ function RecentDiagnosisRoomsPanel({
                   room,
                   clientReady,
                   selected,
+                  t,
+                  tStatus,
                 );
                 const selectActionLabel = diagnosisRoomSelectActionLabel(
                   room,
                   selected,
+                  t,
                 );
                 const actions: ReactNode[] = [
                   <TooltipAction
@@ -7745,14 +8124,22 @@ function RecentDiagnosisRoomsPanel({
                           size={[6, 6]}
                           wrap
                         >
-                          <span>task #{room.diagnosis_task_id}</span>
-                          <span>evidence #{room.evidence_snapshot_id}</span>
-                          <span>updated {formatDateTime(room.updated_at)}</span>
+                          <span>{t("taskNumber", { id: room.diagnosis_task_id })}</span>
+                          <span>{t("evidenceNumber", { id: room.evidence_snapshot_id })}</span>
+                          <span>
+                            {t("updatedAt", {
+                              time: formatDateTime(room.updated_at, locale),
+                            })}
+                          </span>
                           <span>{nextStep.detail}</span>
                           {latestNotification ? (
                             <span>
-                              notified{" "}
-                              {formatDateTime(latestNotification.occurred_at)}
+                              {t("notifiedAt", {
+                                time: formatDateTime(
+                                  latestNotification.occurred_at,
+                                  locale,
+                                ),
+                              })}
                             </span>
                           ) : null}
                         </Space>
@@ -7763,14 +8150,14 @@ function RecentDiagnosisRoomsPanel({
                             {room.session_id}
                           </Typography.Text>
                           {selected ? (
-                            <Tag color="processing">selected</Tag>
+                            <Tag color="processing">{t("selected")}</Tag>
                           ) : null}
                           <Tag color={nextStep.color}>{nextStep.label}</Tag>
                           <Tag color={roomStatusColor(room.room_status)}>
-                            {room.room_status}
+                            {localizeDiagnosisRoomStatus(room.room_status, tStatus)}
                           </Tag>
                           <Tag color={taskStatusColor(room.task_status)}>
-                            {room.task_status}
+                            {localizeDiagnosisRoomStatus(room.task_status, tStatus)}
                           </Tag>
                           {room.workflow_visibility ? (
                             <Tag
@@ -7778,7 +8165,12 @@ function RecentDiagnosisRoomsPanel({
                                 room.workflow_visibility.status,
                               )}
                             >
-                              {t("workflowStatus", { status: room.workflow_visibility.status })}
+                              {t("workflowStatus", {
+                                status: localizeDiagnosisRoomStatus(
+                                  room.workflow_visibility.status,
+                                  tStatus,
+                                ),
+                              })}
                             </Tag>
                           ) : null}
                           {latestNotification ? (
@@ -7790,6 +8182,7 @@ function RecentDiagnosisRoomsPanel({
                               >
                                 {notificationEventLabel(
                                   latestNotification.event_kind,
+                                  tNotification,
                                 )}
                               </Tag>
                               <Tag
@@ -7797,14 +8190,22 @@ function RecentDiagnosisRoomsPanel({
                                   latestNotification.provider_status,
                                 )}
                               >
-                                notify {latestNotification.provider_status}
+                                {t("notificationStatus", {
+                                  status: localizeDiagnosisRoomStatus(
+                                    latestNotification.provider_status,
+                                    tStatus,
+                                  ),
+                                })}
                               </Tag>
                             </>
                           ) : null}
                           {room.latest_conclusion ? (
                             <>
                               <Tag color="success">
-                                {room.latest_conclusion.status}
+                                {localizeDiagnosisRoomStatus(
+                                  room.latest_conclusion.status,
+                                  tStatus,
+                                )}
                               </Tag>
                               {room.latest_conclusion.confidence ? (
                                 <Tag
@@ -7812,7 +8213,10 @@ function RecentDiagnosisRoomsPanel({
                                     room.latest_conclusion.confidence,
                                   )}
                                 >
-                                  {room.latest_conclusion.confidence}
+                                  {localizeDiagnosisRoomStatus(
+                                    room.latest_conclusion.confidence,
+                                    tStatus,
+                                  )}
                                 </Tag>
                               ) : null}
                               {room.latest_conclusion.requires_human_review ? (
@@ -7844,25 +8248,31 @@ function RoomProgressTags({
 }: {
   progress: NonNullable<DiagnosisRoomSummary["latest_progress"]>;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const missingCount = progress.missing_evidence_requests?.length ?? 0;
   const suggestionCount = progress.evidence_collection_suggestions?.length ?? 0;
   const status = progress.conclusion_status || progress.status;
   return (
     <>
-      <Tag color={conclusionStatusColor(status)}>{status}</Tag>
+      <Tag color={conclusionStatusColor(status)}>
+        {localizeDiagnosisRoomStatus(status, tStatus)}
+      </Tag>
       <Tag color={confidenceColor(progress.confidence)}>
-        {progress.confidence}
+        {localizeDiagnosisRoomStatus(progress.confidence, tStatus)}
       </Tag>
       {progress.requires_human_review ? (
-        <Tag color="warning">review</Tag>
+        <Tag color="warning">{t("review")}</Tag>
       ) : null}
       {progress.evidence_request_count > 0 ? (
-        <Tag>{progress.evidence_request_count} planned</Tag>
+        <Tag>{t("plannedCount", { count: progress.evidence_request_count })}</Tag>
       ) : null}
       {missingCount > 0 ? (
-        <Tag color="warning">{missingCount} missing</Tag>
+        <Tag color="warning">{t("missingCount", { count: missingCount })}</Tag>
       ) : null}
-      {suggestionCount > 0 ? <Tag>{suggestionCount} suggestion(s)</Tag> : null}
+      {suggestionCount > 0 ? (
+        <Tag>{t("suggestionCount", { count: suggestionCount })}</Tag>
+      ) : null}
     </>
   );
 }
@@ -7871,19 +8281,23 @@ function diagnosisRoomSelectDisabledReason(
   room: DiagnosisRoomSummary,
   clientReady: boolean,
   selected: boolean,
+  t: DiagnosisWorkspaceTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
 ): string {
   if (!clientReady) {
-    return "Diagnosis room controls are still loading.";
+    return t("roomControlsLoading");
   }
   if (selected) {
-    return "This diagnosis room is already selected.";
+    return t("roomAlreadySelected");
   }
   if (room.room_status !== "open" && room.room_status !== "closed") {
-    return "Diagnosis room cannot be selected from its current state.";
+    return t("roomStateNotSelectable");
   }
   if (diagnosisRoomWorkflowUnavailable(room)) {
     const status = room.workflow_visibility?.status ?? "unknown";
-    return `Workflow is ${status}; inspect or restart it before opening.`;
+    return t("workflowUnavailableSelection", {
+      status: localizeDiagnosisRoomStatus(status, tStatus),
+    });
   }
   return "";
 }
@@ -7891,11 +8305,12 @@ function diagnosisRoomSelectDisabledReason(
 function diagnosisRoomSelectActionLabel(
   room: DiagnosisRoomSummary,
   selected: boolean,
+  t: DiagnosisWorkspaceTranslator,
 ): string {
   if (selected) {
-    return "Selected";
+    return t("selected");
   }
-  return room.room_status === "closed" ? "Review" : "Use";
+  return room.room_status === "closed" ? t("review") : t("selectRoom");
 }
 
 function latestDiagnosisRoomNotification(
@@ -7950,16 +8365,28 @@ function DiagnosisNotificationTimelineSection({
   room?: DiagnosisRoomSummary;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const locale = useLocale();
+  const tNotification = useTranslations("DiagnosisRoom.notification");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const entries = room?.notification_timeline ?? [];
   const proofExpected =
     room !== undefined && diagnosisNotificationDeliveryProofExpected(room);
   if (entries.length === 0 && !proofExpected) {
     return null;
   }
-  const proofSummary = diagnosisNotificationContentProofSummary(entries);
-  const deliveryCoverage = diagnosisNotificationDeliveryCoverage(entries);
-  const recoveryHint = diagnosisNotificationDeliveryRecoveryHint(
-    deliveryCoverage,
+  const proofSummary = localizeDiagnosisNotificationContentProofSummary(
+    diagnosisNotificationContentProofSummary(entries),
+    tNotification,
+  );
+  const rawDeliveryCoverage = diagnosisNotificationDeliveryCoverage(entries);
+  const deliveryCoverage = localizeDiagnosisNotificationDeliveryCoverage(
+    rawDeliveryCoverage,
+    tNotification,
+  );
+  const recoveryHint = localizeDiagnosisNotificationRecoveryHint(
+    rawDeliveryCoverage,
+    locale,
+    tNotification,
   );
   const showProofSummary = entries.length > 0;
 
@@ -8005,7 +8432,7 @@ function DiagnosisNotificationTimelineSection({
               )}
               key={phase.key}
             >
-              {phase.label}: {phase.status}
+              {phase.label}: {localizeDiagnosisRoomStatus(phase.status, tStatus)}
             </Tag>
           ))}
         </Space>
@@ -8023,9 +8450,13 @@ function DiagnosisNotificationTimelineSection({
           className="diagnosis-notification-timeline-list"
           items={notificationTimelineItems(entries, {
             administerDisabledReason,
+            locale,
             onRetryNotification,
             retryingNotificationKey,
             sessionID: room?.session_id,
+            t,
+            tNotification,
+            tStatus,
           })}
         />
       ) : (
@@ -8038,16 +8469,22 @@ function DiagnosisNotificationTimelineSection({
   );
 }
 
+type NotificationTimelineOptions = {
+  administerDisabledReason?: string;
+  locale: string;
+  onRetryNotification?: (
+    entry: DiagnosisRoomNotificationTimelineEntry,
+  ) => void;
+  retryingNotificationKey?: string;
+  sessionID?: string;
+  t: DiagnosisWorkspaceTranslator;
+  tNotification: DiagnosisNotificationTranslator;
+  tStatus: DiagnosisRoomStatusTranslator;
+};
+
 function notificationTimelineItems(
   entries: DiagnosisRoomNotificationTimelineEntry[],
-  options: {
-    administerDisabledReason?: string;
-    onRetryNotification?: (
-      entry: DiagnosisRoomNotificationTimelineEntry,
-    ) => void;
-    retryingNotificationKey?: string;
-    sessionID?: string;
-  } = {},
+  options: NotificationTimelineOptions,
 ): TimelineProps["items"] {
   return entries.map((entry, index) => ({
     key: notificationTimelineEntryKey(entry, index),
@@ -8058,17 +8495,18 @@ function notificationTimelineItems(
 
 function notificationTimelineItem(
   entry: DiagnosisRoomNotificationTimelineEntry,
-  options: {
-    administerDisabledReason?: string;
-    onRetryNotification?: (
-      entry: DiagnosisRoomNotificationTimelineEntry,
-    ) => void;
-    retryingNotificationKey?: string;
-    sessionID?: string;
-  },
+  options: NotificationTimelineOptions,
 ) {
-  const proof = diagnosisNotificationContentProofDisplay(entry);
-  const retryAction = notificationTimelineRetryAction(entry);
+  const proof = localizeDiagnosisNotificationContentProof(
+    entry,
+    diagnosisNotificationContentProofDisplay(entry),
+    options.tNotification,
+  );
+  const retryAction = notificationTimelineRetryAction(
+    entry,
+    options.t,
+    options.tNotification,
+  );
   return (
     <div className="diagnosis-notification-timeline-entry">
       <Space
@@ -8077,18 +8515,20 @@ function notificationTimelineItem(
         wrap
       >
         <Typography.Text strong>
-          {notificationEventLabel(entry.event_kind)}
+          {notificationEventLabel(entry.event_kind, options.tNotification)}
         </Typography.Text>
         <Tag color={notificationStatusColor(entry.provider_status)}>
-          {entry.provider_status}
+          {localizeDiagnosisRoomStatus(entry.provider_status, options.tStatus)}
         </Tag>
         <Tag color={proof.color}>{proof.label}</Tag>
         {entry.confidence ? (
           <Tag color={confidenceColor(entry.confidence)}>
-            {entry.confidence}
+            {localizeDiagnosisRoomStatus(entry.confidence, options.tStatus)}
           </Tag>
         ) : null}
-        {entry.requires_human_review ? <Tag color="warning">review</Tag> : null}
+        {entry.requires_human_review ? (
+          <Tag color="warning">{options.t("review")}</Tag>
+        ) : null}
         {retryAction && options.onRetryNotification ? (
           <Tooltip
             title={options.administerDisabledReason || retryAction.title}
@@ -8111,10 +8551,10 @@ function notificationTimelineItem(
         ) : null}
       </Space>
       <Typography.Text type="secondary">
-        {formatDateTime(entry.occurred_at)}
+        {formatDateTime(entry.occurred_at, options.locale)}
       </Typography.Text>
       <Typography.Text type="secondary">
-        {notificationTimelineDetails(entry)}
+        {notificationTimelineDetails(entry, options.t)}
       </Typography.Text>
       <Typography.Text type="secondary">{proof.detail}</Typography.Text>
     </div>
@@ -8123,24 +8563,28 @@ function notificationTimelineItem(
 
 function notificationTimelineRetryAction(
   entry: DiagnosisRoomNotificationTimelineEntry,
+  t: DiagnosisWorkspaceTranslator,
+  tNotification: DiagnosisNotificationTranslator,
 ): { ariaLabel: string; label: string; title: string } | null {
   if (!isDiagnosisNotificationRetryEventKind(entry.event_kind)) {
     return null;
   }
   if (diagnosisRoomNotificationFailed(entry.provider_status)) {
     return {
-      ariaLabel: `Retry ${notificationEventLabel(entry.event_kind)}`,
-      label: "Retry",
-      title:
-        "Retry the failed notification through the configured notification channel.",
+      ariaLabel: t("retryEvent", {
+        event: notificationEventLabel(entry.event_kind, tNotification),
+      }),
+      label: t("retry"),
+      title: t("retryNotificationHint"),
     };
   }
   if (diagnosisNotificationContentProofRetryRequired(entry)) {
     return {
-      ariaLabel: `Retry AI content proof for ${notificationEventLabel(entry.event_kind)}`,
-      label: "Retry proof",
-      title:
-        "Re-send the AI notification so the retained timeline includes output digest proof.",
+      ariaLabel: t("retryProofEvent", {
+        event: notificationEventLabel(entry.event_kind, tNotification),
+      }),
+      label: t("retryProof"),
+      title: t("retryProofHint"),
     };
   }
   return null;
@@ -8162,33 +8606,30 @@ function notificationTimelineEntryKey(
 
 function notificationTimelineDetails(
   entry: DiagnosisRoomNotificationTimelineEntry,
+  t: DiagnosisWorkspaceTranslator,
 ): string {
   const details = [
     entry.notification_channel_profile_id !== undefined
-      ? `channel #${entry.notification_channel_profile_id}`
+      ? t("channelNumber", { id: entry.notification_channel_profile_id })
       : "",
-    entry.turn_count !== undefined ? `turn ${entry.turn_count}` : "",
+    entry.turn_count !== undefined
+      ? t("turnNumber", { count: entry.turn_count })
+      : "",
     entry.assistant_sequence !== undefined
-      ? `assistant sequence ${entry.assistant_sequence}`
+      ? t("assistantSequence", { sequence: entry.assistant_sequence })
       : "",
     entry.provider_message_id
-      ? `provider message ${entry.provider_message_id}`
+      ? t("providerMessage", { id: entry.provider_message_id })
       : "",
   ].filter(Boolean);
-  return details.length > 0 ? details.join(" / ") : "No delivery metadata";
+  return details.length > 0 ? details.join(" / ") : t("noDeliveryMetadata");
 }
 
-function notificationEventLabel(eventKind: string): string {
-  switch (eventKind) {
-    case "diagnosis_room.assistant_turn_notification_sent":
-      return "AI update notification";
-    case "diagnosis_room.final_ready_notification_sent":
-      return "Final-ready notification";
-    case "diagnosis_room.close_notification_sent":
-      return "Close notification";
-    default:
-      return eventKind;
-  }
+function notificationEventLabel(
+  eventKind: string,
+  t: DiagnosisNotificationTranslator,
+): string {
+  return localizeDiagnosisNotificationEvent(eventKind, t);
 }
 
 function notificationTimelineColor(status: string): string {
@@ -8212,11 +8653,11 @@ function reviewQueueActions(
   onUseEvidencePlan: (item: DiagnosisEvidenceRequest) => void,
   onConfirmConclusion: () => void,
   actionDisabledReason: string,
+  t: DiagnosisWorkspaceTranslator,
 ) {
   const actionDisabled = !connected || actionDisabledReason !== "";
   const canPrepareConnectionGatedAction =
     diagnosisReviewQueueConnectionGateAllowsPreparation({
-      actionDisabledReason,
       connected,
     });
   if (item.kind === "supplemental_evidence") {
@@ -8227,20 +8668,20 @@ function reviewQueueActions(
         key="use-follow-up"
         title={
           canPrepareConnectionGatedAction
-            ? "Prepare follow-up now; connect before submitting evidence."
+            ? t("prepareFollowUpAction")
             : actionDisabledReason ||
-              `Prepare follow-up for ${item.request.label}.`
+              t("prepareFollowUp", { label: item.request.label })
         }
       >
         <Button
-          aria-label={`Use follow-up for ${item.request.label}`}
+          aria-label={t("useFollowUpFor", { label: item.request.label })}
           disabled={disabled}
           icon={<FormOutlined />}
           onClick={() => onUseFollowUp(item.request)}
           size="small"
           type="link"
         >
-          Use follow-up
+          {t("useFollowUp")}
         </Button>
       </TooltipAction>,
     ];
@@ -8254,20 +8695,22 @@ function reviewQueueActions(
         key="use-latest-request"
         title={
           canPrepareConnectionGatedAction
-            ? "Prepare latest request now; connect before submitting evidence."
+            ? t("prepareLatestRequestNow")
             : actionDisabledReason ||
-              `Prepare latest request for ${unresolvedRequest.label}.`
+              t("prepareLatestRequestFor", { label: unresolvedRequest.label })
         }
       >
         <Button
-          aria-label={`Use latest request for ${unresolvedRequest.label}`}
+          aria-label={t("useLatestRequestFor", {
+            label: unresolvedRequest.label,
+          })}
           disabled={disabled}
           icon={<FormOutlined />}
           onClick={() => onUseFollowUp(unresolvedRequest)}
           size="small"
           type="link"
         >
-          Use latest request
+          {t("useLatestRequest")}
         </Button>
       </TooltipAction>,
     ];
@@ -8280,13 +8723,13 @@ function reviewQueueActions(
         key="retry-collection"
         title={
           canPrepareConnectionGatedAction
-            ? "Stage retry now; connect before collecting evidence."
+            ? t("stageRetryNow")
             : actionDisabledReason ||
-              `Retry ${item.result.tool} evidence collection.`
+              t("retryCollectionHint", { tool: item.result.tool })
         }
       >
         <Button
-          aria-label={`Retry collection for ${item.result.tool}`}
+          aria-label={t("retryCollectionFor", { tool: item.result.tool })}
           disabled={disabled}
           icon={<ReloadOutlined />}
           onClick={() =>
@@ -8295,7 +8738,7 @@ function reviewQueueActions(
           size="small"
           type="link"
         >
-          Retry collection
+          {t("retryCollection")}
         </Button>
       </TooltipAction>,
     ];
@@ -8309,20 +8752,20 @@ function reviewQueueActions(
         key="add-recovery-evidence"
         title={
           canPrepareConnectionGatedAction
-            ? "Prepare recovery evidence now; connect before submitting evidence."
+            ? t("prepareRecoveryNow")
             : actionDisabledReason ||
-              `Add recovery evidence for ${item.result.tool}.`
+              t("addRecoveryEvidenceFor", { tool: item.result.tool })
         }
       >
         <Button
-          aria-label={`Add recovery evidence for ${item.result.tool}`}
+          aria-label={t("addRecoveryEvidenceFor", { tool: item.result.tool })}
           disabled={disabled}
           icon={<FormOutlined />}
           onClick={() => onUseFollowUp(recoveryRequest)}
           size="small"
           type="link"
         >
-          Add evidence
+          {t("addEvidence")}
         </Button>
       </TooltipAction>,
     ];
@@ -8335,19 +8778,20 @@ function reviewQueueActions(
         key="use-evidence-plan"
         title={
           canPrepareConnectionGatedAction
-            ? "Stage this plan now; connect before collecting evidence."
-            : actionDisabledReason || `Collect ${item.request.tool} evidence.`
+            ? t("stagePlanNow")
+            : actionDisabledReason ||
+              t("collectEvidenceFor", { tool: item.request.tool })
         }
       >
         <Button
-          aria-label={`Use collection plan for ${item.request.tool}`}
+          aria-label={t("useCollectionPlanFor", { tool: item.request.tool })}
           disabled={disabled}
           icon={<FormOutlined />}
           onClick={() => onUseEvidencePlan(item.request)}
           size="small"
           type="link"
         >
-          Use plan
+          {t("usePlan")}
         </Button>
       </TooltipAction>,
     ];
@@ -8359,8 +8803,8 @@ function reviewQueueActions(
         key="confirm"
         title={
           canConfirmConclusion
-            ? "Confirm and retain the AI conclusion."
-            : "Resolve review blockers before confirming the conclusion."
+            ? t("confirmConclusionHint")
+            : t("confirmConclusionBlockedHint")
         }
       >
         <Button
@@ -8370,7 +8814,7 @@ function reviewQueueActions(
           size="small"
           type="link"
         >
-          Confirm
+          {t("confirm")}
         </Button>
       </TooltipAction>,
     ];
@@ -8481,7 +8925,6 @@ function reviewQueueTaskPhaseActionButton({
   const actionDisabled = !connected || actionDisabledReason !== "";
   const canPrepareConnectionGatedAction =
     diagnosisReviewQueueConnectionGateAllowsPreparation({
-      actionDisabledReason,
       connected,
     });
   if (action.kind === "request_reassessment") {
@@ -8525,8 +8968,8 @@ function reviewQueueTaskPhaseActionButton({
         disabled={!canConfirmConclusion}
         title={
           canConfirmConclusion
-            ? "Confirm and retain the AI conclusion."
-            : "Resolve review blockers before confirming the conclusion."
+            ? t("confirmConclusionHint")
+            : t("confirmConclusionBlockedHint")
         }
       >
         <Button
@@ -8551,25 +8994,22 @@ function reviewQueueTaskPhaseActionButton({
     if (!request) {
       return null;
     }
+    const retryCollection =
+      item.kind === "collection_result" && item.retryable;
     const disabled = actionDisabled && !canPrepareConnectionGatedAction;
     return (
       <TooltipAction
         disabled={disabled}
         title={
           canPrepareConnectionGatedAction
-            ? "Stage this plan now; connect before collecting evidence."
-            : actionDisabledReason || `Collect ${request.tool} evidence.`
+            ? t("stagePlanNow")
+            : actionDisabledReason ||
+              t("collectEvidenceFor", { tool: request.tool })
         }
       >
         <Button
           disabled={disabled}
-          icon={
-            action.label === "Retry collection" ? (
-              <ReloadOutlined />
-            ) : (
-              <FormOutlined />
-            )
-          }
+          icon={retryCollection ? <ReloadOutlined /> : <FormOutlined />}
           onClick={() => onUseEvidencePlan(request)}
           size="small"
           type="primary"
@@ -8596,8 +9036,9 @@ function reviewQueueTaskPhaseActionButton({
       disabled={disabled}
       title={
         canPrepareConnectionGatedAction
-          ? "Prepare follow-up now; connect before submitting evidence."
-          : actionDisabledReason || `Prepare follow-up for ${request.label}.`
+          ? t("prepareFollowUpAction")
+          : actionDisabledReason ||
+            t("prepareFollowUp", { label: request.label })
       }
     >
       <Button
@@ -8720,6 +9161,11 @@ function ConsultationProgressPanel({
   supplementalEvidence: DiagnosisSupplementalEvidenceRecord[];
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tConsultation = useTranslations("DiagnosisRoom.consultationProgress");
+  const tFinal = useTranslations("DiagnosisRoom.finalConclusion");
+  const tNotification = useTranslations("DiagnosisRoom.notification");
+  const tReview = useTranslations("DiagnosisRoom.reviewQueue");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const confidence = confidencePercent(latestInsight.confidence);
   const collectedCount = latestInsight.collectionResults.filter(
     (item) => item.status === "collected",
@@ -8728,17 +9174,28 @@ function ConsultationProgressPanel({
     latestInsight.insight.missing_evidence_requests?.length ?? 0;
   const suggestionCount =
     latestInsight.insight.evidence_collection_suggestions?.length ?? 0;
-  const confidenceProgress = diagnosisFinalConclusionConfidenceProgress(
-    {
-      confidence: latestInsight.confidence,
-      confidence_rationale: latestInsight.insight.confidence_rationale,
-      status: "available",
-    },
-    latestInsight.confidenceTimeline,
+  const confidenceProgress = localizeFinalConclusionConfidenceProgress(
+    diagnosisFinalConclusionConfidenceProgress(
+      {
+        confidence: latestInsight.confidence,
+        confidence_rationale: latestInsight.insight.confidence_rationale,
+        status: "available",
+      },
+      latestInsight.confidenceTimeline,
+    ),
+    tFinal,
+    tStatus,
   );
   const showConfidenceProgress =
     confidenceProgress.status !== "unknown" ||
     latestInsight.confidenceTimeline.length > 1;
+  const localizedNotificationDeliveryCoverage =
+    notificationDeliveryCoverage === undefined
+      ? undefined
+      : localizeDiagnosisNotificationDeliveryCoverage(
+          notificationDeliveryCoverage,
+          tNotification,
+        );
 
   return (
     <section
@@ -8750,12 +9207,20 @@ function ConsultationProgressPanel({
           <div className="diagnosis-progress-heading">
             <Typography.Text strong>{t("confidence")}</Typography.Text>
             <Tag color={confidenceColor(latestInsight.confidence)}>
-              {latestInsight.confidence || "unknown"}
+              {localizeDiagnosisRoomStatus(
+                latestInsight.confidence || "unknown",
+                tStatus,
+              )}
             </Tag>
           </div>
           <Progress
             aria-label={t("diagnosisConfidence")}
-            aria-valuetext={`${latestInsight.confidence || "unknown"} confidence`}
+            aria-valuetext={tFinal("confidenceValue", {
+              confidence: localizeDiagnosisRoomStatus(
+                latestInsight.confidence || "unknown",
+                tStatus,
+              ),
+            })}
             percent={confidence}
             size="small"
             status={confidenceProgressStatus(latestInsight)}
@@ -8774,7 +9239,11 @@ function ConsultationProgressPanel({
           <ProgressMetric label={t("suggestions")} value={suggestionCount} />
           <ProgressMetric
             label={t("next")}
-            value={nextDiagnosisAction(latestInsight, supplementalEvidence)}
+            value={nextDiagnosisAction(
+              latestInsight,
+              supplementalEvidence,
+              tReview,
+            )}
             wide
           />
         </div>
@@ -8794,8 +9263,11 @@ function ConsultationProgressPanel({
           latestInsight,
           supplementalEvidence,
           finalConclusion,
-          notificationDeliveryCoverage,
+          localizedNotificationDeliveryCoverage,
           t,
+          tConsultation,
+          tReview,
+          tStatus,
         )}
       />
     </section>
@@ -8845,7 +9317,9 @@ function ConfidenceTimelineCheckpoint({
 }: {
   item: DiagnosisConfidenceTimelineEntry;
 }) {
+  const locale = useLocale();
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const evidenceRequestCount = item.evidence_requests?.length ?? 0;
   const collectionResultCount = item.evidence_collection_results?.length ?? 0;
   const missingCount = item.missing_evidence_requests?.length ?? 0;
@@ -8859,7 +9333,7 @@ function ConfidenceTimelineCheckpoint({
         </Typography.Text>
         {item.conclusion_status ? (
           <Tag color={conclusionStatusColor(item.conclusion_status)}>
-            {item.conclusion_status}
+            {localizeDiagnosisRoomStatus(item.conclusion_status, tStatus)}
           </Tag>
         ) : null}
         <Tag color={item.requires_human_review ? "warning" : "success"}>
@@ -8875,16 +9349,16 @@ function ConfidenceTimelineCheckpoint({
         size={[6, 6]}
         wrap
       >
-        <Tag>{evidenceRequestCount} planned</Tag>
+        <Tag>{t("plannedCount", { count: evidenceRequestCount })}</Tag>
         <Tag color={collectionResultCount > 0 ? "success" : "default"}>
-          {collectionResultCount} collected
+          {t("collectedCount", { count: collectionResultCount })}
         </Tag>
         <Tag color={missingCount > 0 ? "warning" : "default"}>
-          {missingCount} missing
+          {t("missingCount", { count: missingCount })}
         </Tag>
-        <Tag>{suggestionCount} suggestion(s)</Tag>
+        <Tag>{t("suggestionCount", { count: suggestionCount })}</Tag>
         <Typography.Text type="secondary">
-          {formatDateTime(item.occurred_at)}
+          {formatDateTime(item.occurred_at, locale)}
         </Typography.Text>
       </Space>
     </div>
@@ -8922,6 +9396,9 @@ function consultationTimelineItems(
     | ReturnType<typeof diagnosisNotificationDeliveryCoverage>
     | undefined,
   t: DiagnosisWorkspaceTranslator,
+  tConsultation: DiagnosisConsultationProgressTranslator,
+  tReview: DiagnosisReviewQueueTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
 ): TimelineProps["items"] {
   const conclusionStatus = latestInsight.insight.conclusion_status || "unknown";
   const items: NonNullable<TimelineProps["items"]> = [
@@ -8930,7 +9407,13 @@ function consultationTimelineItems(
       color: conclusionStatus === "needs_evidence" ? "blue" : "green",
       children: (
         <TimelineStep
-          detail={`Turn ${latestInsight.turnCount} produced a ${latestInsight.confidence || "unknown"} confidence diagnosis.`}
+          detail={tConsultation("draftDetail", {
+            confidence: localizeDiagnosisRoomStatus(
+              latestInsight.confidence || "unknown",
+              tStatus,
+            ),
+            turn: latestInsight.turnCount,
+          })}
           title={t("aiDraftedDiagnosis")}
         />
       ),
@@ -8950,9 +9433,10 @@ function consultationTimelineItems(
       color: "blue",
       children: (
         <TimelineStep
-          detail={formatSupplementalEvidenceSummary(
+          detail={localizeDiagnosisSupplementalEvidenceSummary(
             latestInsight.evidenceRequests.length,
             supplementalRequests.length,
+            tConsultation,
           )}
           tags={supplementalRequests.slice(0, 3).map((request) => ({
             color: priorityColor(request.priority),
@@ -8965,11 +9449,16 @@ function consultationTimelineItems(
   }
 
   if (latestInsight.collectionResults.length > 0) {
-    const reassessmentStatus = diagnosisConsultationReassessmentStatus({
-      autoFollowUpCount: latestInsight.autoFollowUpCount,
-      collectionResults: latestInsight.collectionResults,
-      confidenceTimeline: latestInsight.confidenceTimeline,
-    });
+    const reassessmentStatus = localizeDiagnosisConsultationReassessment(
+      diagnosisConsultationReassessmentStatus({
+        autoFollowUpCount: latestInsight.autoFollowUpCount,
+        collectionResults: latestInsight.collectionResults,
+        confidenceTimeline: latestInsight.confidenceTimeline,
+      }),
+      latestInsight.autoFollowUpCount,
+      tConsultation,
+      tStatus,
+    );
     items.push({
       key: "collection",
       color: latestInsight.collectionResults.some(
@@ -8979,8 +9468,9 @@ function consultationTimelineItems(
         : "green",
       children: (
         <TimelineStep
-          detail={formatCollectionProgressSummary(
+          detail={localizeDiagnosisCollectionProgressSummary(
             latestInsight.collectionResults,
+            tConsultation,
           )}
           tags={latestInsight.collectionResults.slice(0, 3).map((item) => ({
             color: collectionStatusColor(item.status),
@@ -9003,7 +9493,9 @@ function consultationTimelineItems(
                 : [
                     {
                       color: "processing",
-                      label: `turn ${reassessmentStatus.turnCount}`,
+                      label: tConsultation("turnTag", {
+                        turn: reassessmentStatus.turnCount,
+                      }),
                     },
                   ]),
               ...(reassessmentStatus.confidence === undefined
@@ -9011,7 +9503,12 @@ function consultationTimelineItems(
                 : [
                     {
                       color: confidenceColor(reassessmentStatus.confidence),
-                      label: `${reassessmentStatus.confidence} confidence`,
+                      label: tConsultation("confidenceTag", {
+                        confidence: localizeDiagnosisRoomStatus(
+                          reassessmentStatus.confidence,
+                          tStatus,
+                        ),
+                      }),
                     },
                   ]),
               ...(reassessmentStatus.conclusionStatus === undefined
@@ -9021,7 +9518,10 @@ function consultationTimelineItems(
                       color: conclusionStatusColor(
                         reassessmentStatus.conclusionStatus,
                       ),
-                      label: reassessmentStatus.conclusionStatus,
+                      label: localizeDiagnosisRoomStatus(
+                        reassessmentStatus.conclusionStatus,
+                        tStatus,
+                      ),
                     },
                   ]),
             ]}
@@ -9032,11 +9532,15 @@ function consultationTimelineItems(
     }
   }
 
-  const conclusionLifecycle = diagnosisConsultationConclusionLifecycleStatus({
-    conclusionStatus: latestInsight.insight.conclusion_status,
-    finalConclusion,
-    notificationDelivery: notificationDeliveryCoverage,
-  });
+  const conclusionLifecycle = localizeDiagnosisConsultationLifecycle(
+    diagnosisConsultationConclusionLifecycleStatus({
+      conclusionStatus: latestInsight.insight.conclusion_status,
+      finalConclusion,
+      notificationDelivery: notificationDeliveryCoverage,
+    }),
+    tConsultation,
+    notificationDeliveryCoverage?.detail,
+  );
   if (conclusionLifecycle.status !== "not_ready") {
     items.push({
       key: "conclusion-lifecycle",
@@ -9044,7 +9548,11 @@ function consultationTimelineItems(
       children: (
         <TimelineStep
           detail={conclusionLifecycle.detail}
-          tags={consultationConclusionLifecycleTags(conclusionLifecycle)}
+          tags={consultationConclusionLifecycleTags(
+            conclusionLifecycle,
+            tConsultation,
+            tStatus,
+          )}
           title={conclusionLifecycle.label}
         />
       ),
@@ -9059,14 +9567,20 @@ function consultationTimelineItems(
         : "gray",
     children: (
       <TimelineStep
-        detail={`Conclusion status is ${conclusionStatus}.`}
+        detail={tConsultation("conclusionStatusDetail", {
+          status: localizeDiagnosisRoomStatus(conclusionStatus, tStatus),
+        })}
         tags={[
           {
             color: conclusionStatusColor(conclusionStatus),
-            label: conclusionStatus,
+            label: localizeDiagnosisRoomStatus(conclusionStatus, tStatus),
           },
         ]}
-        title={nextDiagnosisAction(latestInsight, supplementalEvidence)}
+        title={nextDiagnosisAction(
+          latestInsight,
+          supplementalEvidence,
+          tReview,
+        )}
       />
     ),
   });
@@ -9513,6 +10027,7 @@ function EvidenceRequestList({
   title: string;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   return (
     <section className="diagnosis-insight-section">
       <Typography.Title level={3}>{title}</Typography.Title>
@@ -9556,7 +10071,7 @@ function EvidenceRequestList({
                 <Space size={[6, 6]} wrap>
                   <span>{item.label}</span>
                   <Tag color={priorityColor(item.priority)}>
-                    {item.priority}
+                    {localizeDiagnosisRoomStatus(item.priority, tStatus)}
                   </Tag>
                 </Space>
               }
@@ -9823,32 +10338,30 @@ function diagnosisSubmitTurnBlockReason({
   closeInFlight,
   connected,
   rbacBlockReason,
+  t,
   turnInFlight,
 }: {
   actorSubject: string;
   closeInFlight: boolean;
   connected: boolean;
   rbacBlockReason: string;
+  t: DiagnosisWorkspaceTranslator;
   turnInFlight: boolean;
 }): string {
   if (!connected) {
-    return "Connect to a diagnosis room before sending evidence updates.";
+    return t("submitConnectRequired");
   }
-  const identityBlockReason = diagnosisActionIdentityBlockReason(
-    actorSubject,
-    "sending evidence updates",
-  );
-  if (identityBlockReason !== "") {
-    return identityBlockReason;
+  if (actorSubject.trim() === "") {
+    return t("submitIdentityRequired");
   }
   if (rbacBlockReason !== "") {
     return rbacBlockReason;
   }
   if (turnInFlight) {
-    return "Wait for the current AI turn or confirmation request to finish before sending another evidence update.";
+    return t("submitTurnInProgress");
   }
   if (closeInFlight) {
-    return "Wait for the room close request to finish before sending another evidence update.";
+    return t("submitCloseInProgress");
   }
   return "";
 }
@@ -9861,6 +10374,9 @@ function diagnosisConfirmConclusionBlockReason({
   latestInsight,
   rbacBlockReason,
   state,
+  t,
+  tApproval,
+  tReview,
 }: {
   actorSubject: string;
   closeInFlight: boolean;
@@ -9869,53 +10385,53 @@ function diagnosisConfirmConclusionBlockReason({
   latestInsight: LatestConsultationInsight | null;
   rbacBlockReason: string;
   state: DiagnosisStateFrame | null;
+  t: DiagnosisWorkspaceTranslator;
+  tApproval: DiagnosisApprovalTranslator;
+  tReview: DiagnosisReviewQueueTranslator;
 }): string {
   if (!connected) {
-    return "Connect to a diagnosis room before confirming.";
+    return t("confirmConnectRequired");
   }
-  const identityBlockReason = diagnosisActionIdentityBlockReason(
-    actorSubject,
-    "confirming the diagnosis conclusion",
-  );
-  if (identityBlockReason !== "") {
-    return identityBlockReason;
+  if (actorSubject.trim() === "") {
+    return t("confirmIdentityRequired");
   }
   if (rbacBlockReason !== "") {
     return rbacBlockReason;
   }
   if (confirmInFlight) {
-    return "Confirmation is in progress.";
+    return t("confirmationInProgress");
   }
   if (closeInFlight) {
-    return "Wait for the room close request to finish before confirming.";
+    return t("confirmCloseInProgress");
   }
   if (!state) {
-    return "Load the room state before confirming.";
+    return t("confirmLoadState");
   }
   if (state.status === "closed") {
-    return "This diagnosis room is already closed.";
+    return t("confirmRoomClosed");
   }
-  const actorApprovalBlockReason = diagnosisActorApprovalBlockReason({
+  const actorApprovalBlockReason = localizeDiagnosisActorApprovalBlockReason({
     actorSubject,
     approvalInFlight: state.approval_in_flight,
     approvals: state.approvals ?? [],
     conclusionDigest: state.conclusion_digest,
     mode: state.approval_mode,
     ownerSubject: state.owner_subject,
-  });
+  }, tApproval);
   if (actorApprovalBlockReason !== "") {
     return actorApprovalBlockReason;
   }
   if (state.in_flight) {
-    return "Wait for the current diagnosis turn to finish.";
+    return t("confirmTurnInProgress");
   }
   const unresolvedEvidenceReason = latestInsight
-    ? diagnosisReviewQueueBlockingReason(
+    ? localizeDiagnosisReviewQueueBlocker(
         latestInsightReviewQueueInput(
           latestInsight,
           false,
           state.supplemental_evidence ?? [],
         ),
+        tReview,
       )
     : "";
   if (unresolvedEvidenceReason !== "") {
@@ -9927,7 +10443,7 @@ function diagnosisConfirmConclusionBlockReason({
     supplementalEvidence: state.supplemental_evidence ?? [],
   });
   const finalConclusionEvidenceReason = finalConclusionQueueInput
-    ? diagnosisReviewQueueBlockingReason(finalConclusionQueueInput)
+    ? localizeDiagnosisReviewQueueBlocker(finalConclusionQueueInput, tReview)
     : "";
   if (finalConclusionEvidenceReason !== "") {
     return finalConclusionEvidenceReason;
@@ -9939,7 +10455,7 @@ function diagnosisConfirmConclusionBlockReason({
   if (conclusionStatus === "final" || conclusionStatus === "ready_for_review") {
     return "";
   }
-  return "Wait until AI marks the diagnosis final or ready for review.";
+  return t("confirmWaitForReady");
 }
 
 function roomStateDescriptionItems(
@@ -9948,13 +10464,17 @@ function roomStateDescriptionItems(
   sessionID: string | undefined,
   connectionStatus: DiagnosisConnectionStatus,
   directoryUsersBySubject: ReadonlyMap<string, DiagnosisCollaborationDirectoryUser>,
+  locale: string,
+  t: DiagnosisWorkspaceTranslator,
+  tFinal: FinalConclusionTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
 ): DescriptionsProps["items"] {
   const conclusion = state?.final_conclusion;
   const subject = readySubject || state?.owner_subject || "";
   const items: DescriptionsProps["items"] = [
     {
       key: "subject",
-      label: "Subject",
+      label: t("subject"),
       children:
         subject === "" ? (
           "-"
@@ -9967,49 +10487,56 @@ function roomStateDescriptionItems(
     },
     {
       key: "session",
-      label: "Session",
+      label: t("sessionID"),
       children: state?.session_id || sessionID || "-",
     },
     {
       key: "status",
-      label: "Status",
-      children: state?.status || statusLabel(connectionStatus),
+      label: t("roomState"),
+      children: state?.status
+        ? localizeDiagnosisRoomStatus(state.status, tStatus)
+        : statusLabel(connectionStatus, tStatus),
     },
     {
       key: "turns",
-      label: "Turns",
+      label: t("turns"),
       children: state ? String(state.turn_count) : "-",
     },
     {
       key: "close-reason",
-      label: "Close reason",
+      label: t("closeReasonLabel"),
       children: state?.close_reason || "-",
     },
     {
       key: "conclusion",
-      label: "Conclusion",
-      children: finalConclusionLabel(state),
+      label: t("conclusionLabel"),
+      children: localizeFinalConclusionRetention(
+        diagnosisFinalConclusionRetentionState(conclusion),
+        conclusion,
+        tFinal,
+        (value) => formatDateTime(value, locale),
+      ).label,
     },
   ];
   if (conclusion) {
     if (conclusion.evidence_snapshot_id !== undefined) {
       items.push({
         key: "evidence-snapshot",
-        label: "Evidence snapshot",
+        label: t("evidenceSnapshot"),
         children: String(conclusion.evidence_snapshot_id),
       });
     }
     if (conclusion.conclusion_version) {
       items.push({
         key: "conclusion-version",
-        label: "Conclusion version",
+        label: t("conclusionVersion"),
         children: conclusion.conclusion_version,
       });
     }
     if (conclusion.confirmed_by) {
       items.push({
         key: "confirmed-by",
-        label: "Confirmed by",
+        label: t("confirmedBy"),
         children: (
           <ActorSubjectTags
             directoryUsersBySubject={directoryUsersBySubject}
@@ -10021,20 +10548,20 @@ function roomStateDescriptionItems(
     if (conclusion.recorded_at) {
       items.push({
         key: "recorded-at",
-        label: "Recorded at",
-        children: formatDateTime(conclusion.recorded_at),
+        label: t("recorded"),
+        children: formatDateTime(conclusion.recorded_at, locale),
       });
     }
   }
   items.push({
     key: "in-flight",
-    label: "In flight",
-    children: state?.in_flight ? "yes" : "no",
+    label: t("inFlight"),
+    children: state?.in_flight ? t("yes") : t("no"),
   });
   if (state?.latest_error) {
     items.push({
       key: "latest-error",
-      label: "Latest error",
+      label: t("latestError"),
       children: `${state.latest_error.code}: ${state.latest_error.message}`,
     });
   }
@@ -10043,41 +10570,56 @@ function roomStateDescriptionItems(
 
 function consultationInsightItems(
   latestInsight: LatestConsultationInsight,
+  t: DiagnosisWorkspaceTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
 ): DescriptionsProps["items"] {
   const items: NonNullable<DescriptionsProps["items"]> = [
-    { key: "turn", label: "Turn", children: String(latestInsight.turnCount) },
+    {
+      key: "turn",
+      label: t("turnLabel"),
+      children: String(latestInsight.turnCount),
+    },
     {
       key: "status",
-      label: "Room status",
-      children: latestInsight.status || "-",
+      label: t("roomStatus"),
+      children: latestInsight.status
+        ? localizeDiagnosisRoomStatus(latestInsight.status, tStatus)
+        : "-",
     },
     {
       key: "conclusion-status",
-      label: "Conclusion status",
-      children: latestInsight.insight.conclusion_status || "-",
+      label: t("conclusionStatus"),
+      children: latestInsight.insight.conclusion_status
+        ? localizeDiagnosisRoomStatus(
+            latestInsight.insight.conclusion_status,
+            tStatus,
+          )
+        : "-",
     },
     {
       key: "review",
-      label: "Human review",
-      children: latestInsight.requiresHumanReview ? "required" : "optional",
+      label: t("humanReview"),
+      children: latestInsight.requiresHumanReview
+        ? t("required")
+        : t("optional"),
     },
     {
       key: "auto-follow-up",
-      label: "Auto follow-up",
+      label: t("autoFollowUp"),
       children: String(latestInsight.autoFollowUpCount),
     },
   ];
   if (latestInsight.contextBytes !== undefined && latestInsight.contextBytes > 0) {
     items.push({
       key: "context-bytes",
-      label: "Mounted context",
-      children: `${latestInsight.contextBytes.toLocaleString()} B`,
+      label: t("mountedContext"),
+      children: t("contextBytes", { bytes: latestInsight.contextBytes }),
     });
   }
   if (latestInsight.retrievalRefs.length > 0) {
     items.push({
       key: "historical-reports",
-      label: "Historical reports",
+      label: t("historicalReports"),
       children: (
         <Space size={[8, 4]} wrap>
           {latestInsight.retrievalRefs.map(historicalReportReference)}
@@ -10212,12 +10754,12 @@ function activeAlertKey(alert: DiagnosisActiveAlert, index: number): string {
   return `${alert.source}-${labels.alertname ?? labels.alert ?? "alert"}-${labels.namespace ?? "none"}-${index}`;
 }
 
-function finalConclusionLabel(state: DiagnosisStateFrame | null): string {
-  return diagnosisFinalConclusionStatusLabel(state?.final_conclusion);
-}
-
-function finalConclusionText(state: DiagnosisStateFrame): string {
-  return diagnosisFinalConclusionText(state.final_conclusion);
+function finalConclusionText(
+  state: DiagnosisStateFrame,
+  t: FinalConclusionTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
+): string {
+  return localizeFinalConclusionText(state.final_conclusion, t, tStatus);
 }
 
 function RetainedFinalConclusionSummary({
@@ -10234,6 +10776,10 @@ function RetainedFinalConclusionSummary({
   room: DiagnosisRoomSummary;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const locale = useLocale();
+  const tFinal = useTranslations("DiagnosisRoom.finalConclusion");
+  const tNotification = useTranslations("DiagnosisRoom.notification");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const conclusion = room.latest_conclusion;
   if (!conclusion) {
     return null;
@@ -10242,12 +10788,23 @@ function RetainedFinalConclusionSummary({
   const notificationDeliveryCoverage = diagnosisNotificationDeliveryCoverage(
     room.notification_timeline ?? [],
   );
-  const traceability = diagnosisFinalConclusionTraceabilityStatus({
-    conclusion,
-    notificationDelivery: notificationDeliveryCoverage,
-  });
-  const deliveryRecoveryHint = diagnosisNotificationDeliveryRecoveryHint(
+  const localizedNotificationDeliveryCoverage =
+    localizeDiagnosisNotificationDeliveryCoverage(
+      notificationDeliveryCoverage,
+      tNotification,
+    );
+  const traceability = localizeFinalConclusionTraceability(
+    diagnosisFinalConclusionTraceabilityStatus({
+      conclusion,
+      notificationDelivery: notificationDeliveryCoverage,
+    }),
+    tFinal,
+    localizedNotificationDeliveryCoverage,
+  );
+  const deliveryRecoveryHint = localizeDiagnosisNotificationRecoveryHint(
     notificationDeliveryCoverage,
+    locale,
+    tNotification,
   );
   const lifecycle = diagnosisConsultationConclusionLifecycleStatus({
     finalConclusion: conclusion,
@@ -10259,7 +10816,11 @@ function RetainedFinalConclusionSummary({
     {
       key: "confidence",
       label: t("confidence"),
-      children: <Tag color={confidenceColor(confidence)}>{confidence}</Tag>,
+      children: (
+        <Tag color={confidenceColor(confidence)}>
+          {localizeDiagnosisRoomStatus(confidence, tStatus)}
+        </Tag>
+      ),
     },
     {
       key: "human-review",
@@ -10283,7 +10844,7 @@ function RetainedFinalConclusionSummary({
     {
       key: "recorded",
       label: t("recorded"),
-      children: formatDateTime(conclusion.recorded_at),
+      children: formatDateTime(conclusion.recorded_at, locale),
     },
     {
       key: "version",
@@ -10299,7 +10860,7 @@ function RetainedFinalConclusionSummary({
             lifecycle.notificationStatus ?? "pending",
           )}
         >
-          {notificationDeliveryCoverage.label}
+          {localizedNotificationDeliveryCoverage.label}
         </Tag>
       ),
     },
@@ -10343,7 +10904,7 @@ function RetainedFinalConclusionSummary({
           <Typography.Paragraph>{conclusion.content}</Typography.Paragraph>
           <Descriptions column={{ xs: 1, md: 2 }} items={items} size="small" />
           <Space size={[6, 6]} wrap>
-            {notificationDeliveryCoverage.phases.map((phase) => (
+            {localizedNotificationDeliveryCoverage.phases.map((phase) => (
               <Tag
                 color={diagnosisNotificationDeliveryCoveragePhaseColor(
                   phase.status,
@@ -10351,7 +10912,7 @@ function RetainedFinalConclusionSummary({
                 key={phase.key}
                 title={phase.detail}
               >
-                {phase.label}: {phase.status}
+                {phase.label}: {localizeDiagnosisRoomStatus(phase.status, tStatus)}
               </Tag>
             ))}
           </Space>
@@ -10378,6 +10939,7 @@ function ConversationSummaryDetails({
 }: {
   summary: DiagnosisConversationSummary;
 }) {
+  const locale = useLocale();
   const t = useTranslations("DiagnosisRoom.workspace");
   const content = summary.content;
   const sourceRange =
@@ -10393,12 +10955,15 @@ function ConversationSummaryDetails({
     {
       key: "source",
       label: t("sourceTurns"),
-      children: `${sourceRange} (${summary.source_turn_count})`,
+      children: t("sourceTurnRange", {
+        count: summary.source_turn_count,
+        range: sourceRange,
+      }),
     },
     {
       key: "generated",
       label: t("generated"),
-      children: formatDateTime(summary.generated_at),
+      children: formatDateTime(summary.generated_at, locale),
     },
     {
       key: "digest",
@@ -10471,27 +11036,57 @@ function FinalConclusionDetails({
   onUseFollowUp: (item: DiagnosisConsultationEvidenceRequest) => void;
   state: DiagnosisStateFrame;
 }) {
+  const locale = useLocale();
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tFinal = useTranslations("DiagnosisRoom.finalConclusion");
+  const tNotification = useTranslations("DiagnosisRoom.notification");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const conclusion = state.final_conclusion;
   if (!conclusion) {
     return null;
   }
-  const retention = diagnosisFinalConclusionRetentionState(conclusion);
+  const retention = localizeFinalConclusionRetention(
+    diagnosisFinalConclusionRetentionState(conclusion),
+    conclusion,
+    tFinal,
+    (value) => formatDateTime(value, locale),
+  );
   const findings = conclusion.findings ?? [];
   const recommendedActions = conclusion.recommended_actions ?? [];
   const missingEvidence = conclusion.missing_evidence_requests ?? [];
   const collectionSuggestions =
     conclusion.evidence_collection_suggestions ?? [];
   const evidenceRequests = conclusion.evidence_requests ?? [];
-  const reviewItems = diagnosisFinalConclusionReviewItems(conclusion);
-  const confidenceProgress = diagnosisFinalConclusionConfidenceProgress(
+  const reviewItems = localizeFinalConclusionReviewItems(
+    diagnosisFinalConclusionReviewItems(conclusion),
     conclusion,
-    state.confidence_timeline,
+    tFinal,
+    tStatus,
+    (value) => formatDateTime(value, locale),
   );
-  const traceability = diagnosisFinalConclusionTraceabilityStatus({
-    conclusion,
-    notificationDelivery: notificationDeliveryCoverage,
-  });
+  const confidenceProgress = localizeFinalConclusionConfidenceProgress(
+    diagnosisFinalConclusionConfidenceProgress(
+      conclusion,
+      state.confidence_timeline,
+    ),
+    tFinal,
+    tStatus,
+  );
+  const localizedNotificationDeliveryCoverage =
+    notificationDeliveryCoverage === undefined
+      ? undefined
+      : localizeDiagnosisNotificationDeliveryCoverage(
+          notificationDeliveryCoverage,
+          tNotification,
+        );
+  const traceability = localizeFinalConclusionTraceability(
+    diagnosisFinalConclusionTraceabilityStatus({
+      conclusion,
+      notificationDelivery: notificationDeliveryCoverage,
+    }),
+    tFinal,
+    localizedNotificationDeliveryCoverage,
+  );
   const actionDisabled = !connected || actionDisabledReason !== "";
   const traceabilityReviewLabel =
     traceability.reviewOpenCount > 0
@@ -10524,12 +11119,12 @@ function FinalConclusionDetails({
           {traceability.detail}
         </Typography.Text>
       </Space>
-      {notificationDeliveryCoverage !== undefined ? (
+      {localizedNotificationDeliveryCoverage !== undefined ? (
         <section aria-label={t("finalDeliveryProofLabel")}>
           <Space direction="vertical" size={4}>
             <Typography.Text strong>{t("closureDeliveryProof")}</Typography.Text>
             <Space size={[6, 6]} wrap>
-              {notificationDeliveryCoverage.phases.map((phase) => (
+              {localizedNotificationDeliveryCoverage.phases.map((phase) => (
                 <Tag
                   color={diagnosisNotificationDeliveryCoveragePhaseColor(
                     phase.status,
@@ -10537,18 +11132,18 @@ function FinalConclusionDetails({
                   key={phase.key}
                   title={phase.detail}
                 >
-                  {phase.label}: {phase.status}
+                  {phase.label}: {localizeDiagnosisRoomStatus(phase.status, tStatus)}
                 </Tag>
               ))}
             </Space>
             <Typography.Text
               type={
-                notificationDeliveryCoverage.status === "blocked"
+                localizedNotificationDeliveryCoverage.status === "blocked"
                   ? "danger"
                   : "secondary"
               }
             >
-              {notificationDeliveryCoverage.detail}
+              {localizedNotificationDeliveryCoverage.detail}
             </Typography.Text>
           </Space>
         </section>
@@ -10565,7 +11160,9 @@ function FinalConclusionDetails({
           {confidenceProgress.detail}
         </Typography.Text>
       </Space>
-      <Typography.Paragraph>{finalConclusionText(state)}</Typography.Paragraph>
+      <Typography.Paragraph>
+        {finalConclusionText(state, tFinal, tStatus)}
+      </Typography.Paragraph>
       <ActorSubjectTags
         directoryUsersBySubject={directoryUsersBySubject}
         label={t("confirmedBy")}
@@ -10684,6 +11281,7 @@ function FinalConclusionReviewChecklist({
   items: ReturnType<typeof diagnosisFinalConclusionReviewItems>;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tFinal = useTranslations("DiagnosisRoom.finalConclusion");
   if (items.length === 0) {
     return null;
   }
@@ -10699,7 +11297,7 @@ function FinalConclusionReviewChecklist({
               title={
                 <Space size={[6, 6]} wrap>
                   <Tag color={finalConclusionReviewItemColor(item.status)}>
-                    {item.status}
+                    {localizeFinalConclusionReviewStatus(item.status, tFinal)}
                   </Tag>
                   <span>{item.title}</span>
                 </Space>
@@ -10795,6 +11393,7 @@ function FinalConclusionEvidenceList({
   title: string;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   if (items.length === 0) {
     return null;
   }
@@ -10830,7 +11429,9 @@ function FinalConclusionEvidenceList({
           >
             <Space direction="vertical" size={2}>
               <Space size={[6, 6]} wrap>
-                <Tag color={priorityColor(item.priority)}>{item.priority}</Tag>
+                <Tag color={priorityColor(item.priority)}>
+                  {localizeDiagnosisRoomStatus(item.priority, tStatus)}
+                </Tag>
                 <Typography.Text>{item.label}</Typography.Text>
               </Space>
               <Typography.Text type="secondary">{item.detail}</Typography.Text>
@@ -10846,29 +11447,31 @@ function FinalConclusionEvidenceList({
 function alertContextDescriptionItems(
   alert: AlertEventSummary,
   snapshot: AlertEvidenceSnapshotLink,
+  locale: string,
+  t: DiagnosisWorkspaceTranslator,
 ): DescriptionsProps["items"] {
   return [
     {
       key: "summary",
-      label: "Summary",
+      label: t("summaryLabel"),
       children: alertSummary(alert),
     },
     {
       key: "source",
-      label: "Source",
+      label: t("sourceLabel"),
       children: alert.source,
     },
     {
       key: "source-profile",
-      label: "Alert source profile",
+      label: t("alertSourceProfile"),
       children:
         alert.alert_source_profile_id > 0
           ? `#${alert.alert_source_profile_id}`
-          : "legacy provider-only",
+          : t("legacyProviderOnly"),
     },
     {
       key: "canonical",
-      label: "Canonical fingerprint",
+      label: t("canonicalFingerprint"),
       children: (
         <Typography.Text className="settings-event-ids" copyable>
           {alert.canonical_fingerprint}
@@ -10877,7 +11480,7 @@ function alertContextDescriptionItems(
     },
     {
       key: "source-fingerprint",
-      label: "Source fingerprint",
+      label: t("sourceFingerprint"),
       children: (
         <Typography.Text className="settings-event-ids" copyable>
           {alert.source_fingerprint}
@@ -10886,30 +11489,40 @@ function alertContextDescriptionItems(
     },
     {
       key: "started",
-      label: "Started",
-      children: formatDateTime(alert.starts_at),
+      label: t("startedLabel"),
+      children: formatDateTime(alert.starts_at, locale),
     },
     {
       key: "ended",
-      label: "Ended",
-      children: alert.ends_at ? formatDateTime(alert.ends_at) : "Still firing",
+      label: t("endedLabel"),
+      children: alert.ends_at
+        ? formatDateTime(alert.ends_at, locale)
+        : t("stillFiring"),
     },
     {
       key: "snapshot",
-      label: "Evidence snapshot",
-      children: `#${snapshot.id} from ${snapshot.created_by_workflow || "manual"}`,
+      label: t("evidenceSnapshot"),
+      children: t("snapshotOrigin", {
+        id: snapshot.id,
+        origin: snapshot.created_by_workflow || t("manual"),
+      }),
     },
     {
       key: "snapshot-created",
-      label: "Snapshot created",
-      children: formatDateTime(snapshot.created_at),
+      label: t("snapshotCreated"),
+      children: formatDateTime(snapshot.created_at, locale),
     },
   ];
 }
 
-function alertName(alert: AlertEventSummary): string {
+function alertName(
+  alert: AlertEventSummary,
+  t: DiagnosisWorkspaceTranslator,
+): string {
   return (
-    alert.labels.alertname || alert.labels.alert_name || `Alert #${alert.id}`
+    alert.labels.alertname ||
+    alert.labels.alert_name ||
+    t("alertNumber", { id: alert.id })
   );
 }
 
@@ -10959,21 +11572,11 @@ function snapshotStatusColor(
   }
 }
 
-function statusLabel(status: DiagnosisConnectionStatus): string {
-  switch (status) {
-    case "ticketing":
-      return "requesting ticket";
-    case "connecting":
-      return "connecting";
-    case "connected":
-      return "connected";
-    case "closed":
-      return "closed";
-    case "error":
-      return "error";
-    case "idle":
-      return "idle";
-  }
+function statusLabel(
+  status: DiagnosisConnectionStatus,
+  t: DiagnosisRoomStatusTranslator,
+): string {
+  return localizeDiagnosisRoomStatus(status, t);
 }
 
 function statusColor(status: DiagnosisConnectionStatus): string {
@@ -11154,18 +11757,20 @@ function consultationConclusionLifecycleColor(
 
 function consultationConclusionLifecycleTags(
   lifecycle: DiagnosisConsultationConclusionLifecycleStatus,
+  t: DiagnosisConsultationProgressTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
 ): Array<{ color: string; label: string }> {
   const tags: Array<{ color: string; label: string }> = [];
   if (lifecycle.conclusionStatus !== undefined) {
     tags.push({
       color: conclusionStatusColor(lifecycle.conclusionStatus),
-      label: lifecycle.conclusionStatus,
+      label: localizeDiagnosisRoomStatus(lifecycle.conclusionStatus, tStatus),
     });
   }
   if (lifecycle.confirmedBy !== undefined) {
     tags.push({
       color: "success",
-      label: "operator confirmed",
+      label: t("operatorConfirmed"),
     });
   }
   if (lifecycle.notificationStatus !== undefined) {
@@ -11173,7 +11778,12 @@ function consultationConclusionLifecycleTags(
       color: notificationDeliveryCoverageStatusColor(
         lifecycle.notificationStatus,
       ),
-      label: `delivery ${lifecycle.notificationStatus}`,
+      label: t("deliveryTag", {
+        status: localizeDiagnosisRoomStatus(
+          lifecycle.notificationStatus,
+          tStatus,
+        ),
+      }),
     });
   }
   return tags;
@@ -11229,9 +11839,11 @@ function confidenceTimelineColor(
 function nextDiagnosisAction(
   latestInsight: LatestConsultationInsight,
   supplementalEvidence: DiagnosisSupplementalEvidenceRecord[],
+  t: DiagnosisReviewQueueTranslator,
 ): string {
-  return diagnosisReviewQueueNextAction(
+  return localizeDiagnosisReviewQueueNextAction(
     latestInsightReviewQueueInput(latestInsight, false, supplementalEvidence),
+    t,
   );
 }
 
@@ -11276,71 +11888,58 @@ function shouldRenderFinalConclusionReviewQueue(
   );
 }
 
-function formatSupplementalEvidenceSummary(
-  planCount: number,
-  supplementalCount: number,
-): string {
-  const parts: string[] = [];
-  if (planCount > 0) {
-    parts.push(`${planCount} executable request${planCount === 1 ? "" : "s"}`);
-  }
-  if (supplementalCount > 0) {
-    parts.push(
-      `${supplementalCount} supplemental request${supplementalCount === 1 ? "" : "s"}`,
-    );
-  }
-  return parts.length > 0
-    ? parts.join(" and ")
-    : "No supplemental evidence requested.";
-}
-
 function evidencePlanFollowUpMessage(
   request: DiagnosisEvidenceRequest,
+  t: DiagnosisWorkspaceTranslator,
+  kind: "operator" | "planned",
 ): string {
   const lines = [
-    "Run planned evidence collection",
+    kind === "operator"
+      ? t("operatorEvidencePromptTitle")
+      : t("plannedEvidencePromptTitle"),
     "",
-    `Tool: ${request.tool}`,
-    `Reason: ${request.reason}`,
+    t("evidencePromptTool", { tool: request.tool }),
+    t("evidencePromptReason", { reason: request.reason }),
   ];
   if (request.query) {
-    lines.push(`Query: ${request.query}`);
+    lines.push(t("evidencePromptQuery", { query: request.query }));
   }
   if (request.template_id) {
-    lines.push(`Template: ${request.template_id}`);
+    lines.push(t("evidencePromptTemplate", { id: request.template_id }));
   }
   if (request.alert_source_profile_id) {
-    lines.push(`Alert source profile: ${request.alert_source_profile_id}`);
+    lines.push(
+      t("evidencePromptSource", { id: request.alert_source_profile_id }),
+    );
   }
   if (request.window_seconds) {
-    lines.push(`Window: ${request.window_seconds}s`);
+    lines.push(t("evidencePromptWindow", { seconds: request.window_seconds }));
   }
   if (request.step_seconds) {
-    lines.push(`Step: ${request.step_seconds}s`);
+    lines.push(t("evidencePromptStep", { seconds: request.step_seconds }));
   }
   if (request.limit) {
-    lines.push(`Limit: ${request.limit}`);
+    lines.push(t("evidencePromptLimit", { limit: request.limit }));
   }
   lines.push(
     "",
-    "After collecting this evidence, reassess confidence and state whether the conclusion is ready for operator review.",
-    "If only non-executable operator or DBA evidence remains unavailable, keep requires_human_review true and use ready_for_review with explicit caveats instead of repeating the same request.",
+    t("evidencePromptReassess"),
+    t("evidencePromptResidualBoundary"),
   );
   return lines.join("\n");
 }
 
 function operatorEvidenceFollowUpMessage(
   request: DiagnosisEvidenceRequest,
+  t: DiagnosisWorkspaceTranslator,
 ): string {
-  return evidencePlanFollowUpMessage(request).replace(
-    "Run planned evidence collection",
-    "Run operator evidence collection",
-  );
+  return evidencePlanFollowUpMessage(request, t, "operator");
 }
 
 function operatorEvidenceRecommendations(
   templates: DiagnosisToolTemplate[],
   alertContext: DiagnosisAlertContext | undefined,
+  t: DiagnosisWorkspaceTranslator,
 ): OperatorEvidenceRecommendation[] {
   const alertSourceProfileID = alertContext?.alert.alert_source_profile_id ?? 0;
   return templates
@@ -11354,6 +11953,7 @@ function operatorEvidenceRecommendations(
         template,
         alertContext,
         alertSourceProfileID,
+        t,
       ),
     );
 }
@@ -11362,19 +11962,26 @@ function operatorEvidenceRecommendation(
   template: DiagnosisToolTemplate,
   alertContext: DiagnosisAlertContext | undefined,
   alertSourceProfileID: number,
+  t: DiagnosisWorkspaceTranslator,
 ): OperatorEvidenceRecommendation {
   const queryResult = operatorEvidenceTemplateQuery(template, alertContext);
   const formValues = {
-    ...operatorEvidenceFormValuesFromTemplate(template),
+    ...operatorEvidenceFormValuesFromTemplate(template, t),
     ...(queryResult.query !== undefined ? { query: queryResult.query } : {}),
   };
-  const sourceDisabledReason = operatorEvidenceTemplateSourceDisabledReason(
-    template,
-    alertSourceProfileID,
-  );
+  const sourceDisabledReason =
+    alertSourceProfileID > 0 &&
+    template.alert_source_profile_id !== alertSourceProfileID
+      ? t("templateSourceOutsideContext", {
+          context: alertSourceProfileID,
+          source: template.alert_source_profile_id,
+        })
+      : "";
   const disabledReason = [
     queryResult.missing.length > 0
-      ? `Missing ${queryResult.missing.join(", ")} in the current alert context.`
+      ? t("templateContextMissing", {
+          fields: queryResult.missing.join(", "),
+        })
       : "",
     sourceDisabledReason,
   ]
@@ -11386,6 +11993,7 @@ function operatorEvidenceRecommendation(
       template,
       queryResult.query,
       alertSourceProfileID,
+      t,
     ),
     disabledReason,
     formValues,
@@ -11404,27 +12012,30 @@ function operatorEvidenceRecommendationDetail(
   template: DiagnosisToolTemplate,
   query: string | undefined,
   alertSourceProfileID: number,
+  t: DiagnosisWorkspaceTranslator,
 ): string {
   const parts = [
-    `Uses template #${template.id}`,
-    `source #${template.alert_source_profile_id}`,
-    `limit ${template.default_limit}`,
+    t("recommendationTemplate", { id: template.id }),
+    t("recommendationSource", { id: template.alert_source_profile_id }),
+    t("recommendationLimit", { limit: template.default_limit }),
   ];
   if (alertSourceProfileID > 0) {
     parts.push(
       template.alert_source_profile_id === alertSourceProfileID
-        ? "matches alert source"
-        : `alert source #${alertSourceProfileID} context differs`,
+        ? t("recommendationSourceMatches")
+        : t("recommendationSourceDiffers", { id: alertSourceProfileID }),
     );
   }
   if (template.tool === "metric_range_query") {
     parts.push(
-      `window ${template.default_window_seconds}s`,
-      `step ${template.default_step_seconds}s`,
+      t("recommendationWindow", {
+        seconds: template.default_window_seconds,
+      }),
+      t("recommendationStep", { seconds: template.default_step_seconds }),
     );
   }
   if (query !== undefined && query.trim() !== "") {
-    parts.push(`query ${query}`);
+    parts.push(t("recommendationQuery", { query }));
   }
   return parts.join(" / ");
 }
@@ -11480,10 +12091,13 @@ function notificationChannelItems(
   return result.data.items;
 }
 
-function operatorEvidenceTemplateOptions(templates: DiagnosisToolTemplate[]) {
+function operatorEvidenceTemplateOptions(
+  templates: DiagnosisToolTemplate[],
+  t: DiagnosisWorkspaceTranslator,
+) {
   return templates.map((template) => ({
     label: `#${template.id} ${template.name} / ${template.tool}`,
-    title: operatorEvidenceTemplateSummary(template),
+    title: operatorEvidenceTemplateSummary(template, t),
     value: template.id,
   }));
 }
@@ -11492,6 +12106,7 @@ function applyOperatorEvidenceTemplate(
   form: FormInstance<OperatorEvidenceFormValues>,
   templates: DiagnosisToolTemplate[],
   templateID: number | undefined,
+  t: DiagnosisWorkspaceTranslator,
 ) {
   if (templateID === undefined) {
     form.setFieldsValue({
@@ -11504,11 +12119,12 @@ function applyOperatorEvidenceTemplate(
   if (template === undefined) {
     return;
   }
-  form.setFieldsValue(operatorEvidenceFormValuesFromTemplate(template));
+  form.setFieldsValue(operatorEvidenceFormValuesFromTemplate(template, t));
 }
 
 function operatorEvidenceFormValuesFromTemplate(
   template: DiagnosisToolTemplate,
+  t: DiagnosisWorkspaceTranslator,
 ): Partial<OperatorEvidenceFormValues> {
   const query =
     template.tool === "active_alerts" ||
@@ -11519,7 +12135,7 @@ function operatorEvidenceFormValuesFromTemplate(
     alertSourceProfileID: template.alert_source_profile_id,
     limit: template.default_limit > 0 ? template.default_limit : null,
     query,
-    reason: `Collect ${template.name}.`,
+    reason: t("collectTemplateReason", { name: template.name }),
     selectedTemplateID: template.id,
     stepSeconds:
       template.default_step_seconds > 0 ? template.default_step_seconds : null,
@@ -11534,20 +12150,23 @@ function operatorEvidenceFormValuesFromTemplate(
 
 function operatorEvidenceTemplateSummary(
   template: DiagnosisToolTemplate,
+  t: DiagnosisWorkspaceTranslator,
 ): string {
   const parts = [
-    `source #${template.alert_source_profile_id}`,
+    t("recommendationSource", { id: template.alert_source_profile_id }),
     template.tool,
-    `limit ${template.default_limit}`,
+    t("recommendationLimit", { limit: template.default_limit }),
   ];
   if (template.tool === "metric_range_query") {
     parts.push(
-      `window ${template.default_window_seconds}s`,
-      `step ${template.default_step_seconds}s`,
+      t("recommendationWindow", {
+        seconds: template.default_window_seconds,
+      }),
+      t("recommendationStep", { seconds: template.default_step_seconds }),
     );
   }
   if (operatorEvidenceTemplateHasParameterizedQuery(template)) {
-    parts.push("requires concrete query");
+    parts.push(t("requiresConcreteQuery"));
   }
   return parts.join(" / ");
 }
@@ -11555,6 +12174,7 @@ function operatorEvidenceTemplateSummary(
 function validateOperatorSelectedTemplate(
   values: OperatorEvidenceFormValues,
   templates: DiagnosisToolTemplate[],
+  t: DiagnosisWorkspaceTranslator,
 ) {
   if (!isPositiveSafeInteger(values.selectedTemplateID)) {
     return;
@@ -11563,26 +12183,26 @@ function validateOperatorSelectedTemplate(
     (candidate) => candidate.id === values.selectedTemplateID,
   );
   if (template === undefined) {
-    throw new Error("Selected template is no longer available.");
+    throw new Error(t("selectedTemplateUnavailable"));
   }
   if (values.templateID !== template.id) {
-    throw new Error("Template ID must match the selected template.");
+    throw new Error(t("selectedTemplateIDMismatch"));
   }
   if (values.tool !== template.tool) {
-    throw new Error("Tool must match the selected template.");
+    throw new Error(t("selectedTemplateToolMismatch"));
   }
   if (
     values.alertSourceProfileID !== undefined &&
     values.alertSourceProfileID !== null &&
     values.alertSourceProfileID !== template.alert_source_profile_id
   ) {
-    throw new Error("Alert source profile must match the selected template.");
+    throw new Error(t("selectedTemplateSourceMismatch"));
   }
   if (
     operatorEvidenceTemplateHasParameterizedQuery(template) &&
     (values.query === undefined || values.query.trim() === "")
   ) {
-    throw new Error("Concrete query is required for the selected template.");
+    throw new Error(t("concreteQueryRequired"));
   }
   if (
     template.tool !== "active_alerts" &&
@@ -11592,7 +12212,7 @@ function validateOperatorSelectedTemplate(
     const templateQuery = template.query_template.trim();
     if (query !== "" && query !== templateQuery) {
       throw new Error(
-        "Query must match the selected template. Clear the selected template to use a custom query.",
+        t("selectedTemplateQueryMismatch"),
       );
     }
   }
@@ -11600,22 +12220,35 @@ function validateOperatorSelectedTemplate(
 
 function operatorEvidenceRequest(
   values: OperatorEvidenceFormValues,
+  t: DiagnosisWorkspaceTranslator,
 ): DiagnosisEvidenceRequest {
   const tool = values.tool;
   if (!isOperatorEvidenceTool(tool)) {
-    throw new Error("Tool is unsupported.");
+    throw new Error(t("operatorEvidenceToolUnsupported"));
   }
-  const reason = operatorEvidenceRequiredLine(values.reason, "Reason", 500);
+  const reason = operatorEvidenceRequiredLine(
+    values.reason,
+    t("reason"),
+    500,
+    t,
+  );
   const templateID = optionalOperatorEvidenceInteger(
     values.templateID,
-    "Template ID",
+    t("templateID"),
+    t,
   );
   const alertSourceProfileID = optionalOperatorEvidenceInteger(
     values.alertSourceProfileID,
-    "Alert source profile",
+    t("alertSourceProfile"),
+    t,
   );
-  const query = optionalOperatorEvidenceLine(values.query, "Query", 500);
-  const limit = optionalOperatorEvidenceInteger(values.limit, "Limit");
+  const query = optionalOperatorEvidenceLine(
+    values.query,
+    t("query"),
+    500,
+    t,
+  );
+  const limit = optionalOperatorEvidenceInteger(values.limit, t("limit"), t);
   const request: DiagnosisEvidenceRequest = { reason, tool };
   if (templateID !== undefined) {
     request.template_id = templateID;
@@ -11629,7 +12262,7 @@ function operatorEvidenceRequest(
 
   if (tool === "active_alerts") {
     if (query !== undefined) {
-      throw new Error("active_alerts does not accept a query.");
+      throw new Error(t("activeAlertsQueryUnsupported"));
     }
     return request;
   }
@@ -11638,7 +12271,7 @@ function operatorEvidenceRequest(
     request.query = query;
   }
   if (templateID === undefined && query === undefined) {
-    throw new Error("Metric evidence requires a query or template ID.");
+    throw new Error(t("metricEvidenceQueryRequired"));
   }
   if (tool === "metric_query") {
     return request;
@@ -11646,51 +12279,31 @@ function operatorEvidenceRequest(
 
   const windowSeconds = optionalOperatorEvidenceInteger(
     values.windowSeconds,
-    "Window seconds",
+    t("windowSeconds"),
+    t,
   );
   const stepSeconds = optionalOperatorEvidenceInteger(
     values.stepSeconds,
-    "Step seconds",
+    t("stepSeconds"),
+    t,
   );
   if (
     templateID === undefined &&
     (windowSeconds === undefined || stepSeconds === undefined)
   ) {
     throw new Error(
-      "Range metric evidence requires window and step without a template ID.",
+      t("rangeEvidenceFieldsRequired"),
     );
   }
   if (windowSeconds !== undefined || stepSeconds !== undefined) {
     if (windowSeconds === undefined || stepSeconds === undefined) {
-      throw new Error("Window and step must be set together.");
+      throw new Error(t("rangeFieldsTogether"));
     }
-    validateOperatorEvidenceRange(windowSeconds, stepSeconds);
+    validateOperatorEvidenceRange(windowSeconds, stepSeconds, t);
     request.window_seconds = windowSeconds;
     request.step_seconds = stepSeconds;
   }
   return request;
-}
-
-function formatCollectionProgressSummary(
-  items: DiagnosisEvidenceCollectionResult[],
-): string {
-  const collected = items.filter((item) => item.status === "collected").length;
-  const failed = items.filter((item) => item.status === "failed").length;
-  const skipped = items.filter((item) => item.status === "skipped").length;
-  const unsupported = items.filter(
-    (item) => item.status === "unsupported",
-  ).length;
-  const details = [`${collected}/${items.length} collected`];
-  if (failed > 0) {
-    details.push(`${failed} failed`);
-  }
-  if (skipped > 0) {
-    details.push(`${skipped} skipped`);
-  }
-  if (unsupported > 0) {
-    details.push(`${unsupported} unsupported`);
-  }
-  return details.join(", ");
 }
 
 function evidenceCollectionSummary(
@@ -11736,18 +12349,26 @@ function evidenceCollectionSummary(
   );
 }
 
-function diagnosisActionErrorMessage(error: unknown): string {
+function diagnosisActionErrorMessage(
+  error: unknown,
+  t: DiagnosisWorkspaceTranslator,
+): string {
   if (error instanceof DiagnosisActionError && error.status) {
-    return `HTTP ${error.status}: ${error.message}`;
+    return t("requestFailedStatus", {
+      message: error.message,
+      status: error.status,
+    });
   }
   if (error instanceof Error && error.message.trim() !== "") {
     return error.message;
   }
-  return "Request failed.";
+  return t("requestFailed");
 }
 
 function diagnosisPageContext(
   searchParams: { get(name: string): string | null },
+  t: DiagnosisWorkspaceTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
   alertContext?: DiagnosisAlertContext,
 ): DiagnosisPageContext {
   const evidenceSnapshotID = positiveIntegerSearchParam(
@@ -11792,27 +12413,27 @@ function diagnosisPageContext(
     return {
       authError,
       authMode,
-      description: `Loaded diagnosis session ${sessionID}. Connect when operator review is ready.`,
+      description: t("existingRoomDescription", { session: sessionID ?? "" }),
       hasContext: true,
       oidcAuthError,
       sessionID,
       suggestedPrompt: "",
-      title: "Existing diagnosis room",
+      title: t("existingRoomTitle"),
       weComAutoLogin,
       weComLaunchContext,
     };
   }
 
   const hasReportRef = reportID !== undefined;
-  const reportRef = hasReportRef ? `report #${reportID}` : "";
+  const reportRef = hasReportRef ? t("reportReference", { id: reportID }) : "";
   const snapshotRef =
     evidenceSnapshotID !== undefined
-      ? `evidence snapshot #${evidenceSnapshotID}`
-      : "the linked evidence snapshot";
+      ? t("evidenceSnapshotReference", { id: evidenceSnapshotID })
+      : t("linkedEvidenceSnapshot");
   const subReportRef =
-    subReportID !== undefined ? `, subreport #${subReportID}` : "";
+    subReportID !== undefined ? t("subreportReference", { id: subReportID }) : "";
   const contextRef = hasReportRef
-    ? `${snapshotRef} for ${reportRef}`
+    ? t("snapshotForReport", { report: reportRef, snapshot: snapshotRef })
     : snapshotRef;
   const description = diagnosisContextDescription({
     alertContext,
@@ -11821,11 +12442,15 @@ function diagnosisPageContext(
     sessionID,
     snapshotRef,
     subReportRef,
+    t,
+    tStatus,
   });
   const suggestedPrompt = diagnosisSuggestedPrompt({
     alertContext,
     contextRef,
     intent,
+    t,
+    tStatus,
   });
 
   return {
@@ -11844,55 +12469,52 @@ function diagnosisPageContext(
     supplementalFollowUp,
     title:
       reportID !== undefined
-        ? `Report #${reportID} diagnosis`
+        ? t("reportDiagnosisTitle", { id: reportID })
         : alertContext
-          ? "Alert diagnosis"
-          : "Evidence snapshot diagnosis",
+          ? t("alertDiagnosisTitle")
+          : t("snapshotDiagnosisTitle"),
     weComAutoLogin,
     weComLaunchContext,
   };
 }
 
-function diagnosisWeComAuthErrorDetail(error: DiagnosisRoomWeComAuthError): {
+function diagnosisWeComAuthErrorDetail(
+  error: DiagnosisRoomWeComAuthError,
+  t: DiagnosisAuthErrorTranslator,
+): {
   description: string;
   message: string;
 } {
   switch (error) {
     case "wecom_auth_failed":
       return {
-        description:
-          "Enterprise WeChat returned to OpenClarion, but the backend could not establish a diagnosis-room identity. Retry from the intended Enterprise WeChat account or ask an administrator to check the Enterprise WeChat application configuration.",
-        message: "Enterprise WeChat authentication was not accepted.",
+        description: t("wecomAuthFailedDetail"),
+        message: t("wecomAuthFailed"),
       };
     case "wecom_role_unauthorized":
       return {
-        description:
-          "Enterprise WeChat identified the operator, but OpenClarion local RBAC did not grant diagnosis room access. OpenClarion cleared any previous browser session; assign the operator to the right local role, then sign in again.",
-        message: "Enterprise WeChat identity is not authorized locally.",
+        description: t("wecomRoleUnauthorizedDetail"),
+        message: t("wecomRoleUnauthorized"),
       };
     case "wecom_callback_failed":
       return {
-        description:
-          "OpenClarion could not complete the Enterprise WeChat callback. Retry login; if it repeats, check the backend Enterprise WeChat application configuration and callback endpoint.",
-        message: "Enterprise WeChat callback could not be completed.",
+        description: t("wecomCallbackFailedDetail"),
+        message: t("wecomCallbackFailed"),
       };
     case "wecom_callback_missing":
       return {
-        description:
-          "Enterprise WeChat browser login has been replaced by IAM OIDC. Sign in with IAM, then retry the diagnosis-room action.",
-        message: "Enterprise WeChat callback was incomplete.",
+        description: t("wecomCallbackMissingDetail"),
+        message: t("wecomCallbackMissing"),
       };
     case "wecom_entry_unavailable":
       return {
-        description:
-          "Enterprise WeChat browser login has been replaced by IAM OIDC. Sign in with IAM, then retry the diagnosis-room action.",
-        message: "Enterprise WeChat login entry was not available.",
+        description: t("wecomEntryUnavailableDetail"),
+        message: t("wecomEntryUnavailable"),
       };
     case "wecom_login_failed":
       return {
-        description:
-          "OpenClarion could not start Enterprise WeChat login. Retry once; if it repeats, check the backend Enterprise WeChat app credentials, redirect URI, and provider endpoint reachability.",
-        message: "Enterprise WeChat login could not be started.",
+        description: t("wecomLoginFailedDetail"),
+        message: t("wecomLoginFailed"),
       };
   }
 }
@@ -11913,46 +12535,43 @@ function diagnosisRoomOIDCAuthErrorSearchParam(searchParams: {
   }
 }
 
-function diagnosisOIDCAuthErrorDetail(error: DiagnosisRoomOIDCAuthError): {
+function diagnosisOIDCAuthErrorDetail(
+  error: DiagnosisRoomOIDCAuthError,
+  t: DiagnosisAuthErrorTranslator,
+): {
   description: string;
   message: string;
 } {
   switch (error) {
     case "oidc_auth_failed":
       return {
-        description:
-          "IAM returned to OpenClarion, but the backend did not accept the identity token. Retry sign-in or ask an administrator to check the OIDC client, issuer, audience, and approved claims.",
-        message: "IAM authentication was not accepted.",
+        description: t("oidcAuthFailedDetail"),
+        message: t("oidcAuthFailed"),
       };
     case "oidc_role_unauthorized":
       return {
-        description:
-          "IAM identified the operator, but OpenClarion local RBAC did not grant diagnosis room access. Assign the operator to the right local role, then sign in again.",
-        message: "IAM identity is not authorized locally.",
+        description: t("oidcRoleUnauthorizedDetail"),
+        message: t("oidcRoleUnauthorized"),
       };
     case "oidc_callback_failed":
       return {
-        description:
-          "OpenClarion could not complete the IAM callback. Retry sign-in; if it repeats, check OIDC discovery, token endpoint reachability, and redirect URI configuration.",
-        message: "IAM callback could not be completed.",
+        description: t("oidcCallbackFailedDetail"),
+        message: t("oidcCallbackFailed"),
       };
     case "oidc_callback_missing":
       return {
-        description:
-          "IAM did not return the code and state required to complete login, or the browser state cookie expired. Start IAM sign-in again from this console.",
-        message: "IAM callback was incomplete.",
+        description: t("oidcCallbackMissingDetail"),
+        message: t("oidcCallbackMissing"),
       };
     case "oidc_login_failed":
       return {
-        description:
-          "OpenClarion could not start IAM sign-in. Retry once; if it repeats, check OIDC discovery, client ID, redirect URI, and provider reachability.",
-        message: "IAM sign-in could not be started.",
+        description: t("oidcLoginFailedDetail"),
+        message: t("oidcLoginFailed"),
       };
     case "oidc_not_configured":
       return {
-        description:
-          "OpenClarion needs an OIDC issuer, client ID, redirect URI, and a state signing key before browser IAM sign-in can be used.",
-        message: "IAM sign-in is not configured.",
+        description: t("oidcNotConfiguredDetail"),
+        message: t("oidcNotConfigured"),
       };
   }
 }
@@ -11964,6 +12583,8 @@ function diagnosisContextDescription({
   sessionID,
   snapshotRef,
   subReportRef,
+  t,
+  tStatus,
 }: {
   alertContext?: DiagnosisAlertContext;
   hasReportRef: boolean;
@@ -11971,47 +12592,73 @@ function diagnosisContextDescription({
   sessionID?: string;
   snapshotRef: string;
   subReportRef: string;
+  t: DiagnosisWorkspaceTranslator;
+  tStatus: DiagnosisRoomStatusTranslator;
 }): string {
   const action = sessionID
-    ? `Connect to continue diagnosis session ${sessionID}.`
-    : "Create the room when operator review is ready.";
+    ? t("contextConnectAction", { session: sessionID })
+    : t("contextCreateAction");
   if (hasReportRef) {
-    return `Prepared from ${reportRef}${subReportRef} using ${snapshotRef}. ${action}`;
+    return t("contextReportDescription", {
+      action,
+      report: `${reportRef}${subReportRef}`,
+      snapshot: snapshotRef,
+    });
   }
   if (alertContext) {
     const alert = alertContext.alert;
-    return `Prepared from ${alertName(alert)} (${alertSeverity(alert)}, ${alert.status}) using ${snapshotRef}. ${action}`;
+    return t("contextAlertDescription", {
+      action,
+      alert: alertName(alert, t),
+      severity: localizeDiagnosisRoomStatus(alertSeverity(alert), tStatus),
+      snapshot: snapshotRef,
+      status: localizeDiagnosisRoomStatus(alert.status, tStatus),
+    });
   }
-  return `Loaded ${snapshotRef}. ${action}`;
+  return t("contextSnapshotDescription", { action, snapshot: snapshotRef });
 }
 
 function diagnosisSuggestedPrompt({
   alertContext,
   contextRef,
   intent,
+  t,
+  tStatus,
 }: {
   alertContext?: DiagnosisAlertContext;
   contextRef: string;
   intent: "confidence_review" | "review_conclusion";
+  t: DiagnosisWorkspaceTranslator;
+  tStatus: DiagnosisRoomStatusTranslator;
 }): string {
   if (!alertContext) {
     return intent === "review_conclusion"
-      ? `Review ${contextRef}. Verify the current diagnosis conclusion, identify any operator-supplied evidence that can raise confidence, and state whether the conclusion is ready to finalize.`
-      : `Review ${contextRef}. First identify the operator-supplied evidence still needed, then propose the next collection steps required to improve confidence before a final conclusion.`;
+      ? t("promptReviewContext", { context: contextRef })
+      : t("promptInvestigateContext", { context: contextRef });
   }
 
   const alert = alertContext.alert;
-  const alertRef = `${alertName(alert)} (${alertSeverity(alert)}, ${alert.status})`;
-  const summary = alertSummary(alert);
+  const summary = alertSummary(alert).replace(/[.!?。！？]+$/u, "");
   const source = alert.source;
   const sourceProfile =
     alert.alert_source_profile_id > 0
-      ? `profile #${alert.alert_source_profile_id}`
-      : "legacy provider-only profile";
+      ? t("alertSourceProfileReference", {
+          id: alert.alert_source_profile_id,
+        })
+      : t("legacyProviderProfile");
+  const values = {
+    alert: alertName(alert, t),
+    context: contextRef,
+    severity: localizeDiagnosisRoomStatus(alertSeverity(alert), tStatus),
+    source,
+    sourceProfile,
+    status: localizeDiagnosisRoomStatus(alert.status, tStatus),
+    summary,
+  };
   if (intent === "review_conclusion") {
-    return `Review ${alertRef} using ${contextRef}. Summary: ${summary}. Source: ${source} (${sourceProfile}). Verify the current diagnosis conclusion, identify any operator-supplied evidence that can raise confidence, and state whether the conclusion is ready to finalize.`;
+    return t("promptReviewAlert", values);
   }
-  return `Start an AI diagnosis for ${alertRef} using ${contextRef}. Summary: ${summary}. Source: ${source} (${sourceProfile}). First explain the likely service impact, then list missing operator-supplied evidence and next collection steps before any final conclusion.`;
+  return t("promptInvestigateAlert", values);
 }
 
 function diagnosisAuthModeSearchParam(searchParams: {
@@ -12081,12 +12728,13 @@ function isOperatorEvidenceTool(value: unknown): value is OperatorEvidenceTool {
 function optionalOperatorEvidenceInteger(
   value: unknown,
   label: string,
+  t: DiagnosisWorkspaceTranslator,
 ): number | undefined {
   if (value === undefined || value === null || value === "") {
     return undefined;
   }
   if (!isPositiveSafeInteger(value)) {
-    throw new Error(`${label} must be a positive integer.`);
+    throw new Error(t("fieldPositiveInteger", { label }));
   }
   return value;
 }
@@ -12095,10 +12743,11 @@ function operatorEvidenceRequiredLine(
   value: unknown,
   label: string,
   maxBytes: number,
+  t: DiagnosisWorkspaceTranslator,
 ): string {
-  const line = optionalOperatorEvidenceLine(value, label, maxBytes);
+  const line = optionalOperatorEvidenceLine(value, label, maxBytes, t);
   if (line === undefined) {
-    throw new Error(`${label} is required.`);
+    throw new Error(t("fieldRequired", { label }));
   }
   return line;
 }
@@ -12107,22 +12756,23 @@ function optionalOperatorEvidenceLine(
   value: unknown,
   label: string,
   maxBytes: number,
+  t: DiagnosisWorkspaceTranslator,
 ): string | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
   if (typeof value !== "string") {
-    throw new Error(`${label} must be text.`);
+    throw new Error(t("fieldMustBeText", { label }));
   }
   const trimmed = value.trim();
   if (trimmed === "") {
     return undefined;
   }
   if (/[\r\n\t]/.test(trimmed)) {
-    throw new Error(`${label} must be a single line.`);
+    throw new Error(t("fieldSingleLine", { label }));
   }
   if (new TextEncoder().encode(trimmed).length > maxBytes) {
-    throw new Error(`${label} is too long.`);
+    throw new Error(t("fieldTooLong", { label }));
   }
   return trimmed;
 }
@@ -12130,15 +12780,16 @@ function optionalOperatorEvidenceLine(
 function validateOperatorEvidenceRange(
   windowSeconds: number,
   stepSeconds: number,
+  t: DiagnosisWorkspaceTranslator,
 ) {
   if (windowSeconds < 15 || windowSeconds > 21_600) {
-    throw new Error("Window seconds must be between 15 and 21600.");
+    throw new Error(t("windowSecondsBounds"));
   }
   if (stepSeconds < 15 || stepSeconds > 21_600) {
-    throw new Error("Step seconds must be between 15 and 21600.");
+    throw new Error(t("stepSecondsBounds"));
   }
   if (stepSeconds > windowSeconds) {
-    throw new Error("Step seconds must not exceed window seconds.");
+    throw new Error(t("stepExceedsWindow"));
   }
 }
 
@@ -12146,9 +12797,10 @@ function operatorEvidenceSingleLine(
   value: unknown,
   label: string,
   maxBytes: number,
+  t: DiagnosisWorkspaceTranslator,
 ): Promise<void> {
   try {
-    operatorEvidenceRequiredLine(value, label, maxBytes);
+    operatorEvidenceRequiredLine(value, label, maxBytes, t);
     return Promise.resolve();
   } catch (error) {
     return Promise.reject(error);
@@ -12159,9 +12811,10 @@ function operatorEvidenceOptionalSingleLine(
   value: unknown,
   label: string,
   maxBytes: number,
+  t: DiagnosisWorkspaceTranslator,
 ): Promise<void> {
   try {
-    optionalOperatorEvidenceLine(value, label, maxBytes);
+    optionalOperatorEvidenceLine(value, label, maxBytes, t);
     return Promise.resolve();
   } catch (error) {
     return Promise.reject(error);
@@ -12171,9 +12824,10 @@ function operatorEvidenceOptionalSingleLine(
 function operatorEvidenceOptionalInteger(
   value: unknown,
   label: string,
+  t: DiagnosisWorkspaceTranslator,
 ): Promise<void> {
   try {
-    optionalOperatorEvidenceInteger(value, label);
+    optionalOperatorEvidenceInteger(value, label, t);
     return Promise.resolve();
   } catch (error) {
     return Promise.reject(error);
@@ -12187,6 +12841,7 @@ function operatorEvidenceRangeSeconds({
   peerValue,
   templateID,
   templateLabel,
+  t,
   value,
 }: {
   field: OperatorEvidenceRangeField;
@@ -12195,22 +12850,24 @@ function operatorEvidenceRangeSeconds({
   peerValue: unknown;
   templateID: unknown;
   templateLabel: string;
+  t: DiagnosisWorkspaceTranslator;
   value: unknown;
 }): Promise<void> {
   try {
-    const current = optionalOperatorEvidenceInteger(value, label);
-    const peer = optionalOperatorEvidenceInteger(peerValue, peerLabel);
+    const current = optionalOperatorEvidenceInteger(value, label, t);
+    const peer = optionalOperatorEvidenceInteger(peerValue, peerLabel, t);
     const hasTemplateID =
-      optionalOperatorEvidenceInteger(templateID, templateLabel) !== undefined;
+      optionalOperatorEvidenceInteger(templateID, templateLabel, t) !==
+      undefined;
     if (!hasTemplateID && current === undefined) {
-      throw new Error(`${label} is required without a template ID.`);
+      throw new Error(t("fieldRequiredWithoutTemplate", { label }));
     }
     if (hasTemplateID && current === undefined && peer !== undefined) {
-      throw new Error(`${label} must be set with its paired range field.`);
+      throw new Error(t("fieldPairedRange", { label }));
     }
     if (current !== undefined && peer !== undefined) {
       const range = operatorEvidenceRangeValues(field, current, peer);
-      validateOperatorEvidenceRange(range.windowSeconds, range.stepSeconds);
+      validateOperatorEvidenceRange(range.windowSeconds, range.stepSeconds, t);
     }
     return Promise.resolve();
   } catch (error) {

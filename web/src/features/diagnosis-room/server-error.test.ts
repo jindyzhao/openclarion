@@ -1,67 +1,61 @@
 import { describe, expect, it } from "vitest";
 
-import { diagnosisServerErrorDisplay } from "./server-error";
+import { diagnosisServerErrorPresentation } from "./server-error";
 
-describe("diagnosisServerErrorDisplay", () => {
+describe("diagnosisServerErrorPresentation", () => {
   it("returns nothing when there is no server error", () => {
-    expect(diagnosisServerErrorDisplay(null)).toBeNull();
+    expect(diagnosisServerErrorPresentation(null)).toBeNull();
   });
 
-  it("explains confirmation rejections as operator-actionable warnings", () => {
-    expect(
-      diagnosisServerErrorDisplay({
-        code: "confirm_rejected",
-        message: "resolve missing evidence requests before confirming",
-      }),
-    ).toEqual({
-      actionLabel: "Review evidence tasks",
-      actionTitle:
-        "Jump to the review queue that contains the evidence or reassessment task blocking confirmation.",
-      description:
-        "resolve missing evidence requests before confirming Open the review queue, add the requested operator evidence, ask AI to reassess submitted evidence when needed, then retry confirmation.",
-      message: "Conclusion cannot be confirmed yet",
+  it("classifies confirmation rejections without parsing message prose", () => {
+    const first = diagnosisServerErrorPresentation({
+      code: "confirm_rejected",
+      message: "resolve missing evidence requests before confirming",
+    });
+    const changedWording = diagnosisServerErrorPresentation({
+      code: "confirm_rejected",
+      message: "结论尚未满足确认条件",
+    });
+
+    expect(first).toMatchObject({
+      action: "review_evidence_tasks",
+      kind: "confirmation_rejected",
+      type: "warning",
+    });
+    expect(changedWording).toMatchObject({
+      action: "review_evidence_tasks",
+      detail: "结论尚未满足确认条件",
+      kind: "confirmation_rejected",
       type: "warning",
     });
   });
 
-  it("maps planned evidence confirmation rejections to collection recovery", () => {
+  it("classifies recoverable LLM failures by stable code", () => {
     expect(
-      diagnosisServerErrorDisplay({
-        code: "confirm_rejected",
-        message: "collect planned executable evidence before confirming",
-      }),
-    ).toMatchObject({
-      description:
-        "collect planned executable evidence before confirming Open the review queue, run the pending executable evidence collection, let AI reassess the collected evidence, then retry confirmation.",
-      message: "Conclusion cannot be confirmed yet",
-      type: "warning",
-    });
-  });
-
-  it("keeps recoverable LLM errors visible while guiding state recovery", () => {
-    expect(
-      diagnosisServerErrorDisplay({
+      diagnosisServerErrorPresentation({
         code: "llm_timeout",
-        message:
-          "Diagnosis turn failed before an assistant response; upstream LLM request timed out.",
+        message: "upstream timed out",
       }),
     ).toEqual({
-      description:
-        "Diagnosis turn failed before an assistant response; upstream LLM request timed out. Query the latest room state; if the turn did not progress, retry the operator message or provide narrower evidence.",
-      message: "Diagnosis request failed: llm_timeout",
+      action: null,
+      code: "llm_timeout",
+      detail: "upstream timed out",
+      kind: "recoverable",
       type: "warning",
     });
   });
 
-  it("treats unknown errors as hard request failures", () => {
+  it("treats unknown errors as fatal request failures", () => {
     expect(
-      diagnosisServerErrorDisplay({
-        code: "mock_backend_error",
-        message: "mock backend rejected the diagnosis request",
+      diagnosisServerErrorPresentation({
+        code: "backend_error",
+        message: "backend rejected the request",
       }),
     ).toEqual({
-      description: "mock backend rejected the diagnosis request",
-      message: "Diagnosis request failed: mock_backend_error",
+      action: null,
+      code: "backend_error",
+      detail: "backend rejected the request",
+      kind: "fatal",
       type: "error",
     });
   });

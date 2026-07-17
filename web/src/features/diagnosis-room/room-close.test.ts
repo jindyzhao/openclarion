@@ -1,8 +1,27 @@
+import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
 
+import en from "../../../messages/en.json";
+import zhCN from "../../../messages/zh-CN.json";
 import { diagnosisCloseRoomBlockReason } from "./room-close";
 
 const openState = { status: "open" };
+const tEn = createTranslator({ locale: "en", messages: en, namespace: "DiagnosisRoom" });
+const tZhCN = createTranslator({ locale: "zh-CN", messages: zhCN, namespace: "DiagnosisRoom" });
+
+function roomCloseMessages(
+  t: typeof tEn,
+): Parameters<typeof diagnosisCloseRoomBlockReason>[0]["messages"] {
+  return {
+    alreadyClosed: t("closeAlreadyClosed"),
+    closeProcessing: t("closeRequestProcessing"),
+    connectRequired: t("closeConnectRequired"),
+    identityRequired: t("closeIdentityRequired"),
+    refreshRequired: t("closeRefreshRequired"),
+    waitForConfirmation: t("closeWaitForConfirmation"),
+    waitForTurn: t("closeWaitForTurn"),
+  };
+}
 
 describe("diagnosis room close readiness", () => {
   it("allows an authorized connected operator to close an idle open room", () => {
@@ -12,6 +31,7 @@ describe("diagnosis room close readiness", () => {
         closeInFlight: false,
         confirmInFlight: false,
         connected: true,
+        messages: roomCloseMessages(tEn),
         rbacBlockReason: "",
         state: openState,
         turnInFlight: false,
@@ -57,6 +77,7 @@ describe("diagnosis room close readiness", () => {
         closeInFlight: false,
         confirmInFlight: false,
         connected: true,
+        messages: roomCloseMessages(tEn),
         rbacBlockReason: "",
         state: openState,
         turnInFlight: false,
@@ -72,6 +93,7 @@ describe("diagnosis room close readiness", () => {
         closeInFlight: true,
         confirmInFlight: true,
         connected: false,
+        messages: roomCloseMessages(tEn),
         rbacBlockReason: "Administer access is required.",
         state: null,
         turnInFlight: true,
@@ -86,7 +108,7 @@ describe("diagnosis room close readiness", () => {
         closeInFlight: false,
         confirmInFlight: false,
         connected: true,
-        locale: "zh-CN",
+        messages: roomCloseMessages(tZhCN),
         rbacBlockReason: "",
         state: openState,
         turnInFlight: true,
