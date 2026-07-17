@@ -1,6 +1,6 @@
 import { Empty, Space, Tag, Timeline, Typography } from "antd";
 import type { TimelineProps } from "antd";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 import { formatDateTime } from "@/features/reports/format";
 
@@ -85,6 +85,7 @@ export function DiagnosisAuditTimelineSection({
 }: {
   room?: DiagnosisRoomSummary;
 }) {
+  const locale = useLocale();
   const t = useTranslations("DiagnosisRoom");
   const entries = room?.audit_timeline;
   if (entries === undefined) {
@@ -110,10 +111,10 @@ export function DiagnosisAuditTimelineSection({
             <Typography.Text code>#{entry.id}</Typography.Text>
           </Space>
           <Typography.Text type="secondary">
-            {formatDateTime(entry.occurred_at)}
+            {formatDateTime(entry.occurred_at, locale)}
             {entry.recorded_at !== entry.occurred_at
               ? ` / ${t("auditRecordedAt", {
-                  time: formatDateTime(entry.recorded_at),
+                  time: formatDateTime(entry.recorded_at, locale),
                 })}`
               : ""}
           </Typography.Text>

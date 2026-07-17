@@ -13,7 +13,6 @@ import type {
   DiagnosisStateFrame,
 } from "./types";
 import {
-  diagnosisActionIdentityBlockReason,
   diagnosisWorkflowReadiness,
   diagnosisWorkflowReadinessReviewQueueSource,
 } from "./workflow-readiness";
@@ -22,58 +21,41 @@ const selectedRoomPermissions: DiagnosisRoomRBACPermissionItem[] = [
   {
     action: "create",
     key: diagnosisRoomCreateAuthorizationKey,
-    label: "Create rooms",
     permission: "diagnosis_room.participate",
-    scopeLabel: "Global",
+    scope: { kind: "global" },
     status: "allowed",
   },
   {
     action: "read",
     key: diagnosisRoomReadAuthorizationKey("room-1"),
-    label: "Read room",
     permission: "diagnosis_room.read",
-    scopeLabel: "room-1",
+    scope: { kind: "room", sessionID: "room-1" },
     status: "allowed",
   },
   {
     action: "participate",
     key: diagnosisRoomParticipateAuthorizationKey("room-1"),
-    label: "Participate",
     permission: "diagnosis_room.participate",
-    scopeLabel: "room-1",
+    scope: { kind: "room", sessionID: "room-1" },
     status: "allowed",
   },
   {
     action: "approve",
     key: diagnosisRoomApproveAuthorizationKey("room-1"),
-    label: "Approve conclusion",
     permission: "diagnosis_room.approve",
-    scopeLabel: "room-1",
+    scope: { kind: "room", sessionID: "room-1" },
     status: "allowed",
   },
   {
     action: "administer",
     key: diagnosisRoomAdministerAuthorizationKey("room-1"),
-    label: "Administer",
     permission: "diagnosis_room.administer",
-    scopeLabel: "room-1",
+    scope: { kind: "room", sessionID: "room-1" },
     status: "allowed",
   },
 ];
 
 describe("diagnosis workflow readiness", () => {
-  it("blocks room actions when the current actor subject is not known", () => {
-    expect(
-      diagnosisActionIdentityBlockReason(" ", "sending evidence updates"),
-    ).toBe("Authenticate as an operator before sending evidence updates.");
-    expect(
-      diagnosisActionIdentityBlockReason(
-        "iam:user-1",
-        "sending evidence updates",
-      ),
-    ).toBe("");
-  });
-
   it("prefers live review queue state and falls back to saved room summaries", () => {
     expect(
       diagnosisWorkflowReadinessReviewQueueSource({
@@ -125,13 +107,13 @@ describe("diagnosis workflow readiness", () => {
     const items = diagnosisWorkflowReadiness({
       actorSubject: "iam:user-1",
       canConfirmConclusion: false,
-      confirmConclusionBlockReason: "Current user is not authorized to administer this diagnosis room.",
+      confirmConclusionBlockReason: "当前用户无权批准此诊断结论。",
       connected: true,
       connectionStatus: "connected",
       latestInsight: null,
       permissionItems: selectedRoomPermissions.map((item) => ({
         ...item,
-        status: item.action === "administer" ? "denied" : item.status,
+        status: item.action === "approve" ? "denied" : item.status,
       })),
       selectedRoomStatus: "open",
       selectedSessionID: "room-1",

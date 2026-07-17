@@ -3,76 +3,48 @@ export function diagnosisCloseRoomBlockReason({
   closeInFlight,
   confirmInFlight,
   connected,
+  messages,
   rbacBlockReason,
   state,
   turnInFlight,
-  locale = "en",
 }: {
   actorSubject: string;
   closeInFlight: boolean;
   confirmInFlight: boolean;
   connected: boolean;
+  messages: {
+    alreadyClosed: string;
+    closeProcessing: string;
+    connectRequired: string;
+    identityRequired: string;
+    refreshRequired: string;
+    waitForConfirmation: string;
+    waitForTurn: string;
+  };
   rbacBlockReason: string;
   state: { status: string } | null;
   turnInFlight: boolean;
-  locale?: string;
 }): string {
   if (closeInFlight) {
-    return roomCloseText(
-      locale,
-      "The diagnosis room close request is still processing.",
-      "诊断室关闭请求仍在处理中。",
-    );
+    return messages.closeProcessing;
   }
   if (confirmInFlight) {
-    return roomCloseText(
-      locale,
-      "Wait for conclusion confirmation to finish before closing the room.",
-      "结论确认完成后才能关闭诊断室。",
-    );
+    return messages.waitForConfirmation;
   }
   if (!connected) {
-    return roomCloseText(
-      locale,
-      "Connect to the diagnosis room before closing it.",
-      "关闭前请先连接诊断室。",
-    );
+    return messages.connectRequired;
   }
   if (state === null) {
-    return roomCloseText(
-      locale,
-      "Refresh the room state before closing it.",
-      "关闭前请先刷新诊断室状态。",
-    );
+    return messages.refreshRequired;
   }
   if (state.status === "closed") {
-    return roomCloseText(
-      locale,
-      "This diagnosis room is already closed.",
-      "当前诊断室已关闭。",
-    );
+    return messages.alreadyClosed;
   }
   if (turnInFlight) {
-    return roomCloseText(
-      locale,
-      "Wait for the current diagnosis turn to finish before closing the room.",
-      "当前诊断轮次完成后才能关闭诊断室。",
-    );
+    return messages.waitForTurn;
   }
   if (actorSubject.trim() === "") {
-    return roomCloseText(
-      locale,
-      "An authenticated operator identity is required to close the room.",
-      "关闭诊断室需要已认证的操作员身份。",
-    );
+    return messages.identityRequired;
   }
   return rbacBlockReason;
-}
-
-function roomCloseText(
-  locale: string,
-  english: string,
-  chinese: string,
-): string {
-  return locale === "zh-CN" ? chinese : english;
 }

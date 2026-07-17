@@ -4,7 +4,7 @@ export const diagnosisRoomCreateAuthorizationKey = "diagnosisRoom.create";
 export const diagnosisRoomCreateOperationsReadAuthorizationKey =
   "diagnosisRoom.create.operationsRead";
 
-type DiagnosisRoomRBACAction =
+export type DiagnosisRoomRBACAction =
   | "administer"
   | "approve"
   | "create"
@@ -18,12 +18,20 @@ export type DiagnosisRoomRBACPermissionStatus =
   | "not-enforced"
   | "not-selected";
 
+export type DiagnosisRoomRBACBlocker =
+  | { kind: "checking" }
+  | { action: DiagnosisRoomRBACAction; kind: "denied" };
+
+type DiagnosisRoomRBACPermissionScope =
+  | { kind: "global" }
+  | { channelID: number; kind: "notification-channel" }
+  | { kind: "room"; sessionID: string | null };
+
 export type DiagnosisRoomRBACPermissionItem = {
   action: DiagnosisRoomRBACAction;
   key: string;
-  label: string;
   permission: CurrentRBACAuthorizationCheck["permission"];
-  scopeLabel: string;
+  scope: DiagnosisRoomRBACPermissionScope;
   status: DiagnosisRoomRBACPermissionStatus;
 };
 
@@ -138,10 +146,9 @@ export function diagnosisRoomRBACPermissionItems({
     {
       action: "create",
       key: diagnosisRoomCreateAuthorizationKey,
-      label: "Create rooms",
       permission:
         "diagnosis_room.participate" as CurrentRBACAuthorizationCheck["permission"],
-      scopeLabel: "Global",
+      scope: { kind: "global" },
       status: diagnosisRoomRBACPermissionStatus({
         can,
         checking,
@@ -153,9 +160,8 @@ export function diagnosisRoomRBACPermissionItems({
     {
       action: "create",
       key: diagnosisRoomCreateOperationsReadAuthorizationKey,
-      label: "Read evidence snapshots",
       permission: "operations.read" as CurrentRBACAuthorizationCheck["permission"],
-      scopeLabel: "Global",
+      scope: { kind: "global" },
       status: diagnosisRoomRBACPermissionStatus({
         can,
         checking,
@@ -232,10 +238,9 @@ function diagnosisRoomCreateNotificationChannelPermissionItems({
     {
       action: "create",
       key,
-      label: "Use close channel",
       permission:
         "notification_channel.test" as CurrentRBACAuthorizationCheck["permission"],
-      scopeLabel: `Notification channel #${channelID}`,
+      scope: { channelID, kind: "notification-channel" },
       status: diagnosisRoomRBACPermissionStatus({
         can,
         checking,
@@ -259,38 +264,32 @@ function diagnosisRoomScopedPermissionItems({
   sessionID: string;
 }): DiagnosisRoomRBACPermissionItem[] {
   const selected = sessionID !== "";
-  const scopeLabel = selected ? sessionID : "No room selected";
   const scopedPermissions: Array<{
     action: Exclude<DiagnosisRoomRBACAction, "create">;
     key: string;
-    label: string;
     permission: CurrentRBACAuthorizationCheck["permission"];
   }> = [
     {
       action: "read",
       key: selected ? diagnosisRoomReadAuthorizationKey(sessionID) : "",
-      label: "Read room",
       permission:
         "diagnosis_room.read" as CurrentRBACAuthorizationCheck["permission"],
     },
     {
       action: "participate",
       key: selected ? diagnosisRoomParticipateAuthorizationKey(sessionID) : "",
-      label: "Participate",
       permission:
         "diagnosis_room.participate" as CurrentRBACAuthorizationCheck["permission"],
     },
     {
       action: "approve",
       key: selected ? diagnosisRoomApproveAuthorizationKey(sessionID) : "",
-      label: "Approve conclusion",
       permission:
         "diagnosis_room.approve" as CurrentRBACAuthorizationCheck["permission"],
     },
     {
       action: "administer",
       key: selected ? diagnosisRoomAdministerAuthorizationKey(sessionID) : "",
-      label: "Administer",
       permission:
         "diagnosis_room.administer" as CurrentRBACAuthorizationCheck["permission"],
     },
@@ -298,7 +297,7 @@ function diagnosisRoomScopedPermissionItems({
 
   return scopedPermissions.map((permission) => ({
     ...permission,
-    scopeLabel,
+    scope: { kind: "room", sessionID: selected ? sessionID : null },
     status: diagnosisRoomRBACPermissionStatus({
       can,
       checking,
@@ -345,7 +344,7 @@ function positiveIntegerOrNull(value: number | null | undefined): number | null 
   return value;
 }
 
-export function diagnosisRoomRBACBlockReason({
+export function diagnosisRoomRBACBlocker({
   action,
   allowed,
   checking,
@@ -355,23 +354,12 @@ export function diagnosisRoomRBACBlockReason({
   allowed: boolean;
   checking: boolean;
   enforced: boolean;
-}): string {
+}): DiagnosisRoomRBACBlocker | null {
   if (!enforced || allowed) {
-    return "";
+    return null;
   }
   if (checking) {
-    return "Checking diagnosis room permissions.";
+    return { kind: "checking" };
   }
-  switch (action) {
-    case "administer":
-      return "Current user is not authorized to administer this diagnosis room.";
-    case "create":
-      return "Current user is not authorized to create diagnosis rooms.";
-    case "approve":
-      return "Current user is not authorized to approve this diagnosis conclusion.";
-    case "participate":
-      return "Current user is not authorized to participate in this diagnosis room.";
-    case "read":
-      return "Current user is not authorized to read this diagnosis room.";
-  }
+  return { action, kind: "denied" };
 }

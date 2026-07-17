@@ -9,7 +9,7 @@ import {
   diagnosisRoomCreateOperationsReadAuthorizationKey,
   diagnosisRoomParticipateAuthorizationKey,
   diagnosisRoomRBACAuthorizationChecks,
-  diagnosisRoomRBACBlockReason,
+  diagnosisRoomRBACBlocker,
   diagnosisRoomRBACPermissionItems,
   diagnosisRoomReadAuthorizationKey,
 } from "./rbac-capabilities";
@@ -108,13 +108,13 @@ describe("diagnosis room rbac capabilities", () => {
 
   it("does not block direct credential flows when current-session rbac is not enforced", () => {
     expect(
-      diagnosisRoomRBACBlockReason({
+      diagnosisRoomRBACBlocker({
         action: "participate",
         allowed: false,
         checking: false,
         enforced: false,
       }),
-    ).toBe("");
+    ).toBeNull();
   });
 
   it("builds room permission status items for the selected session", () => {
@@ -139,50 +139,50 @@ describe("diagnosis room rbac capabilities", () => {
       items.map((item) => ({
         action: item.action,
         key: item.key,
-        scopeLabel: item.scopeLabel,
+        scope: item.scope,
         status: item.status,
       })),
     ).toEqual([
       {
         action: "create",
         key: diagnosisRoomCreateAuthorizationKey,
-        scopeLabel: "Global",
+        scope: { kind: "global" },
         status: "allowed",
       },
       {
         action: "create",
         key: diagnosisRoomCreateOperationsReadAuthorizationKey,
-        scopeLabel: "Global",
+        scope: { kind: "global" },
         status: "allowed",
       },
       {
         action: "create",
         key: diagnosisRoomCreateNotificationChannelAuthorizationKey(5),
-        scopeLabel: "Notification channel #5",
+        scope: { channelID: 5, kind: "notification-channel" },
         status: "allowed",
       },
       {
         action: "read",
         key: diagnosisRoomReadAuthorizationKey("session-1"),
-        scopeLabel: "session-1",
+        scope: { kind: "room", sessionID: "session-1" },
         status: "allowed",
       },
       {
         action: "participate",
         key: diagnosisRoomParticipateAuthorizationKey("session-1"),
-        scopeLabel: "session-1",
+        scope: { kind: "room", sessionID: "session-1" },
         status: "denied",
       },
       {
         action: "approve",
         key: diagnosisRoomApproveAuthorizationKey("session-1"),
-        scopeLabel: "session-1",
+        scope: { kind: "room", sessionID: "session-1" },
         status: "allowed",
       },
       {
         action: "administer",
         key: diagnosisRoomAdministerAuthorizationKey("session-1"),
-        scopeLabel: "session-1",
+        scope: { kind: "room", sessionID: "session-1" },
         status: "allowed",
       },
     ]);
@@ -253,32 +253,30 @@ describe("diagnosis room rbac capabilities", () => {
     ).toBe(true);
   });
 
-  it("returns action-specific block reasons when enforced", () => {
+  it("returns semantic blockers when enforced", () => {
     expect(
-      diagnosisRoomRBACBlockReason({
+      diagnosisRoomRBACBlocker({
         action: "administer",
         allowed: false,
         checking: false,
         enforced: true,
       }),
-    ).toBe("Current user is not authorized to administer this diagnosis room.");
+    ).toEqual({ action: "administer", kind: "denied" });
     expect(
-      diagnosisRoomRBACBlockReason({
+      diagnosisRoomRBACBlocker({
         action: "approve",
         allowed: false,
         checking: false,
         enforced: true,
       }),
-    ).toBe(
-      "Current user is not authorized to approve this diagnosis conclusion.",
-    );
+    ).toEqual({ action: "approve", kind: "denied" });
     expect(
-      diagnosisRoomRBACBlockReason({
+      diagnosisRoomRBACBlocker({
         action: "create",
         allowed: false,
         checking: true,
         enforced: true,
       }),
-    ).toBe("Checking diagnosis room permissions.");
+    ).toEqual({ kind: "checking" });
   });
 });

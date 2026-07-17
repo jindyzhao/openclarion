@@ -12,6 +12,13 @@ import {
 
 type DiagnosisReviewQueueStatus = "attention" | "pending" | "ready" | "done";
 
+export type DiagnosisReviewQueueBlocker =
+  | { kind: "collection_result"; tool: string }
+  | { kind: "latest_missing_request"; label: string }
+  | { kind: "missing_evidence" }
+  | { kind: "planned_evidence" }
+  | { kind: "reassessment" };
+
 export type DiagnosisReviewQueueItem =
   | {
       detail: string;
@@ -248,7 +255,7 @@ export function diagnosisReviewQueueItems(input: DiagnosisReviewQueueInput): Dia
 
   items.push(...pendingDiagnosisEvidenceRequests(input.evidenceRequests, input.collectionResults).map(executableEvidenceQueueItem));
 
-  if (input.canConfirmConclusion && diagnosisReviewQueueBlockingReason(input) === "") {
+  if (input.canConfirmConclusion && diagnosisReviewQueueBlocker(input) === null) {
     items.push({
       detail: `AI marked the diagnosis ${normalizedConclusionStatus(input.conclusionStatus)}.`,
       key: "confirm-conclusion",
@@ -372,21 +379,20 @@ export function diagnosisReviewQueueActionGate({
   connected: boolean;
 }): DiagnosisReviewQueueActionGate {
   const reason = actionDisabledReason.trim();
-  if (reason !== "") {
-    return {
-      disabled: true,
-      kind: reviewQueueDisabledReasonIsConnection(reason)
-        ? "connection"
-        : "blocked",
-      reason
-    };
-  }
   if (!connected) {
     return {
       disabled: true,
       kind: "connection",
       reason:
+        reason ||
         "Open a live diagnosis-room connection before running review queue actions."
+    };
+  }
+  if (reason !== "") {
+    return {
+      disabled: true,
+      kind: "blocked",
+      reason
     };
   }
   return {
@@ -397,20 +403,11 @@ export function diagnosisReviewQueueActionGate({
 }
 
 export function diagnosisReviewQueueConnectionGateAllowsPreparation({
-  actionDisabledReason,
   connected,
 }: {
-  actionDisabledReason: string;
   connected: boolean;
 }): boolean {
-  if (connected) {
-    return false;
-  }
-  const normalized = actionDisabledReason.toLowerCase();
-  return (
-    normalized.includes("connect to a diagnosis room") ||
-    normalized.includes("open a live diagnosis-room connection")
-  );
+  return !connected;
 }
 
 export function diagnosisReviewQueueReassessmentInput(
@@ -488,11 +485,11 @@ export function diagnosisReviewQueuePostEvidenceStatus(
       input.latestAssistantSequence
     )
   ).length;
+  const blocker = diagnosisReviewQueueBlocker(input);
   const blockingReason = diagnosisReviewQueueBlockingReason(input);
   const confidenceDetail = reviewQueueConfidenceDetail(input);
   if (
-    blockingReason ===
-    "Wait for AI reassessment of submitted supplemental evidence before confirming."
+    blocker?.kind === "reassessment"
   ) {
     return {
       color: "processing",
@@ -535,42 +532,6 @@ export function diagnosisReviewQueuePostEvidenceStatus(
     submitted,
     unresolved: 0
   };
-}
-
-export function diagnosisReviewQueueNextAction(input: DiagnosisReviewQueueInput): string {
-  const blockingReason = diagnosisReviewQueueBlockingReason(input);
-  if (blockingReason.includes("evidence collection")) {
-    return "Resolve evidence collection";
-  }
-  if (
-    blockingReason === "Resolve missing evidence requests before confirming." ||
-    blockingReason.startsWith("Resolve latest request for ")
-  ) {
-    return "Collect missing evidence";
-  }
-  if (blockingReason === "Collect planned executable evidence before confirming.") {
-    return "Run evidence collection";
-  }
-
-  if (input.evidenceCollectionSuggestions.length > 0) {
-    return "Review collection suggestions";
-  }
-
-  if (diagnosisReviewQueueHasCollectedEvidence(input.collectionResults)) {
-    return "Ask AI to reassess";
-  }
-
-  const status = input.conclusionStatus?.trim().toLowerCase();
-  if (status === "final" || status === "ready_for_review") {
-    return "Ready for confirmation";
-  }
-  if (input.evidenceCollectionSuggestions.length > 0) {
-    return "Review collection suggestions";
-  }
-  if (input.requiresHumanReview) {
-    return "Review with operator";
-  }
-  return "Continue diagnosis";
 }
 
 function reviewQueueEvidenceCollectionPhase(
@@ -986,36 +947,30 @@ function reviewQueueConfidenceDetail(input: DiagnosisReviewQueueInput): string {
   return "Latest confidence is unavailable.";
 }
 
-function reviewQueueDisabledReasonIsConnection(reason: string): boolean {
-  const normalized = reason.toLowerCase();
-  return normalized.includes("connect to a diagnosis room");
-}
-
-function diagnosisReviewQueueHasCollectedEvidence(
-  results: DiagnosisEvidenceCollectionResult[]
-): boolean {
-  return results.some((result) => result.status.trim().toLowerCase() === "collected");
-}
-
-export function diagnosisReviewQueueBlockingReason(input: DiagnosisReviewQueueInput): string {
+export function diagnosisReviewQueueBlocker(
+  input: DiagnosisReviewQueueInput
+): DiagnosisReviewQueueBlocker | null {
   const failedResult = input.collectionResults.find((result) =>
     collectionResultNeedsAttention(result.status)
   );
   if (failedResult) {
-    return `Resolve ${failedResult.tool} evidence collection before confirming.`;
+    return { kind: "collection_result", tool: failedResult.tool };
   }
   if (input.missingEvidenceRequests.length > 0) {
     if (reviewedReadyConclusionHasResidualMissingEvidence(input)) {
-      return "";
+      return null;
     }
     const unresolvedSupplementalEvidence =
       firstUnresolvedSubmittedSupplementalEvidence(
         input.supplementalEvidence ?? [],
         unresolvedMissingEvidenceRequests(input),
         input.latestAssistantSequence
-      );
+    );
     if (unresolvedSupplementalEvidence) {
-      return `Resolve latest request for ${unresolvedSupplementalEvidence.request.label} before confirming.`;
+      return {
+        kind: "latest_missing_request",
+        label: unresolvedSupplementalEvidence.request.label
+      };
     }
     if (
       firstPendingSubmittedSupplementalEvidence(
@@ -1024,15 +979,34 @@ export function diagnosisReviewQueueBlockingReason(input: DiagnosisReviewQueueIn
         input.latestAssistantSequence
       )
     ) {
-      return "Wait for AI reassessment of submitted supplemental evidence before confirming.";
+      return { kind: "reassessment" };
     }
-    return "Resolve missing evidence requests before confirming.";
+    return { kind: "missing_evidence" };
   }
   const pendingRequests = pendingDiagnosisEvidenceRequests(input.evidenceRequests, input.collectionResults);
   if (pendingRequests.length > 0) {
-    return "Collect planned executable evidence before confirming.";
+    return { kind: "planned_evidence" };
   }
-  return "";
+  return null;
+}
+
+export function diagnosisReviewQueueBlockingReason(input: DiagnosisReviewQueueInput): string {
+  const blocker = diagnosisReviewQueueBlocker(input);
+  if (blocker === null) {
+    return "";
+  }
+  switch (blocker.kind) {
+    case "collection_result":
+      return `Resolve ${blocker.tool} evidence collection before confirming.`;
+    case "latest_missing_request":
+      return `Resolve latest request for ${blocker.label} before confirming.`;
+    case "missing_evidence":
+      return "Resolve missing evidence requests before confirming.";
+    case "planned_evidence":
+      return "Collect planned executable evidence before confirming.";
+    case "reassessment":
+      return "Wait for AI reassessment of submitted supplemental evidence before confirming.";
+  }
 }
 
 function reviewQueueSummaryMessage(input: {

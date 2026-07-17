@@ -9,17 +9,10 @@ export type DiagnosisApprovalStatus =
   | "pending"
   | "satisfied";
 
-export function diagnosisApprovalModeLabel(
-  mode: DiagnosisApprovalMode,
-): string {
-  return mode === "owner_and_leader" ? "Owner + leader" : "Single operator";
-}
-
-export function diagnosisApprovalAuthorityLabel(
-  authority: DiagnosisApprovalAuthority,
-): string {
-  return authority === "leader" ? "Leader" : "Owner";
-}
+export type DiagnosisActorApprovalBlocker =
+  | { authority: DiagnosisApprovalAuthority; kind: "authority_satisfied" }
+  | { kind: "approval_in_flight" }
+  | { kind: "already_approved" };
 
 export function diagnosisApprovalStatus({
   approvals,
@@ -60,7 +53,7 @@ export function diagnosisPendingApprovalAuthorities({
   );
 }
 
-export function diagnosisActorApprovalBlockReason({
+export function diagnosisActorApprovalBlocker({
   actorSubject,
   approvalInFlight,
   approvals,
@@ -74,9 +67,9 @@ export function diagnosisActorApprovalBlockReason({
   conclusionDigest: string | undefined;
   mode: DiagnosisApprovalMode;
   ownerSubject: string;
-}): string {
+}): DiagnosisActorApprovalBlocker | null {
   if (approvalInFlight) {
-    return "Another conclusion approval is in progress.";
+    return { kind: "approval_in_flight" };
   }
   const actor = actorSubject.trim();
   const digest = conclusionDigest?.trim() ?? "";
@@ -89,14 +82,14 @@ export function diagnosisActorApprovalBlockReason({
         approval.conclusion_digest === digest,
     )
   ) {
-    return "Current user has already approved this conclusion.";
+    return { kind: "already_approved" };
   }
   if (actor !== "" && digest !== "" && mode === "owner_and_leader") {
     const authority: DiagnosisApprovalAuthority =
       actor === ownerSubject.trim() ? "owner" : "leader";
     if (approvals.some((approval) => approval.authority === authority)) {
-      return `${diagnosisApprovalAuthorityLabel(authority)} approval is already satisfied.`;
+      return { authority, kind: "authority_satisfied" };
     }
   }
-  return "";
+  return null;
 }

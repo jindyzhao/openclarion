@@ -6,7 +6,6 @@ import {
   diagnosisReviewQueueBlockingReason,
   diagnosisReviewQueueConnectionGateAllowsPreparation,
   diagnosisReviewQueueItems,
-  diagnosisReviewQueueNextAction,
   diagnosisReviewQueuePostEvidenceStatus,
   diagnosisReviewQueueReassessmentInput,
   diagnosisReviewQueueSummary,
@@ -34,14 +33,13 @@ describe("diagnosis review queue", () => {
 
     expect(
       diagnosisReviewQueueActionGate({
-        actionDisabledReason:
-          "Connect to a diagnosis room before sending evidence updates.",
+        actionDisabledReason: "请先连接诊断室再发送证据更新。",
         connected: false
       })
     ).toEqual({
       disabled: true,
       kind: "connection",
-      reason: "Connect to a diagnosis room before sending evidence updates."
+      reason: "请先连接诊断室再发送证据更新。"
     });
 
     expect(
@@ -68,6 +66,15 @@ describe("diagnosis review queue", () => {
       reason:
         "Open a live diagnosis-room connection before running review queue actions."
     });
+  });
+
+  it("classifies connection preparation without parsing localized copy", () => {
+    expect(
+      diagnosisReviewQueueConnectionGateAllowsPreparation({ connected: false })
+    ).toBe(true);
+    expect(
+      diagnosisReviewQueueConnectionGateAllowsPreparation({ connected: true })
+    ).toBe(false);
   });
 
   it("maps saved review queue evidence into reassessment input", () => {
@@ -103,39 +110,6 @@ describe("diagnosis review queue", () => {
       latestAssistantSequence: 3,
       records: [supplementalRecord]
     });
-  });
-
-  it("allows follow-up preparation only for connection gates", () => {
-    expect(
-      diagnosisReviewQueueConnectionGateAllowsPreparation({
-        actionDisabledReason:
-          "Connect to a diagnosis room before sending evidence updates.",
-        connected: false
-      })
-    ).toBe(true);
-
-    expect(
-      diagnosisReviewQueueConnectionGateAllowsPreparation({
-        actionDisabledReason:
-          "Open a live diagnosis-room connection before running review queue actions.",
-        connected: false
-      })
-    ).toBe(true);
-
-    expect(
-      diagnosisReviewQueueConnectionGateAllowsPreparation({
-        actionDisabledReason:
-          "Current user is not authorized to participate in this diagnosis room.",
-        connected: false
-      })
-    ).toBe(false);
-
-    expect(
-      diagnosisReviewQueueConnectionGateAllowsPreparation({
-        actionDisabledReason: "",
-        connected: true
-      })
-    ).toBe(false);
   });
 
   it("prioritizes failed collection and missing evidence before confirmation", () => {
@@ -288,81 +262,6 @@ describe("diagnosis review queue", () => {
     });
   });
 
-  it("derives the next action from unresolved review queue work", () => {
-    expect(
-      diagnosisReviewQueueNextAction({
-        canConfirmConclusion: true,
-        collectionResults: [
-          evidenceResult({
-            status: "failed",
-            tool: "metric_query"
-          })
-        ],
-        conclusionStatus: "ready_for_review",
-        evidenceCollectionSuggestions: [],
-        evidenceRequests: [],
-        missingEvidenceRequests: [],
-        requiresHumanReview: true
-      })
-    ).toBe("Resolve evidence collection");
-
-    expect(
-      diagnosisReviewQueueNextAction({
-        canConfirmConclusion: true,
-        collectionResults: [
-          evidenceResult({
-            request: {
-              query: `up{job="worker"}`,
-              reason: "Read worker availability",
-              tool: "metric_query"
-            },
-            status: "collected",
-            tool: "metric_query"
-          })
-        ],
-        conclusionStatus: "ready_for_review",
-        evidenceCollectionSuggestions: [],
-        evidenceRequests: [
-          {
-            query: `up{job="api"}`,
-            reason: "Read api availability",
-            tool: "metric_query"
-          }
-        ],
-        missingEvidenceRequests: [],
-        requiresHumanReview: true
-      })
-    ).toBe("Run evidence collection");
-  });
-
-  it("allows reviewed supplemental evidence to move the next action to confirmation", () => {
-    expect(
-      diagnosisReviewQueueNextAction({
-        canConfirmConclusion: true,
-        collectionResults: [],
-        conclusionStatus: "ready_for_review",
-        evidenceCollectionSuggestions: [],
-        evidenceRequests: [],
-        latestAssistantSequence: 4,
-        missingEvidenceRequests: [
-          {
-            detail: "Attach the latest database capacity action.",
-            label: "DB capacity action",
-            priority: "high"
-          }
-        ],
-        requiresHumanReview: true,
-        supplementalEvidence: [
-          supplementalEvidenceRecord({
-            assistant_sequence: 4,
-            detail: "Attach the latest database capacity action.",
-            label: "DB capacity action"
-          })
-        ]
-      })
-    ).toBe("Ready for confirmation");
-  });
-
   it("keeps collection suggestions visible before final confirmation", () => {
     const input = {
       canConfirmConclusion: true,
@@ -383,9 +282,6 @@ describe("diagnosis review queue", () => {
     const summary = diagnosisReviewQueueSummary(items, input);
     const postEvidenceStatus = diagnosisReviewQueuePostEvidenceStatus(input);
 
-    expect(diagnosisReviewQueueNextAction(input)).toBe(
-      "Review collection suggestions"
-    );
     expect(items.map((item) => item.kind)).toEqual([
       "supplemental_evidence",
       "confirm"
@@ -885,7 +781,6 @@ describe("diagnosis review queue", () => {
     const summary = diagnosisReviewQueueSummary(items, input);
     const postEvidenceStatus = diagnosisReviewQueuePostEvidenceStatus(input);
 
-    expect(diagnosisReviewQueueNextAction(input)).toBe("Ask AI to reassess");
     expect(
       diagnosisReviewQueueTaskProgress(items, summary, postEvidenceStatus)
     ).toMatchObject({

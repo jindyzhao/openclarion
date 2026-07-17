@@ -776,7 +776,7 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
     exact: true,
   });
   await expect(handoffBacklog).toContainText("PaymentErrorRateHigh");
-  await expect(handoffBacklog).toContainText("needs room");
+  await expect(handoffBacklog).toContainText("Needs room");
   await expect(page.getByLabel("Recent diagnosis rooms")).toHaveCount(0);
   await workQueueFilter.getByText("Attention 4").click();
   await expect(
@@ -803,21 +803,21 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
     .locator(".diagnosis-room-list-item")
     .filter({ hasText: "diagnosis-session-orphaned-workflow" });
   await expect(unavailableWorkflowRoom).toContainText("Workflow unavailable");
-  await expect(unavailableWorkflowRoom).toContainText("workflow not_found");
+  await expect(unavailableWorkflowRoom).toContainText("workflow not found");
   await expect(unavailableWorkflowRoom).toContainText(
-    "Temporal reports workflow status not_found.",
+    "Temporal reports workflow status not found.",
   );
   const unavailableUseButton = page.getByRole("button", {
-    name: "Use diagnosis-session-orphaned-workflow",
+    name: "Select diagnosis-session-orphaned-workflow",
   });
   await expect(unavailableUseButton).toBeDisabled();
   const unavailableAction = page.locator(
-    'span[aria-label="Workflow is not_found; inspect or restart it before opening."]',
+    'span[aria-label="Workflow is not found; inspect or restart it before opening."]',
   );
   await unavailableAction.hover();
   await expect(
     page.getByText(
-      "Workflow is not_found; inspect or restart it before opening.",
+      "Workflow is not found; inspect or restart it before opening.",
     ),
   ).toBeVisible();
   const prepareRebuildButton = page.getByRole("button", {
@@ -855,7 +855,7 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
   ).toHaveAttribute("href", "/settings/notification-channels?channel_id=2");
   await failedNotificationRoom
     .getByRole("button", {
-      name: "Use diagnosis-session-notification-failed",
+      name: "Select diagnosis-session-notification-failed",
     })
     .click();
   const failedNotificationHandoff = page.getByLabel("Diagnosis handoff");
@@ -891,7 +891,7 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
   );
   const closedRoomHandoff = page.getByLabel("Diagnosis handoff");
   await expect(closedRoomHandoff).toContainText("AI delivery incomplete");
-  await expect(closedRoomHandoff).toContainText("Room status");
+  await expect(closedRoomHandoff).toContainText("Room State");
   await expect(closedRoomHandoff).toContainText("closed");
   await expect(closedRoomHandoff).toContainText(
     "Close notification / delivered",
@@ -911,7 +911,7 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
     .locator(".diagnosis-room-list-item")
     .filter({ hasText: "diagnosis-session-auto-p1-s9001" });
   const useExistingRoomButton = existingRoom.getByRole("button", {
-    name: "Use diagnosis-session-auto-p1-s9001",
+    name: "Select diagnosis-session-auto-p1-s9001",
   });
   await expect(useExistingRoomButton).toBeEnabled();
   await useExistingRoomButton.click();
@@ -1040,7 +1040,7 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
     "resolve missing evidence requests before confirming",
   );
   await expect(diagnosisServerError).toContainText(
-    "Open the review queue, add the requested operator evidence, ask AI to reassess submitted evidence when needed, then retry confirmation.",
+    "Open the review queue, resolve the listed evidence or reassessment task, ask AI to reassess when needed, then retry confirmation.",
   );
   await expect(diagnosisServerError).toContainText("Review evidence tasks");
   await expect(sendButton).toBeEnabled();
@@ -1088,9 +1088,7 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
       { exact: true },
     ),
   ).toBeVisible();
-  await expect(
-    page.getByText("AI review in progress", { exact: true }),
-  ).toBeHidden();
+  await expect(page.getByLabel("Diagnosis turn in progress")).toHaveCount(0);
   await expect(sendButton).toBeEnabled();
   await expect(
     page.getByText("Consultation Insight", { exact: true }),
@@ -1106,12 +1104,12 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
   const confidenceTimeline = page.getByLabel("Confidence timeline");
   await expect(confidenceTimeline).toContainText("Confidence Timeline");
   await expect(confidenceTimeline).toContainText("medium confidence");
-  await expect(confidenceTimeline).toContainText("needs_evidence");
+  await expect(confidenceTimeline).toContainText("needs evidence");
   await expect(page.locator('[aria-label="Evidence readiness"]')).toContainText(
     "Collected",
   );
   await expect(
-    page.getByText("needs_evidence", { exact: true }).first(),
+    page.getByText("needs evidence", { exact: true }).first(),
   ).toBeVisible();
   await expect(
     page.getByText("Executable Evidence Plan", { exact: true }),
@@ -1169,7 +1167,7 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
     "Recommended operator evidence",
   );
   await expect(recommendedEvidence).toContainText("CPU saturation range");
-  await expect(recommendedEvidence).toContainText("Uses template #1");
+  await expect(recommendedEvidence).toContainText("template #1");
   await expect(recommendedEvidence).toContainText("matches alert source");
   await expect(recommendedEvidence).toContainText("source match");
   await recommendedEvidence
@@ -1213,7 +1211,7 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
   await expect(evidenceTimeline).toContainText("ok");
   await refreshConnectionState(page);
   await expect(
-    page.getByText("Loaded state: open, 2 turn(s).").first(),
+    page.getByText("Loaded state: open, 2 turns.").first(),
   ).toBeVisible();
   await expect(reviewQueue).toContainText("Restart cause");
   await expect(reviewQueue).toContainText("Collected 2 metric series.");
@@ -1267,17 +1265,17 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
   ).toBeEnabled();
 
   await expect(
-    page.getByText("Loaded state: open, 3 turn(s).").first(),
+    page.getByText("Loaded state: open, 3 turns.").first(),
   ).toBeVisible();
   await expect(
-    page.getByText("ready_for_review", { exact: true }).first(),
+    page.getByText("ready for review", { exact: true }).first(),
   ).toBeVisible();
   await expect(consultationProgress).toContainText(
     "Conclusion ready for review",
   );
   await expect(consultationProgress).toContainText("Owner confirmation");
   await expect(confidenceTimeline).toContainText("high confidence");
-  await expect(confidenceTimeline).toContainText("ready_for_review");
+  await expect(confidenceTimeline).toContainText("ready for review");
   const supplementalHistory = page.getByLabel("Supplemental evidence history");
   await expect(supplementalHistory).toContainText(
     "Supplemental Evidence History",
@@ -1296,7 +1294,7 @@ test("diagnosis room route connects, submits a turn, and approves the conclusion
   await page.getByRole("button", { name: "Approve Conclusion" }).click();
   await expect(page.getByText("Recording conclusion approval.")).toBeVisible();
   await expect(
-    page.getByText("Loaded state: closed, 3 turn(s)."),
+    page.getByText("Loaded state: closed, 3 turns."),
   ).toBeVisible();
   await expect(
     page.getByText("Final conclusion", { exact: true }),
@@ -1452,7 +1450,7 @@ test("diagnosis room keeps collected evidence visible after auto follow-up", asy
     page.getByText("Turn 2 completed.", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("Auto evidence follow-up completed 1 turn(s).", {
+    page.getByText("Auto evidence follow-up completed 1 turn.", {
       exact: true,
     }),
   ).toBeVisible();
@@ -1505,7 +1503,7 @@ test("diagnosis room keeps collected evidence visible after auto follow-up", asy
 
   await refreshConnectionState(page);
   await expect(
-    page.getByText("Loaded state: open, 2 turn(s).").first(),
+    page.getByText("Loaded state: open, 2 turns.").first(),
   ).toBeVisible();
   await expect(
     autoExecutableEvidencePlan.getByText("Current active alerts", {
