@@ -37,6 +37,10 @@ import type { FormInstance, TableColumnsType } from "antd";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
+import {
+  localizeReportReplayProofTrace,
+  type LocalizedAlertReplayProofTrace,
+} from "@/features/alerts/replay-copy";
 import { autoDiagnosisConfirmedSnapshotCount } from "@/features/report-replay/replay-response";
 import type { ApiResult } from "@/lib/api/client";
 
@@ -105,7 +109,6 @@ import {
   reportWorkflowPolicyEnablementReadiness,
   reportWorkflowPolicyFormMatchesPolicy,
   reportWorkflowPolicyRepairBlueprint,
-  reportWorkflowPolicyReplayProofTrace,
   reportWorkflowPolicySetupBlueprint,
   reportWorkflowPolicyWorkflowReturnCandidates,
   reportNotificationChannelReadinessForSelection,
@@ -207,7 +210,6 @@ export function ReportWorkflowPolicySettingsManager({
   notificationChannelsResult,
   result,
 }: ReportWorkflowPolicySettingsManagerProps) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   const common = useTranslations("Common");
   const [form] = Form.useForm<ReportWorkflowPolicyFormState>();
@@ -338,9 +340,9 @@ export function ReportWorkflowPolicySettingsManager({
         alertSourcesResult,
         groupingPoliciesResult,
         notificationChannelsResult,
-        locale,
+        t,
       ),
-    [alertSourcesResult, groupingPoliciesResult, locale, notificationChannelsResult],
+    [alertSourcesResult, groupingPoliciesResult, notificationChannelsResult, t],
   );
   const diagnosisToolTemplates = diagnosisToolTemplatesResult.ok
     ? diagnosisToolTemplatesResult.data.items
@@ -371,7 +373,7 @@ export function ReportWorkflowPolicySettingsManager({
     : editingID === null ||
         currentAuthorization.can(reportWorkflowPolicyManageKey(editingID))
       ? ""
-      : `Current user is not authorized to manage report workflow policy #${editingID}.`;
+      : t("runtimePattern.unauthorizedPolicy", { id: editingID });
   const policyBindingPermissionBlockReason =
     authorizationChecking
       ? ""
@@ -387,11 +389,11 @@ export function ReportWorkflowPolicySettingsManager({
     authorizationChecking
       ? ""
       : editingID === null
-      ? canCreatePolicy
-        ? ""
-        : "Current user is not authorized to create report workflow policies."
-      : currentPolicyManagePermissionBlockReason ||
-        policyBindingPermissionBlockReason;
+        ? canCreatePolicy
+          ? ""
+          : t("notAuthorizedCreate")
+        : currentPolicyManagePermissionBlockReason ||
+          policyBindingPermissionBlockReason;
   const createPermissionDenied =
     !authorizationChecking && editingID === null && !canCreatePolicy;
   const canEditCurrentPolicyForm =
@@ -416,7 +418,7 @@ export function ReportWorkflowPolicySettingsManager({
       ? null
       : {
           kind: "warning" as const,
-          message: localizeWorkflowPolicyText(policyBindingPermissionBlockReason, locale),
+          message: localizeWorkflowPolicyText(policyBindingPermissionBlockReason, t),
         });
   const visibleNotice =
     currentAuthorization.notice ?? readPermissionNotice ?? notice;
@@ -502,17 +504,17 @@ export function ReportWorkflowPolicySettingsManager({
   );
   const alertSourceOptions = useMemo(
     () =>
-      alertSourceOptionsForFollowUp(selectedDiagnosisFollowUp, relationOptions, locale),
-    [locale, relationOptions, selectedDiagnosisFollowUp],
+      alertSourceOptionsForFollowUp(selectedDiagnosisFollowUp, relationOptions, t),
+    [relationOptions, selectedDiagnosisFollowUp, t],
   );
   const notificationChannelOptions = useMemo(
     () =>
       notificationChannelOptionsForFollowUp(
         selectedDiagnosisFollowUp,
         relationOptions,
-        locale,
+        t,
       ),
-    [locale, relationOptions, selectedDiagnosisFollowUp],
+    [relationOptions, selectedDiagnosisFollowUp, t],
   );
   const draftFormState = useMemo<ReportWorkflowPolicyFormState>(
     () => ({
@@ -529,8 +531,8 @@ export function ReportWorkflowPolicySettingsManager({
     [
       selectedAlertSourceID,
       selectedDiagnosisFollowUp,
-      selectedMaxFailedSubReports,
       selectedGroupingPolicyID,
+      selectedMaxFailedSubReports,
       selectedName,
       selectedReportNotificationChannelProfileID,
       selectedReportScenario,
@@ -681,14 +683,14 @@ export function ReportWorkflowPolicySettingsManager({
       setNotice({
         kind: "warning",
         message:
-          localizeWorkflowPolicyText(policySavePermissionBlockReason, locale) ||
+          localizeWorkflowPolicyText(policySavePermissionBlockReason, t) ||
           t("notAuthorizedSave"),
       });
       return;
     }
     const parsed = formStateToWriteRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeWorkflowPolicyText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeWorkflowPolicyText(parsed.message, t) });
       return;
     }
     const deliveryReadiness = reportNotificationChannelReadinessForSelection({
@@ -757,11 +759,11 @@ export function ReportWorkflowPolicySettingsManager({
       message:
         enablementBlockers.length > 0
           ? t("savedWithBlockers", {
-              detail: localizeWorkflowPolicyMessages(enablementBlockers, locale),
+              detail: localizeWorkflowPolicyMessages(enablementBlockers, t),
             })
           : reviewItems.length > 0
           ? t("savedWithReview", {
-              detail: localizeWorkflowPolicyMessages(reviewItems, locale),
+              detail: localizeWorkflowPolicyMessages(reviewItems, t),
             })
           : t("saved"),
     });
@@ -799,7 +801,7 @@ export function ReportWorkflowPolicySettingsManager({
         : null,
     });
     if (enabled && readiness.status === "blocked") {
-      setNotice({ kind: "error", message: localizeWorkflowPolicyText(readiness.detail, locale) });
+      setNotice({ kind: "error", message: localizeWorkflowPolicyText(readiness.detail, t) });
       setActionID(null);
       return;
     }
@@ -823,7 +825,7 @@ export function ReportWorkflowPolicySettingsManager({
             : "warning",
       message:
         enabled && readiness.status === "review"
-          ? t("enabledWithReview", { detail: localizeWorkflowPolicyText(readiness.detail, locale) })
+          ? t("enabledWithReview", { detail: localizeWorkflowPolicyText(readiness.detail, t) })
           : enabled
             ? t("enabledNotice")
             : t("disabledNotice"),
@@ -890,7 +892,7 @@ export function ReportWorkflowPolicySettingsManager({
       message: t("impactPreviewNotice", {
         events: previewed.data.events_matched,
         groups: previewed.data.groups_estimated,
-        status: localizeWorkflowPolicyText(previewed.data.status, locale),
+        status: localizeWorkflowPolicyText(previewed.data.status, t),
       }),
     });
   }
@@ -902,7 +904,7 @@ export function ReportWorkflowPolicySettingsManager({
     }
     const parsed = formStateToWriteRequest(draftFormState);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeWorkflowPolicyText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeWorkflowPolicyText(parsed.message, t) });
       return;
     }
     setDraftImpacting(true);
@@ -920,7 +922,7 @@ export function ReportWorkflowPolicySettingsManager({
       message: t("draftImpactPreviewNotice", {
         events: previewed.data.events_matched,
         groups: previewed.data.groups_estimated,
-        status: localizeWorkflowPolicyText(previewed.data.status, locale),
+        status: localizeWorkflowPolicyText(previewed.data.status, t),
       }),
     });
   }
@@ -935,7 +937,7 @@ export function ReportWorkflowPolicySettingsManager({
     }
     const parsed = formStateToReplayRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeWorkflowPolicyText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeWorkflowPolicyText(parsed.message, t) });
       return;
     }
     try {
@@ -988,7 +990,7 @@ export function ReportWorkflowPolicySettingsManager({
       {launchNotice ? (
         <Alert
           aria-label={t("launchPreset")}
-          description={localizeWorkflowPolicyText(launchNotice, locale)}
+          description={localizeWorkflowPolicyText(launchNotice, t)}
           message={t("actionLoaded")}
           role="status"
           showIcon
@@ -1008,7 +1010,7 @@ export function ReportWorkflowPolicySettingsManager({
       ) : null}
       {relationOptions.warnings.length > 0 ? (
         <Alert
-          description={localizeWorkflowPolicyMessages(relationOptions.warnings, locale)}
+          description={localizeWorkflowPolicyMessages(relationOptions.warnings, t)}
           message={t("relatedUnavailable")}
           role="status"
           showIcon
@@ -1314,7 +1316,7 @@ function buildRelationOptions(
   alertSourcesResult: ApiResult<AlertSourceProfileListResponse>,
   groupingPoliciesResult: ApiResult<GroupingPolicyListResponse>,
   notificationChannelsResult: ApiResult<NotificationChannelProfileListResponse>,
-  locale: string,
+  t: WorkflowPolicyTranslator,
 ): WorkflowRelationOptions {
   const warnings: string[] = [];
   const alertSources = alertSourcesResult.ok
@@ -1362,13 +1364,13 @@ function buildRelationOptions(
       alertSources.map((source) => [source.id, source.kind]),
     ),
     alertSourceLabels: Object.fromEntries(
-      alertSources.map((source) => [source.id, alertSourceLabel(source, locale)]),
+      alertSources.map((source) => [source.id, alertSourceLabel(source, t)]),
     ),
     alertSourceLabelsByID: new Map(
       alertSources.map((source) => [source.id, source.labels]),
     ),
     alertSourceOptions: alertSources.map((source) =>
-      relationOption(source.id, alertSourceLabel(source, locale)),
+      relationOption(source.id, alertSourceLabel(source, t)),
     ),
     groupingPolicyEnabledIDs: new Set(
       groupingPolicies
@@ -1378,16 +1380,16 @@ function buildRelationOptions(
     groupingPolicyLabels: Object.fromEntries(
       groupingPolicies.map((policy) => [
         policy.id,
-        groupingPolicyLabel(policy, locale),
+        groupingPolicyLabel(policy, t),
       ]),
     ),
     groupingPolicyOptions: groupingPolicies.map((policy) =>
-      relationOption(policy.id, groupingPolicyLabel(policy, locale)),
+      relationOption(policy.id, groupingPolicyLabel(policy, t)),
     ),
     notificationChannelLabels: Object.fromEntries(
       notificationChannels.map((channel) => [
         channel.id,
-        notificationChannelLabel(channel, locale),
+        notificationChannelLabel(channel, t),
       ]),
     ),
     notificationChannels,
@@ -1398,7 +1400,7 @@ function buildRelationOptions(
       notificationChannels.map((channel) => [channel.id, channel.kind]),
     ),
     notificationChannelOptions: reportNotificationChannels.map((channel) =>
-      relationOption(channel.id, notificationChannelLabel(channel, locale)),
+      relationOption(channel.id, notificationChannelLabel(channel, t)),
     ),
     notificationChannelEnabledIDs: new Set(
       notificationChannels
@@ -1534,7 +1536,7 @@ function relationOption(value: number, label: string): RelationSelectOption {
 function alertSourceOptionsForFollowUp(
   diagnosisFollowUp: ReportWorkflowPolicyFormState["diagnosisFollowUp"],
   relationOptions: WorkflowRelationOptions,
-  locale: string,
+  t: WorkflowPolicyTranslator,
 ): RelationSelectOption[] {
   return relationOptions.alertSourceOptions.map((option) => {
     if (diagnosisFollowUp !== "auto_room") {
@@ -1550,7 +1552,7 @@ function alertSourceOptionsForFollowUp(
 
     const reason = localizeWorkflowPolicyText(
       alertSourceAutoRoomBlockReason(sourceEnabled, sourceKind),
-      locale,
+      t,
     );
     const label = `${option.label} - ${reason}`;
     return {
@@ -1581,7 +1583,7 @@ function alertSourceAutoRoomBlockReason(
 function notificationChannelOptionsForFollowUp(
   diagnosisFollowUp: ReportWorkflowPolicyFormState["diagnosisFollowUp"],
   relationOptions: WorkflowRelationOptions,
-  locale: string,
+  t: WorkflowPolicyTranslator,
 ): RelationSelectOption[] {
   return relationOptions.notificationChannelOptions.map((option) => {
     const state = reportWorkflowNotificationChannelOptionState({
@@ -1602,7 +1604,7 @@ function notificationChannelOptionsForFollowUp(
     if (hints.length === 0) {
       return option;
     }
-    const label = `${option.label} - ${hints.map((hint) => localizeWorkflowPolicyText(hint, locale)).join(", ")}`;
+    const label = `${option.label} - ${hints.map((hint) => localizeWorkflowPolicyText(hint, t)).join(", ")}`;
     return {
       ...option,
       disabled: state.disabled,
@@ -1612,30 +1614,31 @@ function notificationChannelOptionsForFollowUp(
   });
 }
 
-function alertSourceLabel(source: AlertSourceProfile, locale: string): string {
-  return `#${source.id} ${source.name} (${source.kind}, ${enabledLabel(source.enabled, locale)})`;
+function alertSourceLabel(source: AlertSourceProfile, t: WorkflowPolicyTranslator): string {
+  return `#${source.id} ${source.name} (${source.kind}, ${enabledLabel(source.enabled, t)})`;
 }
 
-function groupingPolicyLabel(policy: GroupingPolicy, locale: string): string {
+function groupingPolicyLabel(policy: GroupingPolicy, t: WorkflowPolicyTranslator): string {
   const dimensions =
     policy.dimension_keys.length === 0
-      ? locale === "zh-CN" ? "无维度" : "no dimensions"
+      ? t("catalog.noDimensions")
       : policy.dimension_keys.join(", ");
-  return `#${policy.id} ${policy.name} (${dimensions}, ${enabledLabel(policy.enabled, locale)})`;
+  return `#${policy.id} ${policy.name} (${dimensions}, ${enabledLabel(policy.enabled, t)})`;
 }
 
-function notificationChannelLabel(channel: NotificationChannelProfile, locale: string): string {
+function notificationChannelLabel(
+  channel: NotificationChannelProfile,
+  t: WorkflowPolicyTranslator,
+): string {
   const scopes =
     channel.delivery_scopes.length === 0
-      ? locale === "zh-CN" ? "无范围" : "no scopes"
-      : channel.delivery_scopes.map((scope) => localizeWorkflowPolicyText(scope, locale)).join(", ");
-  return `#${channel.id} ${channel.name} (${scopes}, ${enabledLabel(channel.enabled, locale)})`;
+      ? t("catalog.noScopes")
+      : channel.delivery_scopes.map((scope) => localizeWorkflowPolicyText(scope, t)).join(", ");
+  return `#${channel.id} ${channel.name} (${scopes}, ${enabledLabel(channel.enabled, t)})`;
 }
 
-function enabledLabel(enabled: boolean, locale: string): string {
-  return locale === "zh-CN"
-    ? enabled ? "已启用" : "已停用"
-    : enabled ? "enabled" : "disabled";
+function enabledLabel(enabled: boolean, t: WorkflowPolicyTranslator): string {
+  return localizeWorkflowPolicyText(enabled ? "enabled" : "disabled", t);
 }
 
 function relationLabel(
@@ -1657,7 +1660,6 @@ function WorkflowReadinessPanel({
   policies: ReportWorkflowPolicy[];
   relationOptions: WorkflowRelationOptions;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   const selectedPolicy = selectReadinessPolicy(policies);
   const impact =
@@ -1700,7 +1702,7 @@ function WorkflowReadinessPanel({
       <div className="panel-header workflow-readiness-header">
         <h2>{t("aiConsultationWorkflow")}</h2>
         <Tag color={readinessTagColor(overallStatus)}>
-          {readinessLabel(overallStatus, locale)}
+          {readinessLabel(overallStatus, t)}
         </Tag>
       </div>
       <div className="panel-body workflow-readiness-body">
@@ -1727,11 +1729,11 @@ function WorkflowReadinessPanel({
                 <Tag
                   color={followUpTagColor(selectedPolicy.diagnosis_follow_up)}
                 >
-                  {localizeWorkflowPolicyText(selectedPolicy.diagnosis_follow_up, locale)}
+                  {localizeWorkflowPolicyText(selectedPolicy.diagnosis_follow_up, t)}
                 </Tag>
                 {impact ? (
                   <Tag color={impactStatusColor(impact.status)}>
-                    {t("impactStatus", { status: localizeWorkflowPolicyText(impact.status, locale) })}
+                    {t("impactStatus", { status: localizeWorkflowPolicyText(impact.status, t) })}
                   </Tag>
                 ) : (
                   <Tag>{t("impactPending")}</Tag>
@@ -1745,9 +1747,9 @@ function WorkflowReadinessPanel({
                 className="workflow-readiness-steps"
                 current={currentStep}
                 items={stages.map((stage) => ({
-                  description: localizeWorkflowPolicyText(stage.detail, locale),
+                  description: localizeWorkflowPolicyText(stage.detail, t),
                   status: readinessStepStatus(stage.status),
-                  title: localizeWorkflowPolicyText(stage.title, locale),
+                  title: localizeWorkflowPolicyText(stage.title, t),
                 }))}
                 responsive={false}
               />
@@ -1758,25 +1760,21 @@ function WorkflowReadinessPanel({
         <Row aria-label={t("workflowCounters")} gutter={[12, 12]}>
           <ReadinessMetric
             label={t("roomReadyPolicies")}
-            locale={locale}
             status="ready"
             value={activeRoomPolicies}
           />
           <ReadinessMetric
             label={t("reportDelivery")}
-            locale={locale}
             status={reportDeliveryPolicies > 0 ? "ready" : "pending"}
             value={reportDeliveryPolicies}
           />
           <ReadinessMetric
             label={t("readyPreviews")}
-            locale={locale}
             status={readyPreviews > 0 ? "ready" : "pending"}
             value={readyPreviews}
           />
           <ReadinessMetric
             label={t("blockedPreviews")}
-            locale={locale}
             status={blockedPreviews > 0 ? "blocked" : "ready"}
             value={blockedPreviews}
           />
@@ -1788,22 +1786,21 @@ function WorkflowReadinessPanel({
 
 function ReadinessMetric({
   label,
-  locale,
   status,
   value,
 }: {
   label: string;
-  locale: string;
   status: ReadinessStatus;
   value: number;
 }) {
+  const t = useTranslations("WorkflowPolicySettings");
   return (
     <Col lg={6} sm={12} xs={24}>
       <div className="workflow-readiness-metric">
         <div className="workflow-readiness-metric-value">{value}</div>
         <div className="workflow-readiness-metric-footer">
           <Typography.Text className="muted">{label}</Typography.Text>
-          <Tag color={readinessTagColor(status)}>{readinessLabel(status, locale)}</Tag>
+          <Tag color={readinessTagColor(status)}>{readinessLabel(status, t)}</Tag>
         </div>
       </div>
     </Col>
@@ -1815,7 +1812,6 @@ function DiagnosisToolReadinessPreview({
 }: {
   readiness: ReturnType<typeof diagnosisToolReadinessForSelection>;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   return (
     <div
@@ -1825,7 +1821,7 @@ function DiagnosisToolReadinessPreview({
       <Space direction="vertical" size={10}>
         <Space wrap>
           <Tag color={readinessTagColor(readiness.status)}>
-            {readinessLabel(readiness.status, locale)}
+            {readinessLabel(readiness.status, t)}
           </Tag>
           <Tag color="blue">
             {t("activeAlertCount", { count: readiness.activeAlertsForSource })}
@@ -1837,8 +1833,8 @@ function DiagnosisToolReadinessPreview({
             {t("rangeToolCount", { count: readiness.enabledRangeTemplates })}
           </Tag>
         </Space>
-        <Typography.Text strong>{localizeWorkflowPolicyText(readiness.label, locale)}</Typography.Text>
-        <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.detail, locale)}</Typography.Text>
+        <Typography.Text strong>{localizeWorkflowPolicyText(readiness.label, t)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.detail, t)}</Typography.Text>
         {readiness.templateNames.length > 0 ? (
           <Space wrap>
             {readiness.templateNames.slice(0, 4).map((name) => (
@@ -1859,7 +1855,6 @@ function WorkflowAutomationOutcomePreview({
 }: {
   outcome: ReturnType<typeof reportWorkflowPolicyAutomationOutcome>;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   return (
     <div
@@ -1869,21 +1864,21 @@ function WorkflowAutomationOutcomePreview({
       <div className="settings-preview-header">
         <Typography.Text strong>{t("automationOutcome")}</Typography.Text>
         <Tag color={readinessTagColor(outcome.status)}>
-          {readinessLabel(outcome.status, locale)}
+          {readinessLabel(outcome.status, t)}
         </Tag>
       </div>
-      <Typography.Text type="secondary">{localizeWorkflowPolicyText(outcome.detail, locale)}</Typography.Text>
+      <Typography.Text type="secondary">{localizeWorkflowPolicyText(outcome.detail, t)}</Typography.Text>
       <div className="workflow-automation-grid">
         {outcome.items.map((item) => (
           <div className="workflow-automation-item" key={item.title}>
             <div className="workflow-automation-item-header">
-              <Typography.Text className="muted">{localizeWorkflowPolicyText(item.title, locale)}</Typography.Text>
+              <Typography.Text className="muted">{localizeWorkflowPolicyText(item.title, t)}</Typography.Text>
               <Tag color={readinessTagColor(item.status)}>
-                {readinessLabel(item.status, locale)}
+                {readinessLabel(item.status, t)}
               </Tag>
             </div>
-            <Typography.Text strong>{localizeWorkflowPolicyText(item.value, locale)}</Typography.Text>
-            <Typography.Text type="secondary">{localizeWorkflowPolicyText(item.detail, locale)}</Typography.Text>
+            <Typography.Text strong>{localizeWorkflowPolicyText(item.value, t)}</Typography.Text>
+            <Typography.Text type="secondary">{localizeWorkflowPolicyText(item.detail, t)}</Typography.Text>
           </div>
         ))}
       </div>
@@ -1896,7 +1891,6 @@ function AutoRoomReadinessPreview({
 }: {
   readiness: ReturnType<typeof reportWorkflowPolicyAutoRoomReadiness>;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   const currentStep = readiness.items.findIndex(
     (item) => item.status !== "ready",
@@ -1908,12 +1902,12 @@ function AutoRoomReadinessPreview({
       className="settings-preview-panel"
     >
       <div className="settings-preview-header">
-        <Typography.Text strong>{localizeWorkflowPolicyText(readiness.label, locale)}</Typography.Text>
+        <Typography.Text strong>{localizeWorkflowPolicyText(readiness.label, t)}</Typography.Text>
         <Tag color={readinessTagColor(readiness.status)}>
-          {readinessLabel(readiness.status, locale)}
+          {readinessLabel(readiness.status, t)}
         </Tag>
       </div>
-      <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.detail, locale)}</Typography.Text>
+      <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.detail, t)}</Typography.Text>
       {readiness.items.length > 0 ? (
         <Steps
           current={currentStep === -1 ? readiness.items.length : currentStep}
@@ -1921,14 +1915,14 @@ function AutoRoomReadinessPreview({
           items={readiness.items.map((item) => ({
             description: (
               <Space direction="vertical" size={2}>
-                <Typography.Text strong>{localizeWorkflowPolicyText(item.value, locale)}</Typography.Text>
+                <Typography.Text strong>{localizeWorkflowPolicyText(item.value, t)}</Typography.Text>
                 <Typography.Text type="secondary">
-                  {localizeWorkflowPolicyText(item.detail, locale)}
+                  {localizeWorkflowPolicyText(item.detail, t)}
                 </Typography.Text>
               </Space>
             ),
             status: readinessStepStatus(item.status),
-            title: localizeWorkflowPolicyText(item.title, locale),
+            title: localizeWorkflowPolicyText(item.title, t),
           }))}
           size="small"
         />
@@ -1942,7 +1936,6 @@ function WorkflowSetupBlueprintPreview({
 }: {
   blueprint: ReturnType<typeof reportWorkflowPolicySetupBlueprint>;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   return (
     <div
@@ -1952,10 +1945,10 @@ function WorkflowSetupBlueprintPreview({
       <div className="settings-preview-header">
         <Typography.Text strong>{t("setupBlueprint")}</Typography.Text>
         <Tag color={readinessTagColor(blueprint.status)}>
-          {readinessLabel(blueprint.status, locale)}
+          {readinessLabel(blueprint.status, t)}
         </Tag>
       </div>
-      <Typography.Text type="secondary">{localizeWorkflowPolicyText(blueprint.detail, locale)}</Typography.Text>
+      <Typography.Text type="secondary">{localizeWorkflowPolicyText(blueprint.detail, t)}</Typography.Text>
       <div
         aria-label={t("setupChain")}
         className="workflow-automation-grid"
@@ -1964,21 +1957,21 @@ function WorkflowSetupBlueprintPreview({
           <div className="workflow-automation-item" key={phase.key}>
             <div className="workflow-automation-item-header">
               <Typography.Text className="muted">
-                {localizeWorkflowPolicyText(phase.title, locale)}
+                {localizeWorkflowPolicyText(phase.title, t)}
               </Typography.Text>
               <Tag color={readinessTagColor(phase.status)}>
-                {readinessLabel(phase.status, locale)}
+                {readinessLabel(phase.status, t)}
               </Tag>
             </div>
-            <Typography.Text strong>{localizeWorkflowPolicyText(phase.value, locale)}</Typography.Text>
-            <Typography.Text type="secondary">{localizeWorkflowPolicyText(phase.detail, locale)}</Typography.Text>
+            <Typography.Text strong>{localizeWorkflowPolicyText(phase.value, t)}</Typography.Text>
+            <Typography.Text type="secondary">{localizeWorkflowPolicyText(phase.detail, t)}</Typography.Text>
           </div>
         ))}
       </div>
       {blueprint.actions.length === 0 ? (
         <Alert
           description={t("savePreviewReplay")}
-          message={localizeWorkflowPolicyText(blueprint.label, locale)}
+          message={localizeWorkflowPolicyText(blueprint.label, t)}
           showIcon
           type="success"
         />
@@ -1988,22 +1981,22 @@ function WorkflowSetupBlueprintPreview({
             <div className="workflow-automation-item" key={action.key}>
               <div className="workflow-automation-item-header">
                 <Typography.Text className="muted">
-                  {localizeWorkflowPolicyText(action.title, locale)}
+                  {localizeWorkflowPolicyText(action.title, t)}
                 </Typography.Text>
                 <Tag color={readinessTagColor(action.status)}>
-                  {readinessLabel(action.status, locale)}
+                  {readinessLabel(action.status, t)}
                 </Tag>
               </div>
               <Typography.Text type="secondary">
-                {localizeWorkflowPolicyText(action.detail, locale)}
+                {localizeWorkflowPolicyText(action.detail, t)}
               </Typography.Text>
               {action.actionHref ? (
                 <Button href={action.actionHref} size="small" type="link">
-                  {localizeWorkflowPolicyText(action.actionLabel, locale)}
+                  {localizeWorkflowPolicyText(action.actionLabel, t)}
                 </Button>
               ) : (
                 <Typography.Text className="muted">
-                  {localizeWorkflowPolicyText(action.actionLabel, locale)}
+                  {localizeWorkflowPolicyText(action.actionLabel, t)}
                 </Typography.Text>
               )}
             </div>
@@ -2035,7 +2028,6 @@ function DraftWorkflowPlanPreview({
   plan: ReturnType<typeof reportWorkflowPolicyDraftPlan>;
   policy: ReportWorkflowPolicy | null;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   const currentStep = plan.steps.findIndex((step) => step.status !== "ready");
 
@@ -2047,10 +2039,10 @@ function DraftWorkflowPlanPreview({
       <div className="settings-preview-header">
         <Typography.Text strong>{t("draftPlan")}</Typography.Text>
         <Tag color={readinessTagColor(plan.status)}>
-          {readinessLabel(plan.status, locale)}
+          {readinessLabel(plan.status, t)}
         </Tag>
       </div>
-      <Typography.Text type="secondary">{localizeWorkflowPolicyText(plan.detail, locale)}</Typography.Text>
+      <Typography.Text type="secondary">{localizeWorkflowPolicyText(plan.detail, t)}</Typography.Text>
       <Steps
         current={currentStep === -1 ? plan.steps.length : currentStep}
         direction="vertical"
@@ -2069,7 +2061,7 @@ function DraftWorkflowPlanPreview({
             />
           ),
           status: readinessStepStatus(step.status),
-          title: localizeWorkflowPolicyText(step.title, locale),
+          title: localizeWorkflowPolicyText(step.title, t),
         }))}
         size="small"
       />
@@ -2098,10 +2090,9 @@ function StepDescription({
   policy: ReportWorkflowPolicy | null;
   step: ReturnType<typeof reportWorkflowPolicyDraftPlan>["steps"][number];
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
-  if (step.title !== "Impact preview") {
-    return localizeWorkflowPolicyText(step.detail, locale);
+  if (step.key !== "impact-preview") {
+    return localizeWorkflowPolicyText(step.detail, t);
   }
   const savedLoading = policy !== null && impactingID === policy.id;
   const draftPreviewDisabled =
@@ -2111,7 +2102,7 @@ function StepDescription({
 
   return (
     <Space direction="vertical" size={6}>
-      <Typography.Text type="secondary">{localizeWorkflowPolicyText(step.detail, locale)}</Typography.Text>
+      <Typography.Text type="secondary">{localizeWorkflowPolicyText(step.detail, t)}</Typography.Text>
       {policy !== null && !draftMatchesSaved ? (
         <Alert
           description={t("draftPreviewDifference")}
@@ -2157,7 +2148,6 @@ function AlertSourceIngressReadinessPreview({
 }: {
   readiness: ReturnType<typeof alertSourceIngressReadinessForSelection>;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   return (
     <div
@@ -2167,12 +2157,12 @@ function AlertSourceIngressReadinessPreview({
       <Space direction="vertical" size={10}>
         <Space wrap>
           <Tag color={readinessTagColor(readiness.status)}>
-            {readinessLabel(readiness.status, locale)}
+            {readinessLabel(readiness.status, t)}
           </Tag>
           <Tag color="geekblue">{t("alertmanagerWebhook")}</Tag>
         </Space>
-        <Typography.Text strong>{localizeWorkflowPolicyText(readiness.label, locale)}</Typography.Text>
-        <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.detail, locale)}</Typography.Text>
+        <Typography.Text strong>{localizeWorkflowPolicyText(readiness.label, t)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.detail, t)}</Typography.Text>
       </Space>
     </div>
   );
@@ -2189,7 +2179,6 @@ function NotificationChannelReadinessPreview({
   readiness: ReturnType<typeof reportNotificationChannelReadinessForSelection>;
   selectedChannel: NotificationChannelProfile | null;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   return (
     <div
@@ -2199,25 +2188,25 @@ function NotificationChannelReadinessPreview({
       <Space direction="vertical" size={10}>
         <Space wrap>
           <Tag color={readinessTagColor(readiness.status)}>
-            {readinessLabel(readiness.status, locale)}
+            {readinessLabel(readiness.status, t)}
           </Tag>
           <Tag color={operatorChannelTagColor(operatorReadiness)}>
-            {operatorReadiness.kindLabel}
+            {localizeWorkflowPolicyText(operatorReadiness.kindLabel, t)}
           </Tag>
           {selectedChannel === null ? null : (
             <Tag color={selectedChannel.enabled ? "green" : "default"}>
               {selectedChannel.enabled ? t("enabled") : t("disabled")}
             </Tag>
           )}
-          <Tag color="blue">{t("requiredScopes", { scopes: readiness.requiredScopes.map((scope) => localizeWorkflowPolicyText(scope, locale)).join(", ") })}</Tag>
+          <Tag color="blue">{t("requiredScopes", { scopes: readiness.requiredScopes.map((scope) => localizeWorkflowPolicyText(scope, t)).join(", ") })}</Tag>
           {readiness.missingScopes.length > 0 ? (
-            <Tag color="red">{t("missingScopes", { scopes: readiness.missingScopes.map((scope) => localizeWorkflowPolicyText(scope, locale)).join(", ") })}</Tag>
+            <Tag color="red">{t("missingScopes", { scopes: readiness.missingScopes.map((scope) => localizeWorkflowPolicyText(scope, t)).join(", ") })}</Tag>
           ) : null}
         </Space>
-        <Typography.Text strong>{localizeWorkflowPolicyText(readiness.label, locale)}</Typography.Text>
-        <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.detail, locale)}</Typography.Text>
+        <Typography.Text strong>{localizeWorkflowPolicyText(readiness.label, t)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.detail, t)}</Typography.Text>
         <Typography.Text type="secondary">
-          {localizeWorkflowPolicyText(operatorReadiness.detail, locale)}
+          {localizeWorkflowPolicyText(operatorReadiness.detail, t)}
         </Typography.Text>
       </Space>
     </div>
@@ -2436,17 +2425,11 @@ function readinessTagColor(status: ReadinessStatus) {
   }
 }
 
-function readinessLabel(status: ReadinessStatus, locale = "en"): string {
-  switch (status) {
-    case "ready":
-      return locale === "zh-CN" ? "就绪" : "Ready";
-    case "review":
-      return locale === "zh-CN" ? "需检查" : "Review";
-    case "pending":
-      return locale === "zh-CN" ? "等待中" : "Pending";
-    case "blocked":
-      return locale === "zh-CN" ? "已阻塞" : "Blocked";
-  }
+function readinessLabel(
+  status: ReadinessStatus,
+  t: WorkflowPolicyTranslator,
+): string {
+  return t(`readinessStatus.${status}`);
 }
 
 function readinessAlertType(status: ReadinessStatus) {
@@ -2498,7 +2481,6 @@ function WorkflowReturnCandidateNotice({
   candidates: ReportWorkflowPolicyWorkflowReturnCandidate[];
   onEnable: (policy: ReportWorkflowPolicy) => void;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   const primaryCandidate =
     candidates.find(
@@ -2528,14 +2510,14 @@ function WorkflowReturnCandidateNotice({
       description={
         <Space direction="vertical" size={4}>
           <Typography.Text>
-            {localizeWorkflowPolicyText(workflowReturnCandidateSummary(candidates), locale)}
+            {workflowReturnCandidateSummary(candidates, t)}
           </Typography.Text>
           <Space size={4} wrap>
             {candidates.slice(0, 4).map((candidate) => (
-              <Tooltip key={candidate.policy.id} title={localizeWorkflowPolicyText(candidate.detail, locale)}>
+              <Tooltip key={candidate.policy.id} title={localizeWorkflowPolicyText(candidate.detail, t)}>
                 <Tag color={workflowReturnCandidateTagColor(candidate.action)}>
                   #{candidate.policy.id} {candidate.policy.name}:{" "}
-                  {localizeWorkflowPolicyText(workflowReturnCandidateLabel(candidate.action), locale)}
+                  {localizeWorkflowPolicyText(workflowReturnCandidateLabel(candidate.action), t)}
                 </Tag>
               </Tooltip>
             ))}
@@ -2552,6 +2534,7 @@ function WorkflowReturnCandidateNotice({
 
 function workflowReturnCandidateSummary(
   candidates: ReportWorkflowPolicyWorkflowReturnCandidate[],
+  t: WorkflowPolicyTranslator,
 ): string {
   const enableable = candidates.filter(
     (candidate) =>
@@ -2563,13 +2546,12 @@ function workflowReturnCandidateSummary(
   const blocked = candidates.filter(
     (candidate) => candidate.action === "blocked",
   ).length;
-  const parts = [
-    `${candidates.length} matching AI room workflow${candidates.length === 1 ? "" : "s"} found`,
-    enableable > 0 ? `${enableable} can be enabled` : "",
-    enabled > 0 ? `${enabled} already enabled` : "",
-    blocked > 0 ? `${blocked} blocked` : "",
-  ].filter((part) => part !== "");
-  return parts.join("; ") + ".";
+  return t("workflowCandidateSummary", {
+    blocked,
+    enableable,
+    enabled,
+    total: candidates.length,
+  });
 }
 
 function workflowReturnCandidateLabel(
@@ -2693,7 +2675,7 @@ function ReportWorkflowPolicyTable({
       key: "scenario",
       title: t("scenario"),
       render: (scenario: ReportWorkflowPolicy["report_scenario"]) => (
-        <Tag>{localizeWorkflowPolicyText(scenario, locale)}</Tag>
+        <Tag>{localizeWorkflowPolicyText(scenario, t)}</Tag>
       ),
     },
     {
@@ -2701,7 +2683,7 @@ function ReportWorkflowPolicyTable({
       key: "followup",
       title: t("followUp"),
       render: (mode: ReportWorkflowPolicy["diagnosis_follow_up"]) => (
-        <Tag color={followUpTagColor(mode)}>{localizeWorkflowPolicyText(mode, locale)}</Tag>
+        <Tag color={followUpTagColor(mode)}>{localizeWorkflowPolicyText(mode, t)}</Tag>
       ),
     },
     {
@@ -2740,8 +2722,8 @@ function ReportWorkflowPolicyTable({
           </Tag>
           <Typography.Text type="secondary">
             {enabled
-              ? nullableDate(policy.enabled_at, locale)
-              : nullableDate(policy.disabled_at, locale)}
+              ? nullableDate(policy.enabled_at, locale, t)
+              : nullableDate(policy.disabled_at, locale, t)}
           </Typography.Text>
         </Space>
       ),
@@ -2887,7 +2869,6 @@ function PolicyRepairActions({
   policy: ReportWorkflowPolicy;
   relationOptions: WorkflowRelationOptions;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   const blueprint = reportWorkflowPolicyRepairBlueprint({
     alertSourceEnabledIDs: relationOptions.alertSourceEnabledIDs,
@@ -2918,7 +2899,7 @@ function PolicyRepairActions({
     return (
       <Space direction="vertical" size={2}>
         <Tag color={readinessTagColor(blueprint.status)}>
-          {readinessLabel(blueprint.status, locale)}
+          {readinessLabel(blueprint.status, t)}
         </Tag>
         <Typography.Text type="secondary">{t("noRepair")}</Typography.Text>
       </Space>
@@ -2928,29 +2909,29 @@ function PolicyRepairActions({
     <Space direction="vertical" size={4}>
       <Space wrap>
         <Tag color={readinessTagColor(blueprint.status)}>
-          {readinessLabel(blueprint.status, locale)}
+          {readinessLabel(blueprint.status, t)}
         </Tag>
-        <Tooltip title={localizeWorkflowPolicyText(blueprint.detail, locale)}>
-          <Typography.Text type="secondary">{localizeWorkflowPolicyText(blueprint.label, locale)}</Typography.Text>
+        <Tooltip title={localizeWorkflowPolicyText(blueprint.detail, t)}>
+          <Typography.Text type="secondary">{localizeWorkflowPolicyText(blueprint.label, t)}</Typography.Text>
         </Tooltip>
       </Space>
       <Typography.Text type="secondary">
-        {localizeWorkflowPolicyText(policyRepairSummaryDetail(blueprint), locale)}
+        {localizeWorkflowPolicyText(policyRepairSummaryDetail(blueprint), t)}
       </Typography.Text>
       {visibleLinkedActions.map((action) => (
-        <Tooltip key={action.key} title={localizeWorkflowPolicyText(action.detail, locale)}>
+        <Tooltip key={action.key} title={localizeWorkflowPolicyText(action.detail, t)}>
           <Button
             href={action.actionHref}
             icon={<ToolOutlined />}
             size="small"
             type="link"
           >
-            {localizeWorkflowPolicyText(action.actionLabel, locale)}
+            {localizeWorkflowPolicyText(action.actionLabel, t)}
           </Button>
         </Tooltip>
       ))}
       {unlinkedActionCount > 0 ? (
-        <Tooltip title={localizeWorkflowPolicyText(blueprint.detail, locale)}>
+        <Tooltip title={localizeWorkflowPolicyText(blueprint.detail, t)}>
           <Typography.Text type="secondary">
             {t("manualRepairItems", { count: unlinkedActionCount })}
           </Typography.Text>
@@ -2982,7 +2963,6 @@ function EnablePolicyButton({
   policy: ReportWorkflowPolicy;
   relationOptions: WorkflowRelationOptions;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   const readiness = policyEnablementReadiness(
     policy,
@@ -3008,7 +2988,7 @@ function EnablePolicyButton({
     return button;
   }
   return (
-    <Tooltip title={localizeWorkflowPolicyText(readiness.detail, locale)}>
+    <Tooltip title={localizeWorkflowPolicyText(readiness.detail, t)}>
       <span>{button}</span>
     </Tooltip>
   );
@@ -3023,7 +3003,6 @@ function PolicyEnablementSummary({
   policy: ReportWorkflowPolicy;
   relationOptions: WorkflowRelationOptions;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   const readiness = policyEnablementReadiness(
     policy,
@@ -3035,23 +3014,23 @@ function PolicyEnablementSummary({
   return (
     <Space direction="vertical" size={2}>
       <Tag color={readinessTagColor(readiness.status)}>
-        {readinessLabel(readiness.status, locale)}
+        {readinessLabel(readiness.status, t)}
       </Tag>
-      <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.label, locale)}</Typography.Text>
+      <Typography.Text type="secondary">{localizeWorkflowPolicyText(readiness.label, t)}</Typography.Text>
       <Typography.Text type="secondary">
-        {localizeWorkflowPolicyText(policyEnablementSummaryDetail(readiness), locale)}
+        {localizeWorkflowPolicyText(policyEnablementSummaryDetail(readiness), t)}
       </Typography.Text>
       {blockerCount + warningCount > 0 ? (
         <Space size={4} wrap>
           {blockerCount > 0 ? (
-            <Tooltip title={localizeWorkflowPolicyMessages(readiness.blockers, locale)}>
+            <Tooltip title={localizeWorkflowPolicyMessages(readiness.blockers, t)}>
               <Tag color="red">
                 {t("blockerCount", { count: blockerCount })}
               </Tag>
             </Tooltip>
           ) : null}
           {warningCount > 0 ? (
-            <Tooltip title={localizeWorkflowPolicyMessages(readiness.warnings, locale)}>
+            <Tooltip title={localizeWorkflowPolicyMessages(readiness.warnings, t)}>
               <Tag color="gold">
                 {t("reviewItemCount", { count: warningCount })}
               </Tag>
@@ -3105,14 +3084,13 @@ function ImpactSummary({
 }: {
   result?: ReportWorkflowPolicyImpactPreviewResult;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   if (!result) {
     return <Typography.Text type="secondary">{t("notPreviewed")}</Typography.Text>;
   }
   return (
     <Space direction="vertical" size={2}>
-      <Tag color={impactStatusColor(result.status)}>{localizeWorkflowPolicyText(result.status, locale)}</Tag>
+      <Tag color={impactStatusColor(result.status)}>{localizeWorkflowPolicyText(result.status, t)}</Tag>
       <Typography.Text type="secondary">
         {t("impactCounts", { events: result.events_matched, groups: result.groups_estimated })}
       </Typography.Text>
@@ -3164,17 +3142,17 @@ function ImpactPreviewModal({ onCancel, preview }: ImpactPreviewModalProps) {
           <Alert
             description={
               <Space direction="vertical" size={4}>
-                <Typography.Text>{localizeWorkflowPolicyText(result.message, locale)}</Typography.Text>
+                <Typography.Text>{localizeWorkflowPolicyText(result.message, t)}</Typography.Text>
                 <Space direction="vertical" size={6}>
                   {reasons.map((reason) => (
                     <Space key={reason.code} size={[6, 4]} wrap>
                       <Tooltip title={reason.code}>
                         <Tag color={reason.tagColor}>
-                          {localizeWorkflowPolicyText(reason.label, locale)}
+                          {localizeWorkflowPolicyText(reason.label, t)}
                         </Tag>
                       </Tooltip>
                       <Typography.Text type="secondary">
-                        {localizeWorkflowPolicyText(reason.detail, locale)}
+                        {localizeWorkflowPolicyText(reason.detail, t)}
                       </Typography.Text>
                     </Space>
                   ))}
@@ -3183,7 +3161,7 @@ function ImpactPreviewModal({ onCancel, preview }: ImpactPreviewModalProps) {
             }
             message={
               <Tag color={impactStatusColor(result.status)}>
-                {localizeWorkflowPolicyText(result.status, locale)}
+                {localizeWorkflowPolicyText(result.status, t)}
               </Tag>
             }
             showIcon
@@ -3213,13 +3191,13 @@ function ImpactPreviewModal({ onCancel, preview }: ImpactPreviewModalProps) {
 
           {diagnosisEstimate === null ? null : (
             <Alert
-              description={localizeWorkflowPolicyText(diagnosisEstimate.detail, locale)}
+              description={localizeWorkflowPolicyText(diagnosisEstimate.detail, t)}
               message={
                 <Space size={[6, 4]} wrap>
                   <Tag color={readinessTagColor(diagnosisEstimate.status)}>
-                    {readinessLabel(diagnosisEstimate.status, locale)}
+                    {readinessLabel(diagnosisEstimate.status, t)}
                   </Tag>
-                  <span>{localizeWorkflowPolicyText(diagnosisEstimate.label, locale)}</span>
+                  <span>{localizeWorkflowPolicyText(diagnosisEstimate.label, t)}</span>
                 </Space>
               }
               showIcon
@@ -3246,7 +3224,7 @@ function ImpactPreviewModal({ onCancel, preview }: ImpactPreviewModalProps) {
               <ReadinessLine
                 label={t("reportChannel")}
                 ready={reportChannelReadiness?.ready ?? true}
-                text={localizeWorkflowPolicyText(reportChannelReadiness?.text ?? "No report channel bound", locale)}
+                text={localizeWorkflowPolicyText(reportChannelReadiness?.text ?? "No report channel bound", t)}
               />
             </Col>
           </Row>
@@ -3275,12 +3253,12 @@ function ReadinessLine({
   ready: boolean;
   text: string;
 }) {
-  const locale = useLocale();
+  const t = useTranslations("WorkflowPolicySettings");
   return (
     <Space direction="vertical" size={2}>
       <Typography.Text type="secondary">{label}</Typography.Text>
       <Space wrap>
-        <Tag color={ready ? "green" : "red"}>{localizeWorkflowPolicyText(ready ? "ready" : "blocked", locale)}</Tag>
+        <Tag color={ready ? "green" : "red"}>{localizeWorkflowPolicyText(ready ? "ready" : "blocked", t)}</Tag>
         <Typography.Text>{text}</Typography.Text>
       </Space>
     </Space>
@@ -3303,7 +3281,7 @@ function impactGroupColumns(
     key: "severity",
     title: t("severity"),
     render: (_value, group) => (
-      <Tag color={severityColor(group.severity)}>{localizeWorkflowPolicyText(group.severity, locale)}</Tag>
+      <Tag color={severityColor(group.severity)}>{localizeWorkflowPolicyText(group.severity, t)}</Tag>
     ),
   },
   {
@@ -3353,10 +3331,10 @@ function ReplayPolicyModal({
   policy,
   result,
 }: ReplayPolicyModalProps) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
+  const alertsT = useTranslations("Alerts");
   const proofTrace =
-    result === null ? null : reportWorkflowPolicyReplayProofTrace(result);
+    result === null ? null : localizeReportReplayProofTrace(result, alertsT);
 
   return (
     <Modal
@@ -3436,7 +3414,7 @@ function ReplayPolicyModal({
                 </Typography.Text>
                 {result.auto_diagnosis ? (
                   <Typography.Text type="secondary">
-                    {localizeWorkflowPolicyText(autoDiagnosisReplaySummary(result.auto_diagnosis), locale)}
+                    {autoDiagnosisReplaySummary(result.auto_diagnosis, t)}
                   </Typography.Text>
                 ) : null}
                 {result.auto_diagnosis &&
@@ -3476,36 +3454,35 @@ function ReplayPolicyModal({
 function ReplayProofTrace({
   trace,
 }: {
-  trace: ReturnType<typeof reportWorkflowPolicyReplayProofTrace>;
+  trace: LocalizedAlertReplayProofTrace;
 }) {
-  const locale = useLocale();
   const t = useTranslations("WorkflowPolicySettings");
   return (
     <div aria-label={t("proofTraceLabel")} className="settings-proof-outcome">
       <div className="settings-preview-header">
         <Typography.Text strong>{t("proofTrace")}</Typography.Text>
         <Tag color={readinessTagColor(trace.status)}>
-          {readinessLabel(trace.status, locale)}
+          {readinessLabel(trace.status, t)}
         </Tag>
       </div>
-      <Typography.Text type="secondary">{localizeWorkflowPolicyText(trace.detail, locale)}</Typography.Text>
+      <Typography.Text type="secondary">{trace.detail}</Typography.Text>
       <div className="workflow-automation-grid">
         {trace.items.map((item) => (
           <div className="workflow-automation-item" key={item.title}>
             <div className="workflow-automation-item-header">
-              <Typography.Text className="muted">{localizeWorkflowPolicyText(item.title, locale)}</Typography.Text>
+              <Typography.Text className="muted">{item.title}</Typography.Text>
               <Tag color={readinessTagColor(item.status)}>
-                {readinessLabel(item.status, locale)}
+                {readinessLabel(item.status, t)}
               </Tag>
             </div>
-            <Typography.Text strong>{localizeWorkflowPolicyText(item.value, locale)}</Typography.Text>
-            <Typography.Text type="secondary">{localizeWorkflowPolicyText(item.detail, locale)}</Typography.Text>
+            <Typography.Text strong>{item.value}</Typography.Text>
+            <Typography.Text type="secondary">{item.detail}</Typography.Text>
             {item.actions && item.actions.length > 0 ? (
               <Space size={[4, 4]} wrap>
                 {item.actions.map((action) => (
                   <Tooltip
                     key={`${item.title}:${action.href}`}
-                    title={localizeWorkflowPolicyText(action.detail, locale)}
+                    title={item.detail}
                   >
                     <Button
                       href={action.href}
@@ -3513,7 +3490,7 @@ function ReplayProofTrace({
                       size="small"
                       type="link"
                     >
-                      {localizeWorkflowPolicyText(action.label, locale)}
+                      {action.label}
                     </Button>
                   </Tooltip>
                 ))}
@@ -3528,29 +3505,17 @@ function ReplayProofTrace({
 
 function autoDiagnosisReplaySummary(
   autoDiagnosis: NonNullable<ReportReplayTriggerResponse["auto_diagnosis"]>,
+  t: WorkflowPolicyTranslator,
 ): string {
-  const parts = [
-    pluralizeCount(autoDiagnosis.policies_matched, "policy"),
-    pluralizeCount(autoDiagnosis.snapshots, "snapshot"),
-    `${pluralizeCount(autoDiagnosis.rooms_started, "room")} started`,
-  ];
   const confirmedSnapshots =
     autoDiagnosisConfirmedSnapshotCount(autoDiagnosis);
-  if (confirmedSnapshots > 0) {
-    parts.push(
-      `${pluralizeCount(confirmedSnapshots, "snapshot")} already confirmed`,
-    );
-  }
-  if (autoDiagnosis.rooms_skipped > 0) {
-    parts.push(
-      `${pluralizeCount(autoDiagnosis.rooms_skipped, "snapshot")} skipped by safety cap`,
-    );
-  }
-  return `AI diagnosis: ${parts.join(", ")}`;
-}
-
-function pluralizeCount(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+  return t("autoDiagnosisReplaySummary", {
+    confirmed: confirmedSnapshots,
+    policies: autoDiagnosis.policies_matched,
+    rooms: autoDiagnosis.rooms_started,
+    skipped: autoDiagnosis.rooms_skipped,
+    snapshots: autoDiagnosis.snapshots,
+  });
 }
 
 function impactStatusColor(
@@ -3611,405 +3576,576 @@ function severityColor(severity: ImpactPreviewGroup["severity"]) {
   }
 }
 
-function localizeWorkflowPolicyText(value: string, locale: string): string {
-  if (locale !== "zh-CN") {
-    return value;
-  }
-  const exact: Readonly<Record<string, string>> = {
-    "": "",
-    alert_storm: "告警风暴",
-    auto_room: "自动创建诊断室",
-    blocked: "已阻塞",
-    cascade: "级联故障",
-    critical: "严重",
-    diagnosis_close: "诊断关闭",
-    diagnosis_consultation: "诊断会诊",
-    disabled: "已停用",
-    info: "提示",
-    pending: "等待中",
-    ready: "就绪",
-    report: "报告",
-    review: "需检查",
-    single_alert: "单告警",
-    suggest_room: "建议创建诊断室",
-    unknown: "未知",
-    warning: "警告",
-    Blocked: "已阻塞",
-    WeCom: "企业微信",
-    "AI delivery proof missing": "缺少 AI 交付证明",
-    "Active alert and metric collection tools are enabled.":
-      "活动告警和指标采集工具均已启用。",
-    "Active alert evidence tool": "活动告警证据工具",
-    "Add AI scopes": "添加 AI 交付范围",
-    "Add a Thanos Query or Prometheus metric evidence source, then use Recommended by sources to create metric_query or metric_range_query templates.":
-      "请添加 Thanos Query 或 Prometheus 指标证据源，然后使用“按告警源推荐”创建 metric_query 或 metric_range_query 模板。",
-    "Add a metric_query or metric_range_query template on the selected Prometheus-compatible source so AI can raise confidence with measured evidence.":
-      "请在所选 Prometheus 兼容告警源上添加 metric_query 或 metric_range_query 模板，使 AI 能通过测量证据提高置信度。",
-    "Add an active_alerts template bound to the workflow alert source so AI can confirm sibling firing alerts.":
-      "请添加绑定到工作流告警源的 active_alerts 模板，使 AI 能确认同组触发告警。",
-    "Add the diagnosis_close scope when auto_room should deliver close notifications.":
-      "当 auto_room 需要交付关闭通知时，请添加 diagnosis_close 范围。",
-    "Add the diagnosis_consultation scope when auto_room should deliver AI diagnosis updates.":
-      "当 auto_room 需要交付 AI 诊断进展时，请添加 diagnosis_consultation 范围。",
-    "Add the report delivery scope to the bound notification channel.":
-      "请为绑定的通知渠道添加报告交付范围。",
-    "Alert source disabled": "告警源已停用",
-    "Alertmanager webhook deliveries can ingest firing alerts and start automatic diagnosis rooms.":
-      "Alertmanager Webhook 交付可以接入触发中的告警并启动自动诊断室。",
-    "Alertmanager webhook deliveries can ingest firing alerts; suggest_room still requires operator handoff.":
-      "Alertmanager Webhook 交付可以接入触发中的告警；suggest_room 仍需操作员移交。",
-    "Automatic diagnosis room delivery requires an Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes.":
-      "自动诊断室交付需要具有 report、diagnosis_consultation 和 diagnosis_close 范围的企业微信渠道。",
-    "Automatic diagnosis room starts require an Alertmanager alert source because the webhook endpoint rejects non-Alertmanager profiles.":
-      "自动诊断室启动需要 Alertmanager 告警源，因为 Webhook 端点会拒绝非 Alertmanager 配置。",
-    "Automatic diagnosis rooms will not start until the blocked preview reasons are resolved.":
-      "在解决预览中的阻塞原因前，自动诊断室不会启动。",
-    "Bind a notification channel before enabling auto_room AI diagnosis updates.":
-      "启用 auto_room AI 诊断进展前，请先绑定通知渠道。",
-    "Bind an Alertmanager alert source before using auto_room diagnosis follow-up.":
-      "使用 auto_room 诊断后续处理前，请先绑定 Alertmanager 告警源。",
-    "Bind an enabled report channel with diagnosis_consultation and diagnosis_close scopes before using automatic diagnosis rooms.":
-      "使用自动诊断室前，请绑定已启用且具有 diagnosis_consultation 和 diagnosis_close 范围的报告渠道。",
-    "Bound alert source must be enabled before workflow policy enablement.":
-      "启用工作流策略前，必须先启用绑定的告警源。",
-    "Bound grouping policy must be enabled before workflow policy enablement.":
-      "启用工作流策略前，必须先启用绑定的分组策略。",
-    "Configuration bindings are usable and the bounded sample produced an impact estimate.":
-      "配置绑定可用，有界样例已生成影响估算。",
-    "Configure metric source": "配置指标源",
-    "Configure source": "配置告警源",
-    "Create AI channel": "创建 AI 通知渠道",
-    "Create active-alert tool": "创建活动告警工具",
-    "Create an enabled grouping policy before saving this workflow.":
-      "保存此工作流前，请创建已启用的分组策略。",
-    "Create grouping": "创建分组策略",
-    "Create metric tool": "创建指标工具",
-    "Create or select an enabled Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes, run AI diagnosis and close proof, then return to enable this workflow.":
-      "请创建或选择已启用且具有 report、diagnosis_consultation 和 diagnosis_close 范围的企业微信渠道，运行 AI 诊断和关闭证明，然后返回启用此工作流。",
-    "Diagnosis follow-up is disabled for this policy.":
-      "此策略已停用诊断后续处理。",
-    "Enable at least one active_alerts template and one metric template before relying on AI follow-up.":
-      "依赖 AI 后续诊断前，请至少启用一个 active_alerts 模板和一个指标模板。",
-    "Enable policy": "启用策略",
-    "Enable the bound alert source before activating this workflow.":
-      "激活此工作流前，请先启用绑定的告警源。",
-    "Enable the bound alert source before relying on webhook ingestion.":
-      "依赖 Webhook 接入前，请先启用绑定的告警源。",
-    "Enable the bound grouping policy so sampled alerts can be grouped.":
-      "请启用绑定的分组策略，以便对样例告警进行分组。",
-    "Enable the bound notification channel before report delivery.":
-      "报告交付前，请先启用绑定的通知渠道。",
-    "Enabled diagnosis templates are bound only to disabled or incompatible sources.":
-      "已启用的诊断模板仅绑定到已停用或不兼容的告警源。",
-    "Enterprise WeChat channel": "企业微信渠道",
-    "Fix form": "修正表单",
-    "Limit must be between 1 and 100000.": "限制必须在 1 到 100000 之间。",
-    "Loaded matching automatic diagnosis workflows for retained Alertmanager proof.":
-      "已加载与保留的 Alertmanager 证明匹配的自动诊断工作流。",
-    "Manual replay": "手动重放",
-    "No channel": "无渠道",
-    "No matching alert groups in this sample, so no automatic diagnosis room is expected.":
-      "此样例中没有匹配的告警分组，因此预计不会创建自动诊断室。",
-    "No notification channel profile is bound.": "未绑定通知渠道配置。",
-    "No rooms": "无诊断室",
-    "Open the selected Enterprise WeChat channel and run current AI diagnosis and diagnosis close sample tests before workflow policy enablement.":
-      "启用工作流策略前，请打开所选企业微信渠道并运行当前 AI 诊断和诊断关闭样例测试。",
-    "Open the selected Enterprise WeChat channel, run the current AI diagnosis and diagnosis close sample tests, then return to enable this workflow.":
-      "请打开所选企业微信渠道，运行当前 AI 诊断和诊断关闭样例测试，然后返回启用此工作流。",
-    "Policy bindings and diagnosis tool configuration are ready.":
-      "策略绑定和诊断工具配置均已就绪。",
-    "Policy name is required.": "策略名称为必填项。",
-    "Policy name must be 120 characters or fewer.":
-      "策略名称不能超过 120 个字符。",
-    "Prepared an automatic diagnosis workflow from the settings overview create action.":
-      "已根据配置概览创建操作准备自动诊断工作流。",
-    "Prepared an automatic diagnosis workflow that needs an enabled Alertmanager source.":
-      "已准备自动诊断工作流，但仍需要已启用的 Alertmanager 告警源。",
-    "Prepared automatic AI diagnosis room handoff from the settings overview action.":
-      "已根据配置概览操作准备自动 AI 诊断室移交。",
-    "Prepared automatic diagnosis room handoff from the settings overview action.":
-      "已根据配置概览操作准备自动诊断室移交。",
-    "Prometheus sources support metric evidence, but they do not receive Alertmanager webhook deliveries.":
-      "Prometheus 告警源支持指标证据，但不接收 Alertmanager Webhook 交付。",
-    "Recent bounded samples did not match this source and grouping configuration.":
-      "最近的有界样例未匹配此告警源和分组配置。",
-    "Report only": "仅报告",
-    "Review grouping": "检查分组策略",
-    "Review source": "检查告警源",
-    "Run AI proof": "运行 AI 证明",
-    "Run current AI diagnosis and diagnosis close sample tests for the bound Enterprise WeChat channel.":
-      "请为绑定的企业微信渠道运行当前 AI 诊断和诊断关闭样例测试。",
-    "Select Auto room to enable automatic AI consultation readiness checks.":
-      "请选择“自动诊断室”以启用自动 AI 会诊就绪检查。",
-    "Select the alert source that receives the Alertmanager webhook.":
-      "请选择接收 Alertmanager Webhook 的告警源。",
-    "Selected notification channel can deliver final report notifications.":
-      "所选通知渠道可以交付最终报告通知。",
-    "Selected notification channel can deliver reports, auto-room AI diagnosis updates, and close notifications.":
-      "所选通知渠道可以交付报告、自动诊断室 AI 诊断进展和关闭通知。",
-    "Selected notification channel must be enabled before workflow policy enablement.":
-      "启用工作流策略前，必须先启用所选通知渠道。",
-    "Switch to WeCom": "切换到企业微信",
-    "Thanos Rule active-alert sources can provide firing-alert evidence, but automatic diagnosis room starts require an Alertmanager webhook source. Select or create an Alertmanager source for workflow intake, then keep Thanos Rule for active_alerts evidence templates.":
-      "Thanos Rule 活动告警源可以提供触发告警证据，但自动诊断室启动需要 Alertmanager Webhook 告警源。请为工作流接入选择或创建 Alertmanager 告警源，并保留 Thanos Rule 用于 active_alerts 证据模板。",
-    "This policy does not request AI diagnosis handoff for matched alert groups.":
-      "此策略不会为匹配的告警分组请求 AI 诊断移交。",
-    "Use a trigger mode supported by impact preview before enabling this policy.":
-      "启用此策略前，请使用影响预览支持的触发方式。",
-    "Use an Enterprise WeChat channel before enabling auto_room AI diagnosis updates.":
-      "启用 auto_room AI 诊断进展前，请使用企业微信渠道。",
-    "Use an Enterprise WeChat channel for automatic diagnosis room delivery, then run AI diagnosis and close proof before enablement.":
-      "自动诊断室交付请使用企业微信渠道，并在启用前运行 AI 诊断和关闭证明。",
-    "Webhook firing alerts": "Webhook 触发告警",
-    "A handoff is retained for an operator to create the AI diagnosis room.":
-      "已保留移交，由操作员创建 AI 诊断室。",
-    "Alertmanager alerts can produce evidence, start AI diagnosis rooms, and notify operators.":
-      "Alertmanager 告警可以生成证据、启动 AI 诊断室并通知操作员。",
-    "Alerts can prepare an AI handoff, but an operator still starts the diagnosis room.":
-      "告警可以准备 AI 移交，但仍由操作员启动诊断室。",
-    "All required bindings are selected; save the policy, run impact preview, then replay a bounded window.":
-      "已选择所有必需绑定；请保存策略、运行影响预览，然后重放有界窗口。",
-    "Auto-room path blocked.": "自动诊断室路径已阻塞。",
-    "Auto-room path needs review.": "自动诊断室路径需要检查。",
-    "Auto-room path pending.": "自动诊断室路径等待配置。",
-    "Auto-room path ready.": "自动诊断室路径已就绪。",
-    "Complete the required automatic diagnosis selections before enabling this path.":
-      "启用此路径前，请完成必需的自动诊断选项。",
-    "Enterprise WeChat can receive final report delivery while AI room handoff remains operator-controlled.":
-      "企业微信可以接收最终报告交付，同时 AI 诊断室移交仍由操作员控制。",
-    "Enterprise WeChat can receive final report delivery without starting or suggesting AI diagnosis rooms.":
-      "企业微信可以接收最终报告交付，但不会启动或建议 AI 诊断室。",
-    "Enterprise WeChat can receive final report delivery, AI diagnosis updates, final-ready notices, and close notifications.":
-      "企业微信可以接收最终报告、AI 诊断进展、最终就绪提示和关闭通知。",
-    "Matching Alertmanager webhooks can start AI diagnosis rooms, collect evidence, and notify the operator channel.":
-      "匹配的 Alertmanager Webhook 可以启动 AI 诊断室、采集证据并通知操作员渠道。",
-    "No AI diagnosis room will be suggested or started by this policy.":
-      "此策略不会建议或启动 AI 诊断室。",
-    "No diagnosis room will be suggested or started by this policy.":
-      "此策略不会建议或启动诊断室。",
-    "No report notification channel is bound.": "未绑定报告通知渠道。",
-    "Operator handoff": "操作员移交",
-    "Resolve blocked bindings before relying on this workflow automation path.":
-      "依赖此工作流自动化路径前，请解决被阻塞的绑定。",
-    "Resolve blocked intake, evidence, or notification requirements before automatic diagnosis rooms can run.":
-      "自动诊断室运行前，请解决被阻塞的接入、证据或通知要求。",
-    "Review the retained handoff or delivery gap before treating this workflow as fully automated.":
-      "将此工作流视为完全自动化前，请检查保留的移交或交付缺口。",
-    "Save the policy, preview impact, then replay a bounded window after enablement.":
-      "请保存策略、预览影响，并在启用后重放有界窗口。",
-    "The automatic diagnosis path can be saved, but one or more operator-facing choices need review before production use.":
-      "自动诊断路径可以保存，但投入生产前仍需检查一个或多个面向操作员的选项。",
-    "This matching AI room workflow is already enabled.":
-      "此匹配的 AI 诊断室工作流已启用。",
-    "This matching AI room workflow is ready to enable.":
-      "此匹配的 AI 诊断室工作流可以启用。",
-    "This policy generates report workflow output without AI diagnosis-room automation.":
-      "此策略会生成报告工作流输出，但不启用 AI 诊断室自动化。",
-    "Webhook auto-room": "Webhook 自动诊断室",
-    "Webhook handoff": "Webhook 移交",
-    "Workflow policy draft is ready for the next operator action.":
-      "工作流策略草稿已可执行下一步操作。",
-    "Workflow setup actions are ready.": "工作流配置操作已就绪。",
-    "Workflow setup blocked.": "工作流配置已阻塞。",
-    "Workflow setup needs review.": "工作流配置需要检查。",
-    "Workflow setup pending.": "工作流配置等待完成。",
-    "Workflow setup ready.": "工作流配置已就绪。",
-    "AI consultation": "AI 会诊",
-    "AI delivery proof": "AI 交付证明",
-    "AI delivery proof missing.": "缺少 AI 交付证明。",
-    "AI diagnosis disabled.": "AI 诊断已停用。",
-    "AI evidence": "AI 证据",
-    "AI handoff": "AI 移交",
-    "AI room": "AI 诊断室",
-    "Alert grouping policy": "告警分组策略",
-    "Alert intake": "告警接入",
-    "Alert source disabled.": "告警源已停用。",
-    "Alert source required.": "需要告警源。",
-    "Alertmanager intake": "Alertmanager 接入",
-    "Alertmanager source required": "需要 Alertmanager 告警源",
-    "Alertmanager webhook source required.": "需要 Alertmanager Webhook 告警源。",
-    "Auto-room delivery blocked.": "自动诊断室交付已阻塞。",
-    "Automatic diagnosis blocked.": "自动诊断已阻塞。",
-    "Automatic diagnosis rooms disabled.": "自动诊断室已停用。",
-    "Automatic diagnosis rooms estimated.": "已估算自动诊断室数量。",
-    "Bound alert source": "已绑定告警源",
-    "Bound grouping policy": "已绑定分组策略",
-    "Delivery": "交付",
-    "Delivery scopes": "交付范围",
-    "Diagnosis close scope missing": "缺少诊断关闭范围",
-    "Diagnosis consultation scope missing": "缺少诊断会诊范围",
-    "Diagnosis room starts automatically": "自动启动诊断室",
-    "Diagnosis room suggested": "建议创建诊断室",
-    "Diagnosis tools need review.": "诊断工具需要检查。",
-    "Enterprise WeChat channel required.": "需要企业微信渠道。",
-    "Enterprise WeChat required": "需要企业微信",
-    "Evidence": "证据",
-    "Evidence collection": "证据采集",
-    "Executable diagnosis tools ready.": "可执行诊断工具已就绪。",
-    "Follow-up disabled": "后续处理已停用",
-    "Generic webhook selected.": "已选择通用 Webhook。",
-    "Grouping": "分组",
-    "Grouping policy disabled": "分组策略已停用",
-    "Grouping rule": "分组规则",
-    "Impact not previewed": "尚未预览影响",
-    "Impact preview": "影响预览",
-    "Metric evidence source": "指标证据源",
-    "Metric evidence tool": "指标证据工具",
-    "No Alertmanager webhook ingress.": "没有 Alertmanager Webhook 接入。",
-    "No automatic rooms expected.": "预计不会自动创建诊断室。",
-    "No enabled diagnosis tools.": "没有已启用的诊断工具。",
-    "No matching events": "没有匹配事件",
-    "No report channel bound": "未绑定报告渠道",
-    "No report channel selected.": "尚未选择报告渠道。",
-    "No usable diagnosis tools.": "没有可用的诊断工具。",
-    "Notification": "通知",
-    "Notification channel disabled": "通知渠道已停用",
-    "Notification channel disabled.": "通知渠道已停用。",
-    "Notification channel required": "需要通知渠道",
-    "Notification channel scope mismatch.": "通知渠道范围不匹配。",
-    "Operator channel": "操作员通知渠道",
-    "Operator handoff retained.": "已保留操作员移交。",
-    "Operator notification": "操作员通知",
-    "Policy can be enabled after review.": "检查后可以启用策略。",
-    "Policy can be enabled.": "可以启用策略。",
-    "Policy cannot be enabled.": "无法启用策略。",
-    "Preview ready": "预览已就绪",
-    "Proof": "证明",
-    "Replay window": "重放窗口",
-    "Report and AI-room channel": "报告与 AI 诊断室渠道",
-    "Report and auto-room delivery ready.": "报告与自动诊断室交付已就绪。",
-    "Report delivery ready.": "报告交付已就绪。",
-    "Report notification channel": "报告通知渠道",
-    "Report scope missing": "缺少报告范围",
-    "Select a grouping policy.": "请选择分组策略。",
-    "Select a valid report notification channel.": "请选择有效的报告通知渠道。",
-    "Select an alert source.": "请选择告警源。",
-    "Source": "告警源",
-    "Trigger": "触发方式",
-    "Trigger mode unsupported": "不支持此触发方式",
-    "Webhook": "Webhook",
-    "Webhook auto-room ingress blocked.": "Webhook 自动诊断室接入已阻塞。",
-    "Webhook auto-room ingress ready.": "Webhook 自动诊断室接入已就绪。",
-    "Webhook ingest ready.": "Webhook 接入已就绪。",
-    "Webhook ingress not used.": "未使用 Webhook 接入。",
-    "Window end is required.": "窗口结束时间为必填项。",
-    "Window end must be a valid date-time.": "窗口结束时间必须是有效日期时间。",
-    "Window end must be after window start.": "窗口结束时间必须晚于开始时间。",
-    "Window start is required.": "窗口开始时间为必填项。",
-    "Window start must be a valid date-time.": "窗口开始时间必须是有效日期时间。",
-    "Workflow policy fields": "工作流策略字段",
-  };
-  if (exact[value] !== undefined) {
-    return exact[value]!;
+const workflowPolicyRuntimeTextKeys = {
+    "alert_storm": "runtimeText.alertStorm",
+    "auto_room": "runtimeText.autoRoom",
+    "blocked": "runtimeText.blocked",
+    "cascade": "runtimeText.cascade",
+    "critical": "runtimeText.critical",
+    "diagnosis_close": "runtimeText.diagnosisClose",
+    "diagnosis_consultation": "runtimeText.diagnosisConsultation",
+    "disabled": "runtimeText.disabled",
+    "info": "runtimeText.info",
+    "pending": "runtimeText.pending",
+    "ready": "runtimeText.ready",
+    "report": "runtimeText.report",
+    "review": "runtimeText.review",
+    "single_alert": "runtimeText.singleAlert",
+    "suggest_room": "runtimeText.suggestRoom",
+    "unknown": "runtimeText.unknown",
+    "warning": "runtimeText.warning",
+    "enabled": "runtimeText.enabled",
+    "Alert storm": "alertStorm",
+    "Alert-storm": "alertStorm",
+    "Cascade": "cascade",
+    "Disabled": "disabled",
+    "Single alert": "singleAlert",
+    "Single-alert": "singleAlert",
+    "Automatic": "runtimeText.automatic",
+    "Report-only": "runtimeText.reportOnly",
+    "Grouping policy": "runtimeText.groupingPolicy",
+    "Notification channel": "runtimeText.notificationChannel",
+    "Policy": "runtimeText.policy",
+    "Report channel": "runtimeText.reportChannel",
+    "Alert source": "runtimeText.alertSource",
+    "Alert source profile": "runtimeText.alertSourceProfile",
+    "Alertmanager webhook source": "runtimeText.alertmanagerWebhookSource",
+    "Automatic diagnosis workflow": "runtimeText.automaticDiagnosisWorkflow",
+    "Channel review": "runtimeText.channelReview",
+    "Choose the Alertmanager source that will trigger this workflow.": "runtimeText.chooseAlertmanagerSource",
+    "Configure channel": "runtimeText.configureChannel",
+    "Create or select an enabled WeCom channel with report, diagnosis_consultation, and diagnosis_close scopes.": "runtimeText.createOrSelectEnabledWeComChannel",
+    "Diagnosis evidence tools are not requested while AI follow-up is disabled.": "runtimeText.diagnosisEvidenceToolsNotRequested",
+    "Diagnosis follow-up disabled.": "runtimeText.diagnosisFollowUpDisabled",
+    "Diagnosis templates unavailable.": "runtimeText.diagnosisTemplatesUnavailable",
+    "Edit channel": "runtimeText.editChannel",
+    "Enable channel": "runtimeText.enableChannel",
+    "Enable suggest_room or auto_room to check executable diagnosis tools.": "runtimeText.enableFollowUpToCheckTools",
+    "Enterprise WeChat channel needs attention.": "runtimeText.enterpriseWechatChannelNeedsAttention",
+    "Enterprise WeChat channel not selected.": "runtimeText.enterpriseWechatChannelNotSelected",
+    "Enterprise WeChat delivery selected.": "runtimeText.enterpriseWechatDeliverySelected",
+    "Evidence tools are not requested while diagnosis follow-up is disabled.": "runtimeText.evidenceToolsNotRequested",
+    "Generic webhook delivery is supported; select a WeCom channel when operator group notification should land in Enterprise WeChat.": "runtimeText.genericWebhookDeliverySupported",
+    "Grouping runs before report generation so related alerts share one report and consultation room.": "runtimeText.groupingRunsBeforeReportGeneration",
+    "Impact preview needs valid required workflow fields.": "runtimeText.impactPreviewNeedsValidFields",
+    "Manual replay uses the selected alert source without starting AI follow-up from webhooks.": "runtimeText.manualReplayUsesSelectedSource",
+    "No handoff": "runtimeText.noHandoff",
+    "No matching alert groups in this sample, so no diagnosis handoff is expected.": "runtimeText.noMatchingGroupsForHandoff",
+    "No report channel": "runtimeText.noReportChannel",
+    "Not selected": "runtimeText.notSelected",
+    "Operator channel optional.": "runtimeText.operatorChannelOptional",
+    "Replay is blocked until the policy can be saved and enabled.": "runtimeText.replayBlockedUntilEnabled",
+    "Report and AI updates": "runtimeText.reportAndAiUpdates",
+    "Report notification": "runtimeText.reportNotification",
+    "Resolve blocked workflow configuration.": "runtimeText.resolveBlockedWorkflowConfiguration",
+    "Resolve save blockers before this policy can be enabled.": "runtimeText.resolveSaveBlockers",
+    "Review workflow warnings before enablement.": "runtimeText.reviewWorkflowWarnings",
+    "Run draft or saved impact preview to estimate matched alert groups and expose blocked enablement reasons before replay.": "runtimeText.runImpactPreviewBeforeReplay",
+    "Save changes, then enable this policy from the configured policies table.": "runtimeText.saveChangesThenEnable",
+    "Save policy": "runtimeText.savePolicy",
+    "Save the policy first, then enable it from the configured policies table.": "runtimeText.savePolicyFirstThenEnable",
+    "Select a WeCom channel when final reports should notify the operator group through Enterprise WeChat.": "runtimeText.selectWeComForFinalReports",
+    "Select or create an enabled grouping policy before saving this workflow.": "runtimeText.selectEnabledGroupingPolicy",
+    "This policy does not start AI diagnosis from Alertmanager webhook deliveries.": "runtimeText.policyDoesNotStartAiDiagnosis",
+    "Tool collection": "runtimeText.toolCollection",
+    "Tool template data could not be loaded.": "runtimeText.toolTemplateDataUnavailable",
+    "WeCom delivery and proof": "runtimeText.weComDeliveryAndProof",
+    "active_alerts for the selected source": "runtimeText.activeAlertsForSelectedSource",
+    "alert source": "runtimeText.alertSourceLower",
+    "grouping policy": "runtimeText.groupingPolicyLower",
+    "metric_query or metric_range_query": "runtimeText.metricQueryTools",
+    "missing AI proof": "runtimeText.missingAiProof",
+    "missing diagnosis_close": "runtimeText.missingDiagnosisClose",
+    "missing diagnosis_consultation": "runtimeText.missingDiagnosisConsultation",
+    "notification channel": "runtimeText.notificationChannelLower",
+    "requires Enterprise WeChat": "runtimeText.requiresEnterpriseWechat",
+    "Blocked": "runtimeText.blocked2",
+    "WeCom": "runtimeText.wecom",
+    "AI delivery proof missing": "runtimeText.aiDeliveryProofMissing",
+    "Active alert and metric collection tools are enabled.": "runtimeText.activeAlertAndMetricCollectionToolsAreEnabled",
+    "Active alert evidence tool": "runtimeText.activeAlertEvidenceTool",
+    "Add AI scopes": "runtimeText.addAiScopes",
+    "Add a Thanos Query or Prometheus metric evidence source, then use Recommended by sources to create metric_query or metric_range_query templates.": "runtimeText.addAThanosQueryOrPrometheusMetricEvidenceSourceThenUseRecommended",
+    "Add a metric_query or metric_range_query template on the selected Prometheus-compatible source so AI can raise confidence with measured evidence.": "runtimeText.addAMetricQueryOrMetricRangeQueryTemplateOnTheSelected",
+    "Add an active_alerts template bound to the workflow alert source so AI can confirm sibling firing alerts.": "runtimeText.addAnActiveAlertsTemplateBoundToTheWorkflowAlertSourceSo",
+    "Add the diagnosis_close scope when auto_room should deliver close notifications.": "runtimeText.addTheDiagnosisCloseScopeWhenAutoRoomShouldDeliverCloseNotifications",
+    "Add the diagnosis_consultation scope when auto_room should deliver AI diagnosis updates.": "runtimeText.addTheDiagnosisConsultationScopeWhenAutoRoomShouldDeliverAiDiagnosis",
+    "Add the report delivery scope to the bound notification channel.": "runtimeText.addTheReportDeliveryScopeToTheBoundNotificationChannel",
+    "Alert source disabled": "runtimeText.alertSourceDisabled",
+    "Alertmanager webhook deliveries can ingest firing alerts and start automatic diagnosis rooms.": "runtimeText.alertmanagerWebhookDeliveriesCanIngestFiringAlertsAndStartAutomaticDiagnosisRooms",
+    "Alertmanager webhook deliveries can ingest firing alerts; suggest_room still requires operator handoff.": "runtimeText.alertmanagerWebhookDeliveriesCanIngestFiringAlertsSuggestRoomStillRequiresOperator",
+    "Automatic diagnosis room delivery requires an Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes.": "runtimeText.automaticDiagnosisRoomDeliveryRequiresAnEnterpriseWechatChannelWithReportDiagnosis",
+    "Automatic diagnosis room starts require an Alertmanager alert source because the webhook endpoint rejects non-Alertmanager profiles.": "runtimeText.automaticDiagnosisRoomStartsRequireAnAlertmanagerAlertSourceBecauseTheWebhook",
+    "Automatic diagnosis rooms will not start until the blocked preview reasons are resolved.": "runtimeText.automaticDiagnosisRoomsWillNotStartUntilTheBlockedPreviewReasonsAre",
+    "Bind a notification channel before enabling auto_room AI diagnosis updates.": "runtimeText.bindANotificationChannelBeforeEnablingAutoRoomAiDiagnosisUpdates",
+    "Bind an Alertmanager alert source before using auto_room diagnosis follow-up.": "runtimeText.bindAnAlertmanagerAlertSourceBeforeUsingAutoRoomDiagnosisFollowUp",
+    "Bind an enabled report channel with diagnosis_consultation and diagnosis_close scopes before using automatic diagnosis rooms.": "runtimeText.bindAnEnabledReportChannelWithDiagnosisConsultationAndDiagnosisCloseScopes",
+    "Bound alert source must be enabled before workflow policy enablement.": "runtimeText.boundAlertSourceMustBeEnabledBeforeWorkflowPolicyEnablement",
+    "Bound grouping policy must be enabled before workflow policy enablement.": "runtimeText.boundGroupingPolicyMustBeEnabledBeforeWorkflowPolicyEnablement",
+    "Configuration bindings are usable and the bounded sample produced an impact estimate.": "runtimeText.configurationBindingsAreUsableAndTheBoundedSampleProducedAnImpactEstimate",
+    "Configure metric source": "runtimeText.configureMetricSource",
+    "Configure source": "runtimeText.configureSource",
+    "Create AI channel": "runtimeText.createAiChannel",
+    "Create active-alert tool": "runtimeText.createActiveAlertTool",
+    "Create an enabled grouping policy before saving this workflow.": "runtimeText.createAnEnabledGroupingPolicyBeforeSavingThisWorkflow",
+    "Create grouping": "runtimeText.createGrouping",
+    "Create metric tool": "runtimeText.createMetricTool",
+    "Create or select an enabled Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes, run AI diagnosis and close proof, then return to enable this workflow.": "runtimeText.createOrSelectAnEnabledEnterpriseWechatChannelWithReportDiagnosisConsultation",
+    "Diagnosis follow-up is disabled for this policy.": "runtimeText.diagnosisFollowUpIsDisabledForThisPolicy",
+    "Enable at least one active_alerts template and one metric template before relying on AI follow-up.": "runtimeText.enableAtLeastOneActiveAlertsTemplateAndOneMetricTemplateBefore",
+    "Enable policy": "runtimeText.enablePolicy",
+    "Enable the bound alert source before activating this workflow.": "runtimeText.enableTheBoundAlertSourceBeforeActivatingThisWorkflow",
+    "Enable the bound alert source before relying on webhook ingestion.": "runtimeText.enableTheBoundAlertSourceBeforeRelyingOnWebhookIngestion",
+    "Enable the bound grouping policy so sampled alerts can be grouped.": "runtimeText.enableTheBoundGroupingPolicySoSampledAlertsCanBeGrouped",
+    "Enable the bound notification channel before report delivery.": "runtimeText.enableTheBoundNotificationChannelBeforeReportDelivery",
+    "Enabled diagnosis templates are bound only to disabled or incompatible sources.": "runtimeText.enabledDiagnosisTemplatesAreBoundOnlyToDisabledOrIncompatibleSources",
+    "Enterprise WeChat channel": "runtimeText.enterpriseWechatChannel",
+    "Fix form": "runtimeText.fixForm",
+    "Limit must be between 1 and 100000.": "runtimeText.limitMustBeBetween1And100000",
+    "Maximum failed SubReports must be between 0 and 100000.": "runtimeText.maximumFailedSubreportsMustBeBetween0And100000",
+    "Loaded matching automatic diagnosis workflows for retained Alertmanager proof.": "runtimeText.loadedMatchingAutomaticDiagnosisWorkflowsForRetainedAlertmanagerProof",
+    "Manual replay": "runtimeText.manualReplay",
+    "No channel": "runtimeText.noChannel",
+    "No matching alert groups in this sample, so no automatic diagnosis room is expected.": "runtimeText.noMatchingAlertGroupsInThisSampleSoNoAutomaticDiagnosisRoom",
+    "No notification channel profile is bound.": "runtimeText.noNotificationChannelProfileIsBound",
+    "No rooms": "runtimeText.noRooms",
+    "Open the selected Enterprise WeChat channel and run current AI diagnosis and diagnosis close sample tests before workflow policy enablement.": "runtimeText.openTheSelectedEnterpriseWechatChannelAndRunCurrentAiDiagnosisAnd",
+    "Open the selected Enterprise WeChat channel, run the current AI diagnosis and diagnosis close sample tests, then return to enable this workflow.": "runtimeText.openTheSelectedEnterpriseWechatChannelRunTheCurrentAiDiagnosisAnd",
+    "Policy bindings and diagnosis tool configuration are ready.": "runtimeText.policyBindingsAndDiagnosisToolConfigurationAreReady",
+    "Policy name is required.": "runtimeText.policyNameIsRequired",
+    "Policy name must be 120 characters or fewer.": "runtimeText.policyNameMustBe120CharactersOrFewer",
+    "Prepared an automatic diagnosis workflow from the settings overview create action.": "runtimeText.preparedAnAutomaticDiagnosisWorkflowFromTheSettingsOverviewCreateAction",
+    "Prepared an automatic diagnosis workflow that needs an enabled Alertmanager source.": "runtimeText.preparedAnAutomaticDiagnosisWorkflowThatNeedsAnEnabledAlertmanagerSource",
+    "Prepared automatic AI diagnosis room handoff from the settings overview action.": "runtimeText.preparedAutomaticAiDiagnosisRoomHandoffFromTheSettingsOverviewAction",
+    "Prepared automatic diagnosis room handoff from the settings overview action.": "runtimeText.preparedAutomaticDiagnosisRoomHandoffFromTheSettingsOverviewAction",
+    "Prometheus sources support metric evidence, but they do not receive Alertmanager webhook deliveries.": "runtimeText.prometheusSourcesSupportMetricEvidenceButTheyDoNotReceiveAlertmanagerWebhook",
+    "Recent bounded samples did not match this source and grouping configuration.": "runtimeText.recentBoundedSamplesDidNotMatchThisSourceAndGroupingConfiguration",
+    "Report only": "runtimeText.reportOnly",
+    "Review grouping": "runtimeText.reviewGrouping",
+    "Review source": "runtimeText.reviewSource",
+    "Run AI proof": "runtimeText.runAiProof",
+    "Run current AI diagnosis and diagnosis close sample tests for the bound Enterprise WeChat channel.": "runtimeText.runCurrentAiDiagnosisAndDiagnosisCloseSampleTestsForTheBound",
+    "Select Auto room to enable automatic AI consultation readiness checks.": "runtimeText.selectAutoRoomToEnableAutomaticAiConsultationReadinessChecks",
+    "Select the alert source that receives the Alertmanager webhook.": "runtimeText.selectTheAlertSourceThatReceivesTheAlertmanagerWebhook",
+    "Selected notification channel can deliver final report notifications.": "runtimeText.selectedNotificationChannelCanDeliverFinalReportNotifications",
+    "Selected notification channel can deliver reports, auto-room AI diagnosis updates, and close notifications.": "runtimeText.selectedNotificationChannelCanDeliverReportsAutoRoomAiDiagnosisUpdatesAnd",
+    "Selected notification channel must be enabled before workflow policy enablement.": "runtimeText.selectedNotificationChannelMustBeEnabledBeforeWorkflowPolicyEnablement",
+    "Switch to WeCom": "runtimeText.switchToWecom",
+    "Thanos Rule active-alert sources can provide firing-alert evidence, but automatic diagnosis room starts require an Alertmanager webhook source. Select or create an Alertmanager source for workflow intake, then keep Thanos Rule for active_alerts evidence templates.": "runtimeText.thanosRuleActiveAlertSourcesCanProvideFiringAlertEvidenceButAutomatic",
+    "This policy does not request AI diagnosis handoff for matched alert groups.": "runtimeText.thisPolicyDoesNotRequestAiDiagnosisHandoffForMatchedAlertGroups",
+    "Use a trigger mode supported by impact preview before enabling this policy.": "runtimeText.useATriggerModeSupportedByImpactPreviewBeforeEnablingThisPolicy",
+    "Use an Enterprise WeChat channel before enabling auto_room AI diagnosis updates.": "runtimeText.useAnEnterpriseWechatChannelBeforeEnablingAutoRoomAiDiagnosisUpdates",
+    "Use an Enterprise WeChat channel for automatic diagnosis room delivery, then run AI diagnosis and close proof before enablement.": "runtimeText.useAnEnterpriseWechatChannelForAutomaticDiagnosisRoomDeliveryThenRun",
+    "Webhook firing alerts": "runtimeText.webhookFiringAlerts",
+    "A handoff is retained for an operator to create the AI diagnosis room.": "runtimeText.aHandoffIsRetainedForAnOperatorToCreateTheAiDiagnosis",
+    "Alertmanager alerts can produce evidence, start AI diagnosis rooms, and notify operators.": "runtimeText.alertmanagerAlertsCanProduceEvidenceStartAiDiagnosisRoomsAndNotifyOperators",
+    "Alerts can prepare an AI handoff, but an operator still starts the diagnosis room.": "runtimeText.alertsCanPrepareAnAiHandoffButAnOperatorStillStartsThe",
+    "All required bindings are selected; save the policy, run impact preview, then replay a bounded window.": "runtimeText.allRequiredBindingsAreSelectedSaveThePolicyRunImpactPreviewThen",
+    "Auto-room path blocked.": "runtimeText.autoRoomPathBlocked",
+    "Auto-room path needs review.": "runtimeText.autoRoomPathNeedsReview",
+    "Auto-room path pending.": "runtimeText.autoRoomPathPending",
+    "Auto-room path ready.": "runtimeText.autoRoomPathReady",
+    "Complete the required automatic diagnosis selections before enabling this path.": "runtimeText.completeTheRequiredAutomaticDiagnosisSelectionsBeforeEnablingThisPath",
+    "Enterprise WeChat can receive final report delivery while AI room handoff remains operator-controlled.": "runtimeText.enterpriseWechatCanReceiveFinalReportDeliveryWhileAiRoomHandoffRemains",
+    "Enterprise WeChat can receive final report delivery without starting or suggesting AI diagnosis rooms.": "runtimeText.enterpriseWechatCanReceiveFinalReportDeliveryWithoutStartingOrSuggestingAi",
+    "Enterprise WeChat can receive final report delivery, AI diagnosis updates, final-ready notices, and close notifications.": "runtimeText.enterpriseWechatCanReceiveFinalReportDeliveryAiDiagnosisUpdatesFinalReady",
+    "Matching Alertmanager webhooks can start AI diagnosis rooms, collect evidence, and notify the operator channel.": "runtimeText.matchingAlertmanagerWebhooksCanStartAiDiagnosisRoomsCollectEvidenceAndNotify",
+    "No AI diagnosis room will be suggested or started by this policy.": "runtimeText.noAiDiagnosisRoomWillBeSuggestedOrStartedByThisPolicy",
+    "No diagnosis room will be suggested or started by this policy.": "runtimeText.noDiagnosisRoomWillBeSuggestedOrStartedByThisPolicy",
+    "No report notification channel is bound.": "runtimeText.noReportNotificationChannelIsBound",
+    "Operator handoff": "runtimeText.operatorHandoff",
+    "Resolve blocked bindings before relying on this workflow automation path.": "runtimeText.resolveBlockedBindingsBeforeRelyingOnThisWorkflowAutomationPath",
+    "Resolve blocked intake, evidence, or notification requirements before automatic diagnosis rooms can run.": "runtimeText.resolveBlockedIntakeEvidenceOrNotificationRequirementsBeforeAutomaticDiagnosisRoomsCan",
+    "Review the retained handoff or delivery gap before treating this workflow as fully automated.": "runtimeText.reviewTheRetainedHandoffOrDeliveryGapBeforeTreatingThisWorkflowAs",
+    "Save the policy, preview impact, then replay a bounded window after enablement.": "runtimeText.saveThePolicyPreviewImpactThenReplayABoundedWindowAfterEnablement",
+    "The automatic diagnosis path can be saved, but one or more operator-facing choices need review before production use.": "runtimeText.theAutomaticDiagnosisPathCanBeSavedButOneOrMoreOperator",
+    "This matching AI room workflow is already enabled.": "runtimeText.thisMatchingAiRoomWorkflowIsAlreadyEnabled",
+    "This matching AI room workflow is ready to enable.": "runtimeText.thisMatchingAiRoomWorkflowIsReadyToEnable",
+    "This policy generates report workflow output without AI diagnosis-room automation.": "runtimeText.thisPolicyGeneratesReportWorkflowOutputWithoutAiDiagnosisRoomAutomation",
+    "Webhook auto-room": "runtimeText.webhookAutoRoom",
+    "Webhook handoff": "runtimeText.webhookHandoff",
+    "Workflow policy draft is ready for the next operator action.": "runtimeText.workflowPolicyDraftIsReadyForTheNextOperatorAction",
+    "Workflow setup actions are ready.": "runtimeText.workflowSetupActionsAreReady",
+    "Workflow setup blocked.": "runtimeText.workflowSetupBlocked",
+    "Workflow setup needs review.": "runtimeText.workflowSetupNeedsReview",
+    "Workflow setup pending.": "runtimeText.workflowSetupPending",
+    "Workflow setup ready.": "runtimeText.workflowSetupReady",
+    "AI consultation": "runtimeText.aiConsultation",
+    "AI delivery proof": "runtimeText.aiDeliveryProof",
+    "AI delivery proof missing.": "runtimeText.aiDeliveryProofMissing2",
+    "AI diagnosis disabled.": "runtimeText.aiDiagnosisDisabled",
+    "AI evidence": "runtimeText.aiEvidence",
+    "AI handoff": "runtimeText.aiHandoff",
+    "AI room": "runtimeText.aiRoom",
+    "Alert grouping policy": "runtimeText.alertGroupingPolicy",
+    "Alert intake": "runtimeText.alertIntake",
+    "Alert source disabled.": "runtimeText.alertSourceDisabled2",
+    "Alert source required.": "runtimeText.alertSourceRequired",
+    "Alertmanager intake": "runtimeText.alertmanagerIntake",
+    "Alertmanager source required": "runtimeText.alertmanagerSourceRequired",
+    "Alertmanager webhook source required.": "runtimeText.alertmanagerWebhookSourceRequired",
+    "Auto-room delivery blocked.": "runtimeText.autoRoomDeliveryBlocked",
+    "Automatic diagnosis blocked.": "runtimeText.automaticDiagnosisBlocked",
+    "Automatic diagnosis rooms disabled.": "runtimeText.automaticDiagnosisRoomsDisabled",
+    "Automatic diagnosis rooms estimated.": "runtimeText.automaticDiagnosisRoomsEstimated",
+    "Bound alert source": "runtimeText.boundAlertSource",
+    "Bound grouping policy": "runtimeText.boundGroupingPolicy",
+    "Delivery": "runtimeText.delivery",
+    "Delivery scopes": "runtimeText.deliveryScopes",
+    "Diagnosis close scope missing": "runtimeText.diagnosisCloseScopeMissing",
+    "Diagnosis consultation scope missing": "runtimeText.diagnosisConsultationScopeMissing",
+    "Diagnosis room starts automatically": "runtimeText.diagnosisRoomStartsAutomatically",
+    "Diagnosis room suggested": "runtimeText.diagnosisRoomSuggested",
+    "Diagnosis tools need review.": "runtimeText.diagnosisToolsNeedReview",
+    "Enterprise WeChat channel required.": "runtimeText.enterpriseWechatChannelRequired",
+    "Enterprise WeChat required": "runtimeText.enterpriseWechatRequired",
+    "Evidence": "runtimeText.evidence",
+    "Evidence collection": "runtimeText.evidenceCollection",
+    "Executable diagnosis tools ready.": "runtimeText.executableDiagnosisToolsReady",
+    "Follow-up disabled": "runtimeText.followUpDisabled",
+    "Generic webhook selected.": "runtimeText.genericWebhookSelected",
+    "Grouping": "runtimeText.grouping",
+    "Grouping policy disabled": "runtimeText.groupingPolicyDisabled",
+    "Grouping rule": "runtimeText.groupingRule",
+    "Impact not previewed": "runtimeText.impactNotPreviewed",
+    "Impact preview": "runtimeText.impactPreview",
+    "Metric evidence source": "runtimeText.metricEvidenceSource",
+    "Metric evidence tool": "runtimeText.metricEvidenceTool",
+    "No Alertmanager webhook ingress.": "runtimeText.noAlertmanagerWebhookIngress",
+    "No automatic rooms expected.": "runtimeText.noAutomaticRoomsExpected",
+    "No enabled diagnosis tools.": "runtimeText.noEnabledDiagnosisTools",
+    "No matching events": "runtimeText.noMatchingEvents",
+    "No report channel bound": "runtimeText.noReportChannelBound",
+    "No report channel selected.": "runtimeText.noReportChannelSelected",
+    "No usable diagnosis tools.": "runtimeText.noUsableDiagnosisTools",
+    "Notification": "runtimeText.notification",
+    "Notification channel disabled": "runtimeText.notificationChannelDisabled",
+    "Notification channel disabled.": "runtimeText.notificationChannelDisabled2",
+    "Notification channel required": "runtimeText.notificationChannelRequired",
+    "Notification channel scope mismatch.": "runtimeText.notificationChannelScopeMismatch",
+    "Operator channel": "runtimeText.operatorChannel",
+    "Operator handoff retained.": "runtimeText.operatorHandoffRetained",
+    "Operator notification": "runtimeText.operatorNotification",
+    "Policy can be enabled after review.": "runtimeText.policyCanBeEnabledAfterReview",
+    "Policy can be enabled.": "runtimeText.policyCanBeEnabled",
+    "Policy cannot be enabled.": "runtimeText.policyCannotBeEnabled",
+    "Preview ready": "runtimeText.previewReady",
+    "Proof": "runtimeText.proof",
+    "Replay window": "runtimeText.replayWindow",
+    "Report and AI-room channel": "runtimeText.reportAndAiRoomChannel",
+    "Report and auto-room delivery ready.": "runtimeText.reportAndAutoRoomDeliveryReady",
+    "Report delivery ready.": "runtimeText.reportDeliveryReady",
+    "Report notification channel": "runtimeText.reportNotificationChannel",
+    "Report scope missing": "runtimeText.reportScopeMissing",
+    "Select a grouping policy.": "runtimeText.selectAGroupingPolicy",
+    "Select a valid report notification channel.": "runtimeText.selectAValidReportNotificationChannel",
+    "Select an alert source.": "runtimeText.selectAnAlertSource",
+    "Source": "runtimeText.source",
+    "Trigger": "runtimeText.trigger",
+    "Trigger mode unsupported": "runtimeText.triggerModeUnsupported",
+    "Webhook": "runtimeText.webhook",
+    "Webhook auto-room ingress blocked.": "runtimeText.webhookAutoRoomIngressBlocked",
+    "Webhook auto-room ingress ready.": "runtimeText.webhookAutoRoomIngressReady",
+    "Webhook ingest ready.": "runtimeText.webhookIngestReady",
+    "Webhook ingress not used.": "runtimeText.webhookIngressNotUsed",
+    "Window end is required.": "runtimeText.windowEndIsRequired",
+    "Window end must be a valid date-time.": "runtimeText.windowEndMustBeAValidDateTime",
+    "Window end must be after window start.": "runtimeText.windowEndMustBeAfterWindowStart",
+    "Window start is required.": "runtimeText.windowStartIsRequired",
+    "Window start must be a valid date-time.": "runtimeText.windowStartMustBeAValidDateTime",
+    "Workflow policy fields": "runtimeText.workflowPolicyFields",
+} as const;
+
+export function localizeWorkflowPolicyText(value: string, t: WorkflowPolicyTranslator): string {
+  const key =
+    workflowPolicyRuntimeTextKeys[
+      value as keyof typeof workflowPolicyRuntimeTextKeys
+    ];
+  if (key !== undefined) {
+    return t(key);
   }
   let match = value.match(/^Current user is not authorized to manage report workflow policy #(\d+)\.$/);
   if (match) {
-    return `当前用户无权管理报告工作流策略 #${match[1]}。`;
+    return t("runtimePattern.unauthorizedPolicy", { id: match[1]! });
   }
   match = value.match(/^Current user is not authorized to (.+)\.$/);
   if (match) {
-    return `当前用户无权执行以下操作：${match[1]}。`;
+    return t("runtimePattern.unauthorizedAction", {
+      action: localizeWorkflowPolicyAuthorizationAction(match[1]!, t),
+    });
   }
   match = value.match(/^(\d+) groups \/ (\d+) events$/);
   if (match) {
-    return `${match[1]} 个分组 / ${match[2]} 个事件`;
+    return t("runtimePattern.groupEventCount", {
+      events: Number(match[2]),
+      groups: Number(match[1]),
+    });
   }
   match = value.match(/^(\d+) matching AI room workflows? found;?(.*)$/);
   if (match) {
-    return `找到 ${match[1]} 个匹配的 AI 诊断室工作流${match[2] ? `；${match[2]}` : ""}`;
+    const detail = match[2]?.trim() ?? "";
+    return detail === ""
+      ? t("runtimePattern.matchingWorkflows", { count: Number(match[1]) })
+      : t("runtimePattern.matchingWorkflowsWithDetail", {
+          count: Number(match[1]),
+          detail: localizeWorkflowPolicyText(detail, t),
+        });
   }
   match = value.match(/^AI diagnosis: (.+)$/);
   if (match) {
-    return `AI 诊断：${match[1]}`;
+    return t("runtimePattern.aiDiagnosis", { detail: match[1]! });
   }
   match = value.match(/^Alert sources failed to load: (.+)\.$/);
   if (match) {
-    return `告警源加载失败：${match[1]}。`;
+    return t("runtimePattern.alertSourcesFailed", { error: match[1]! });
   }
   match = value.match(/^Grouping policies failed to load: (.+)\.$/);
   if (match) {
-    return `分组策略加载失败：${match[1]}。`;
+    return t("runtimePattern.groupingPoliciesFailed", { error: match[1]! });
   }
   match = value.match(/^Notification channels failed to load: (.+)\.$/);
   if (match) {
-    return `通知渠道加载失败：${match[1]}。`;
+    return t("runtimePattern.notificationChannelsFailed", {
+      error: match[1]!,
+    });
   }
   match = value.match(/^(\d+) active alert \/ (\d+) metric$/);
   if (match) {
-    return `${match[1]} 个活动告警工具 / ${match[2]} 个指标工具`;
+    return t("runtimePattern.diagnosisToolCount", {
+      alerts: Number(match[1]),
+      metrics: Number(match[2]),
+    });
   }
   match = value.match(/^(\d+) estimated alert groups? can start automatic AI diagnosis rooms when this policy is replayed or receives matching Alertmanager webhooks\.$/);
   if (match) {
-    return `当此策略被重放或收到匹配的 Alertmanager Webhook 时，预计 ${match[1]} 个告警分组可启动自动 AI 诊断室。`;
+    return t("runtimePattern.estimatedGroups", { count: Number(match[1]) });
   }
   match = value.match(/^(\d+) rooms?$/);
   if (match) {
-    return `${match[1]} 个诊断室`;
+    return t("runtimePattern.roomCount", { count: Number(match[1]) });
   }
   match = value.match(/^Add (.+) scope, run AI delivery proof, then return to enable this workflow\.$/);
   if (match) {
-    return `请添加 ${match[1]!.split(" and ").map((scope) => localizeWorkflowPolicyText(scope, locale)).join(" 和 ")} 范围，运行 AI 交付证明，然后返回启用此工作流。`;
+    return t("runtimePattern.addScopes", {
+      scopes: match[1]!
+        .split(" and ")
+        .map((scope) => localizeWorkflowPolicyText(scope, t))
+        .join(" / "),
+    });
   }
   match = value.match(/^Missing (.+)\.$/);
   if (match) {
-    return `缺少${match[1]!.split(" and ").map((item) => localizeWorkflowPolicyText(item, locale)).join("和")}。`;
+    return t("runtimePattern.missingItems", {
+      items: match[1]!
+        .split(" and ")
+        .map((item) => localizeWorkflowPolicyText(item, t))
+        .join(" / "),
+    });
   }
   match = value.match(/^Selected notification channel is missing (.+) scope\.$/);
   if (match) {
-    return `所选通知渠道缺少 ${match[1]!.split(" and ").map((scope) => localizeWorkflowPolicyText(scope, locale)).join(" 和 ")} 范围。`;
+    return t("runtimePattern.selectedChannelMissingScopes", {
+      scopes: match[1]!
+        .split(" and ")
+        .map((scope) => localizeWorkflowPolicyText(scope, t))
+        .join(" / "),
+    });
   }
   match = value.match(/^(\d+) blocking setup actions? must be resolved before this workflow is ready\.$/);
   if (match) {
-    return `此工作流就绪前，必须解决 ${match[1]} 个阻塞配置操作。`;
+    return t("runtimePattern.blockingActions", { count: Number(match[1]) });
   }
   match = value.match(/^(\d+) setup actions? remain before the workflow can be exercised\.$/);
   if (match) {
-    return `此工作流可以演练前，还剩 ${match[1]} 个配置操作。`;
+    return t("runtimePattern.remainingActions", { count: Number(match[1]) });
   }
   match = value.match(/^(\d+) setup actions? should be reviewed before enablement\.$/);
   if (match) {
-    return `启用前应检查 ${match[1]} 个配置操作。`;
+    return t("runtimePattern.reviewActions", { count: Number(match[1]) });
   }
   match = value.match(/^Deliver report notifications through (.+)\.$/);
   if (match) {
-    return `通过 ${match[1]} 交付报告通知。`;
+    return t("runtimePattern.deliverThrough", { channel: match[1]! });
   }
   match = value.match(/^This matching AI room workflow can be enabled after review: (.+)$/);
   if (match) {
-    return `此匹配的 AI 诊断室工作流可在检查后启用：${localizeWorkflowPolicyText(match[1]!, locale)}`;
+    return t("runtimePattern.matchingWorkflowAfterReview", {
+      detail: localizeWorkflowPolicyText(match[1]!, t),
+    });
   }
   match = value.match(/^unselected (.+)$/);
   if (match) {
-    return `未选择的${localizeWorkflowPolicyText(match[1]!, locale)}`;
+    return t("runtimePattern.unselected", {
+      item: localizeWorkflowPolicyText(match[1]!, t),
+    });
   }
   match = value.match(/^AI room will be suggested for operator handoff\. (.+)$/);
   if (match) {
-    return `将建议创建 AI 诊断室并移交操作员。${localizeWorkflowPolicyText(match[1]!, locale)}`;
+    return t("runtimePattern.aiRoomSuggested", {
+      detail: localizeWorkflowPolicyText(match[1]!, t),
+    });
+  }
+  match = value.match(/^Saves (.+) for (.+) grouped by (.+)\.$/);
+  if (match) {
+    return t("runtimePattern.savesPolicyBindings", {
+      grouping: localizeWorkflowPolicyResourceLabel(match[3]!, t),
+      name: match[1]!,
+      source: localizeWorkflowPolicyResourceLabel(match[2]!, t),
+    });
+  }
+  match = value.match(/^Enable after reviewing: (.+)$/);
+  if (match) {
+    return t("runtimePattern.enableAfterReviewing", {
+      detail: localizeWorkflowPolicyText(match[1]!, t),
+    });
+  }
+  match = value.match(/^Update policy #(\d+)$/);
+  if (match) {
+    return t("runtimePattern.updatePolicy", { id: match[1]! });
+  }
+  match = value.match(/^Replay bounded (.+) windows after the policy is enabled\.$/);
+  if (match) {
+    return t("runtimePattern.replayBoundedScenario", {
+      scenario: localizeWorkflowPolicyText(match[1]!, t),
+    });
+  }
+  match = value.match(/^(.+) reports use (.+) and (.+)\.$/);
+  if (match) {
+    return t("runtimePattern.reportsUseSourceAndGrouping", {
+      grouping: localizeWorkflowPolicyResourceLabel(match[3]!, t),
+      scenario: localizeWorkflowPolicyText(match[1]!, t),
+      source: localizeWorkflowPolicyResourceLabel(match[2]!, t),
+    });
+  }
+  match = value.match(/^(\d+) estimated alert groups? can be retained for operator-created diagnosis rooms\.$/);
+  if (match) {
+    return t("runtimePattern.estimatedHandoffGroups", {
+      count: Number(match[1]),
+    });
+  }
+  match = value.match(/^(\d+) handoffs?$/);
+  if (match) {
+    return t("runtimePattern.handoffCount", { count: Number(match[1]) });
+  }
+  match = value.match(/^#(\d+) disabled$/);
+  if (match) {
+    return t("runtimePattern.channelDisabled", { id: match[1]! });
+  }
+  match = value.match(/^#(\d+) missing (.+)$/);
+  if (match) {
+    return t("runtimePattern.channelMissing", {
+      detail: match[2]!
+        .split(", ")
+        .map((item) => localizeWorkflowPolicyScope(item, t))
+        .join(" / "),
+      id: match[1]!,
+    });
+  }
+  match = value.match(/^#(\d+) scopes and proof ready$/);
+  if (match) {
+    return t("runtimePattern.channelReady", { id: match[1]! });
+  }
+  match = value.match(/^(Alert source|Grouping policy|Notification channel|Policy|Report channel) #(\d+)$/);
+  if (match) {
+    return t("runtimePattern.resourceNumber", {
+      id: match[2]!,
+      resource: localizeWorkflowPolicyText(match[1]!, t),
+    });
+  }
+  match = value.match(/^(.+): (.+)$/);
+  if (match) {
+    const detail = localizeWorkflowPolicyText(match[2]!, t);
+    if (detail !== match[2]) {
+      return t("runtimePattern.labeledDetail", {
+        detail,
+        label: match[1]!,
+      });
+    }
   }
   const sentences = value.match(/[^.!?]+[.!?]?/g)?.map((part) => part.trim()) ?? [];
   if (sentences.length > 1) {
     const localized = sentences.map((sentence) =>
-      localizeWorkflowPolicyText(sentence, locale),
+      localizeWorkflowPolicyText(sentence, t),
     );
     if (localized.some((sentence, index) => sentence !== sentences[index])) {
-      return localized.join("");
+      return localized.join(" ");
     }
   }
   return value;
 }
 
+function localizeWorkflowPolicyAuthorizationAction(
+  value: string,
+  t: WorkflowPolicyTranslator,
+): string {
+  return value
+    .split(", ")
+    .map((action) => {
+      let match = action.match(/^read alert source #(\d+)$/);
+      if (match) {
+        return t("runtimePattern.readAlertSource", { id: match[1]! });
+      }
+      match = action.match(/^read grouping policy #(\d+)$/);
+      if (match) {
+        return t("runtimePattern.readGroupingPolicy", { id: match[1]! });
+      }
+      match = action.match(/^test notification channel #(\d+)$/);
+      if (match) {
+        return t("runtimePattern.testNotificationChannel", { id: match[1]! });
+      }
+      return action;
+    })
+    .join(t("runtimePattern.actionSeparator"));
+}
+
+function localizeWorkflowPolicyScope(
+  value: string,
+  t: WorkflowPolicyTranslator,
+): string {
+  switch (value) {
+    case "report":
+      return t("runtimeText.reportScope");
+    case "diagnosis_consultation":
+      return t("runtimeText.diagnosisConsultationScope");
+    case "diagnosis_close":
+      return t("runtimeText.diagnosisCloseScope");
+    default:
+      return localizeWorkflowPolicyText(value, t);
+  }
+}
+
+function localizeWorkflowPolicyResourceLabel(
+  value: string,
+  t: WorkflowPolicyTranslator,
+): string {
+  const match = value.match(
+    /^(alert source|grouping policy|notification channel) #(\d+)$/,
+  );
+  if (!match) {
+    return value;
+  }
+  return t("runtimePattern.resourceNumber", {
+    id: match[2]!,
+    resource: localizeWorkflowPolicyText(match[1]!, t),
+  });
+}
+
 function localizeWorkflowPolicyMessages(
   messages: readonly string[],
-  locale: string,
+  t: WorkflowPolicyTranslator,
 ): string {
   return messages
-    .map((message) => localizeWorkflowPolicyText(message, locale))
+    .map((message) => localizeWorkflowPolicyText(message, t))
     .join(" ");
 }
 
-function nullableDate(value: string | null, locale: string): string {
+function nullableDate(
+  value: string | null,
+  locale: string,
+  t: WorkflowPolicyTranslator,
+): string {
   if (value === null) {
-    return locale === "zh-CN" ? "未设置" : "Not set";
+    return t("catalog.notSet");
   }
   return formatDateTime(value, locale);
 }

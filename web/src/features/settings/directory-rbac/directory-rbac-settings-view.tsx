@@ -56,6 +56,7 @@ import {
 } from "../query-state";
 import { ReadOnlyModeAlert } from "../permission-notice";
 import {
+  currentRBACAuthorizationErrorDetail,
   currentRBACAuthorizationNeedsSignIn,
   useCurrentRBACAuthorizations,
   type CurrentRBACAuthorizationCheck,
@@ -216,7 +217,6 @@ export function DirectoryRBACSettingsManager({
   workflowPoliciesResult,
   workflowSchedulesResult,
 }: DirectoryRBACSettingsManagerProps) {
-  const locale = useLocale();
   const t = useTranslations("DirectorySettings");
   const common = useTranslations("Common");
   const [syncForm] = Form.useForm<DirectorySyncFormState>();
@@ -585,7 +585,7 @@ export function DirectoryRBACSettingsManager({
   async function handleDirectorySync(values: DirectorySyncFormState) {
     const parsed = directorySyncFormToRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeDirectoryText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeDirectoryText(parsed.message, t) });
       return;
     }
     let synced: DirectorySyncResponse;
@@ -611,7 +611,7 @@ export function DirectoryRBACSettingsManager({
   async function handleAssignmentSubmit(values: RBACAssignmentFormState) {
     const parsed = assignmentFormToWriteRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeDirectoryText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeDirectoryText(parsed.message, t) });
       return;
     }
     try {
@@ -631,7 +631,7 @@ export function DirectoryRBACSettingsManager({
   async function handleAuthorize(values: RBACAuthorizeFormState) {
     const parsed = authorizeFormToRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeDirectoryText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeDirectoryText(parsed.message, t) });
       return;
     }
     setPreviewing(true);
@@ -670,7 +670,7 @@ export function DirectoryRBACSettingsManager({
         if (!assignment.ok) {
           setNotice({
             kind: "warning",
-            message: localizeDirectoryText(assignment.message, locale),
+            message: localizeDirectoryText(assignment.message, t),
           });
           return;
         }
@@ -828,7 +828,7 @@ export function DirectoryRBACSettingsManager({
                     { required: true, message: t("permissionRequired") },
                   ]}
                 >
-                  <Select options={localizedDirectoryOptions(rbacPermissionOptions, locale)} />
+                  <Select options={localizedDirectoryOptions(rbacPermissionOptions, t)} />
                 </Form.Item>
                 <Form.Item
                   label={t("scopeKind")}
@@ -841,7 +841,7 @@ export function DirectoryRBACSettingsManager({
                     onChange={() => {
                       authorizeForm.setFieldValue("scopeKey", "");
                     }}
-                    options={localizedDirectoryOptions(rbacScopeKindOptions, locale)}
+                    options={localizedDirectoryOptions(rbacScopeKindOptions, t)}
                   />
                 </Form.Item>
                 <Form.Item
@@ -907,7 +907,7 @@ export function DirectoryRBACSettingsManager({
                         onChange={() => {
                           assignmentForm.setFieldValue("subjectKey", "");
                         }}
-                        options={localizedDirectoryOptions(rbacSubjectKindOptions, locale)}
+                        options={localizedDirectoryOptions(rbacSubjectKindOptions, t)}
                       />
                     </Form.Item>
                   </Col>
@@ -941,7 +941,7 @@ export function DirectoryRBACSettingsManager({
                       name="role"
                       rules={[{ required: true, message: t("roleRequired") }]}
                     >
-                      <Select options={localizedDirectoryOptions(rbacRoleOptions, locale)} />
+                      <Select options={localizedDirectoryOptions(rbacRoleOptions, t)} />
                     </Form.Item>
                   </Col>
                   <Col md={8} xs={24}>
@@ -959,7 +959,7 @@ export function DirectoryRBACSettingsManager({
                         onChange={() => {
                           assignmentForm.setFieldValue("scopeKey", "");
                         }}
-                        options={localizedDirectoryOptions(rbacScopeKindOptions, locale)}
+                        options={localizedDirectoryOptions(rbacScopeKindOptions, t)}
                       />
                     </Form.Item>
                   </Col>
@@ -1051,10 +1051,12 @@ function RBACScopeKeyInput({
   optionsByScope: Partial<Record<RBACScopeKind, DirectorySelectOption[]>>;
   scopeKind: RBACScopeKind;
 }) {
-  const locale = useLocale();
   const t = useTranslations("DirectorySettings");
-  const description = scopeKindDescription(scopeKind, locale);
-  const options = optionsByScope[scopeKind] ?? [];
+  const description = scopeKindDescription(scopeKind, t);
+  const options = (optionsByScope[scopeKind] ?? []).map((option) => ({
+    ...option,
+    label: localizeDirectoryText(option.label, t),
+  }));
   if (!loading && options.length === 0) {
     return (
       <Input
@@ -1080,13 +1082,14 @@ function RBACScopeKeyInput({
   );
 }
 
-function scopeKindDescription(scopeKind: RBACScopeKind, locale: string): string {
+function scopeKindDescription(
+  scopeKind: RBACScopeKind,
+  t: DirectoryTranslator,
+): string {
   const label =
     rbacScopeKindOptions.find((option) => option.value === scopeKind)?.label ??
     "scope key";
-  return locale === "zh-CN"
-    ? localizeDirectoryText(label, locale)
-    : label.toLowerCase();
+  return localizeDirectoryText(label, t);
 }
 
 function directoryTabs({
@@ -1197,14 +1200,14 @@ function AssignmentTable({
       dataIndex: "role",
       key: "role",
       render: (role: RBACAssignment["role"]) => (
-        <Tag color={roleTagColor(role)}>{localizeDirectoryText(roleLabel(role), locale)}</Tag>
+        <Tag color={roleTagColor(role)}>{localizeDirectoryText(roleLabel(role), t)}</Tag>
       ),
       title: t("role"),
     },
     {
       dataIndex: "scope_key",
       key: "scope",
-      render: (_: string, assignment) => localizeDirectoryText(assignmentScopeLabel(assignment), locale),
+      render: (_: string, assignment) => localizeDirectoryText(assignmentScopeLabel(assignment), t),
       title: t("scope"),
     },
     {
@@ -1271,13 +1274,12 @@ function AssignmentSubject({
   departmentsByExternalID: ReadonlyMap<string, DirectoryDepartment>;
   directoryUsersBySubject: ReadonlyMap<string, DirectoryUser>;
 }) {
-  const locale = useLocale();
   const t = useTranslations("DirectorySettings");
   if (assignment.subject_kind === "user") {
     return (
       <DirectorySubjectTags
         directoryUsersBySubject={directoryUsersBySubject}
-        label={localizeDirectoryText(subjectKindLabel(assignment.subject_kind), locale)}
+        label={localizeDirectoryText(subjectKindLabel(assignment.subject_kind), t)}
         subject={assignment.subject_key}
       />
     );
@@ -1292,7 +1294,7 @@ function AssignmentSubject({
   return (
     <Space size={[6, 6]} wrap>
       <Typography.Text type="secondary">
-        {localizeDirectoryText(subjectKindLabel(assignment.subject_kind), locale)}
+        {localizeDirectoryText(subjectKindLabel(assignment.subject_kind), t)}
       </Typography.Text>
       <Tag color={department === undefined ? "default" : "processing"}>
         {displayName}
@@ -1454,7 +1456,7 @@ function SyncRunTable({
       dataIndex: "status",
       key: "status",
       render: (status: string) => (
-        <Tag color={directorySyncRunStatusColor(status)}>{localizeDirectoryText(status, locale)}</Tag>
+        <Tag color={directorySyncRunStatusColor(status)}>{localizeDirectoryText(status, t)}</Tag>
       ),
       title: t("status"),
       width: 120,
@@ -1551,7 +1553,7 @@ function DirectorySyncSummary({
         <Space wrap>
           <Typography.Text type="secondary">{t("localProjection")}</Typography.Text>
           <Tag color={directorySyncStatusColor(summary.status)}>
-            {localizeDirectoryText(summary.statusLabel, locale)}
+            {localizeDirectoryText(summary.statusLabel, t)}
           </Tag>
         </Space>
         <Typography.Text>
@@ -1610,11 +1612,11 @@ function AuthorizationPreview({ preview }: { preview: PreviewState }) {
       description={
         <Space direction="vertical" size={4}>
           <Typography.Text>
-            {localizeDirectoryText(permissionLabel(preview.request.permission), locale)} {t("onScope")}{" "}
+            {localizeDirectoryText(permissionLabel(preview.request.permission), t)} {t("onScope")}{" "}
             {localizeDirectoryText(scopeLabel(
               preview.request.scope_kind,
               preview.request.scope_key,
-            ), locale)}
+            ), t)}
           </Typography.Text>
           <Typography.Text type="secondary">
             {t("checkedAt", { time: formatDateTime(preview.response.checked_at, locale) })}
@@ -1658,7 +1660,7 @@ function DirectoryRBACNextStepAlert({
   notice: DirectoryRBACNextStepNotice;
   onAction: (action: DirectoryRBACNextStepNotice["action"]) => void;
 }) {
-  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
   return (
     <Alert
       action={
@@ -1669,11 +1671,11 @@ function DirectoryRBACNextStepAlert({
           size="small"
           type={notice.status === "ready" ? "primary" : "default"}
         >
-          {localizeDirectoryText(notice.actionLabel, locale)}
+          {localizeDirectoryText(notice.actionLabel, t)}
         </Button>
       }
-      description={localizeDirectoryText(notice.detail, locale)}
-      message={localizeDirectoryText(notice.message, locale)}
+      description={localizeDirectoryText(notice.detail, t)}
+      message={localizeDirectoryText(notice.message, t)}
       showIcon
       type={directoryRBACNextStepAlertType(notice.status)}
     />
@@ -1714,7 +1716,7 @@ function CurrentAuthorizationStatus({
   authorization: ReturnType<typeof useCurrentRBACAuthorizations>;
   checks: readonly CurrentRBACAuthorizationCheck[];
 }) {
-  const locale = useLocale();
+  const common = useTranslations("Common");
   const t = useTranslations("DirectorySettings");
   if (authorization.isChecking || authorization.state.kind === "loading") {
     return (
@@ -1740,7 +1742,10 @@ function CurrentAuthorizationStatus({
     return (
       <Alert
         action={action}
-        description={authorization.state.message}
+        description={currentRBACAuthorizationErrorDetail(
+          authorization.state,
+          common("authenticationRequired"),
+        )}
         message={t("authorizationUnavailable")}
         showIcon
         type="warning"
@@ -1796,7 +1801,7 @@ function CurrentAuthorizationStatus({
                   color={allowed ? "green" : "red"}
                   key={check.key}
                 >
-                  {localizeDirectoryText(permissionLabel(check.permission), locale)}{" "}
+                  {localizeDirectoryText(permissionLabel(check.permission), t)}{" "}
                   {allowed ? t("allowed") : t("denied")}
                 </Tag>
               );
@@ -1828,82 +1833,91 @@ function roleTagColor(role: RBACAssignment["role"]): string {
 
 function localizedDirectoryOptions<T extends { label: string }>(
   options: readonly T[],
-  locale: string,
+  t: DirectoryTranslator,
 ): T[] {
   return options.map((option) => ({
     ...option,
-    label: localizeDirectoryText(option.label, locale),
+    label: localizeDirectoryText(option.label, t),
   }));
 }
 
-function localizeDirectoryText(value: string, locale: string): string {
-  if (locale !== "zh-CN") {
-    return value;
+const directoryRuntimeTextKeys = {
+    "failed": "runtimeText.failed",
+    "succeeded": "runtimeText.succeeded",
+    "Admin": "runtimeText.admin",
+    "Alert source": "runtimeText.alertSource",
+    "Alert source manage": "runtimeText.alertSourceManage",
+    "Alert source read": "runtimeText.alertSourceRead",
+    "Create assignment": "runtimeText.createAssignment",
+    "Current": "runtimeText.current",
+    "Department": "runtimeText.department",
+    "Diagnosis room": "runtimeText.diagnosisRoom",
+    "Diagnosis room administer": "runtimeText.diagnosisRoomAdminister",
+    "Diagnosis room approve": "runtimeText.diagnosisRoomApprove",
+    "Diagnosis room participate": "runtimeText.diagnosisRoomParticipate",
+    "Diagnosis room read": "runtimeText.diagnosisRoomRead",
+    "Diagnosis tool template": "runtimeText.diagnosisToolTemplate",
+    "Diagnosis tool template manage": "runtimeText.diagnosisToolTemplateManage",
+    "Diagnosis tool template read": "runtimeText.diagnosisToolTemplateRead",
+    "Directory manage": "runtimeText.directoryManage",
+    "Directory read": "runtimeText.directoryRead",
+    "Global": "runtimeText.global",
+    "Grouping policy": "runtimeText.groupingPolicy",
+    "Grouping policy manage": "runtimeText.groupingPolicyManage",
+    "Grouping policy read": "runtimeText.groupingPolicyRead",
+    "Leader": "runtimeText.leader",
+    "Need directory manager": "runtimeText.needDirectoryManager",
+    "Need RBAC manager": "runtimeText.needRbacManager",
+    "Not synced": "runtimeText.notSynced",
+    "Notification channel": "runtimeText.notificationChannel",
+    "Notification channel manage": "runtimeText.notificationChannelManage",
+    "Notification channel read": "runtimeText.notificationChannelRead",
+    "Notification channel test": "runtimeText.notificationChannelTest",
+    "Operator": "runtimeText.operator",
+    "Open diagnosis room": "runtimeText.openDiagnosisRoom",
+    "Operations read": "runtimeText.operationsRead",
+    "RBAC manage": "runtimeText.rbacManage",
+    "Report workflow": "runtimeText.reportWorkflow",
+    "Report workflow manage": "runtimeText.reportWorkflowManage",
+    "Report workflow read": "runtimeText.reportWorkflowRead",
+    "Report workflow schedule": "runtimeText.reportWorkflowSchedule",
+    "Responder": "runtimeText.responder",
+    "Run full sync": "runtimeText.runFullSync",
+    "Stale": "runtimeText.stale",
+    "User": "runtimeText.user",
+    "Viewer": "runtimeText.viewer",
+    "Access control is ready for manual checks": "runtimeText.accessControlIsReadyForManualChecks",
+    "Current signed-in subject is empty.": "runtimeText.currentSignedInSubjectIsEmpty",
+    "Directory projection is required": "runtimeText.directoryProjectionIsRequired",
+    "Directory sync page size must be between 1 and 500.": "runtimeText.directorySyncPageSizeMustBeBetween1And500",
+    "Local RBAC assignments are required": "runtimeText.localRbacAssignmentsAreRequired",
+    "Scope key is required.": "runtimeText.scopeKeyIsRequired",
+    "Subject is required.": "runtimeText.subjectIsRequired",
+    "Subject key is required.": "runtimeText.subjectKeyIsRequired",
+    "Updated-after timestamp must be a valid date-time value.": "runtimeText.updatedAfterTimestampMustBeAValidDateTimeValue",
+    "Directory projection and enabled RBAC assignments are present. Use Authorization Preview for a specific subject, permission, and scope before manual diagnosis-room testing.": "runtimeText.directoryProjectionAndEnabledRbacAssignmentsArePresentUseAuthorizationPreviewFor",
+    "Sync the IAM directory projection before assigning OpenClarion roles. Use an empty Updated after value for a full sync.": "runtimeText.syncTheIamDirectoryProjectionBeforeAssigningOpenclarionRolesUseAnEmpty",
+    "A directory manager must sync IAM users and departments before local RBAC can be assigned reliably.": "runtimeText.aDirectoryManagerMustSyncIamUsersAndDepartmentsBeforeLocalRbac",
+    "An RBAC manager must create local role assignments before operators can use diagnosis-room permissions.": "runtimeText.anRbacManagerMustCreateLocalRoleAssignmentsBeforeOperatorsCanUse",
+    "Create at least one enabled global or scoped assignment so signed-in operators can create, read, or participate in diagnosis rooms. Start by saving a bootstrap assignment for the current signed-in subject, then replace it with scoped team rules.": "runtimeText.createAtLeastOneEnabledAssignment",
+} as const;
+
+export function localizeDirectoryText(value: string, t: DirectoryTranslator): string {
+  const key =
+    directoryRuntimeTextKeys[value as keyof typeof directoryRuntimeTextKeys];
+  if (key !== undefined) {
+    return t(key);
   }
-  const exact: Readonly<Record<string, string>> = {
-    failed: "失败",
-    succeeded: "成功",
-    Admin: "管理员",
-    "Alert source": "告警源",
-    "Alert source manage": "管理告警源",
-    "Alert source read": "读取告警源",
-    "Create assignment": "创建权限分配",
-    Current: "当前",
-    Department: "部门",
-    "Diagnosis room": "诊断室",
-    "Diagnosis room administer": "管理诊断室",
-    "Diagnosis room approve": "批准诊断室结论",
-    "Diagnosis room participate": "参与诊断室",
-    "Diagnosis room read": "读取诊断室",
-    "Diagnosis tool template": "诊断工具模板",
-    "Diagnosis tool template manage": "管理诊断工具模板",
-    "Diagnosis tool template read": "读取诊断工具模板",
-    "Directory manage": "管理目录",
-    "Directory read": "读取目录",
-    Global: "全局",
-    "Grouping policy": "分组策略",
-    "Grouping policy manage": "管理分组策略",
-    "Grouping policy read": "读取分组策略",
-    Leader: "负责人",
-    "Need directory manager": "需要目录管理员",
-    "Need RBAC manager": "需要 RBAC 管理员",
-    "Not synced": "未同步",
-    "Notification channel": "通知渠道",
-    "Notification channel manage": "管理通知渠道",
-    "Notification channel read": "读取通知渠道",
-    "Notification channel test": "测试通知渠道",
-    Operator: "操作员",
-    "Open diagnosis room": "打开诊断室",
-    "Operations read": "读取运营数据",
-    "RBAC manage": "管理 RBAC",
-    "Report workflow": "报告工作流",
-    "Report workflow manage": "管理报告工作流",
-    "Report workflow read": "读取报告工作流",
-    "Report workflow schedule": "报告工作流定时任务",
-    Responder: "响应人员",
-    "Run full sync": "运行全量同步",
-    Stale: "已过期",
-    User: "用户",
-    Viewer: "只读用户",
-    "Access control is ready for manual checks": "访问控制已可进行人工检查",
-    "Current signed-in subject is empty.": "当前登录主体为空。",
-    "Directory projection is required": "需要目录映射",
-    "Directory sync page size must be between 1 and 500.":
-      "目录同步分页大小必须在 1 到 500 之间。",
-    "Local RBAC assignments are required": "需要本地 RBAC 分配",
-    "Scope key is required.": "范围键为必填项。",
-    "Subject is required.": "主体为必填项。",
-    "Subject key is required.": "主体键为必填项。",
-    "Updated-after timestamp must be a valid date-time value.":
-      "仅同步更新时间必须是有效日期时间。",
-    "Directory projection and enabled RBAC assignments are present. Use Authorization Preview for a specific subject, permission, and scope before manual diagnosis-room testing.":
-      "目录映射和已启用的 RBAC 分配均已存在。人工测试诊断室前，请使用授权预览检查具体主体、权限和范围。",
-    "Sync the IAM directory projection before assigning OpenClarion roles. Use an empty Updated after value for a full sync.":
-      "分配 OpenClarion 角色前，请先同步 IAM 目录映射。将“仅同步此时间之后的更新”留空可执行全量同步。",
-    "A directory manager must sync IAM users and departments before local RBAC can be assigned reliably.":
-      "必须由目录管理员同步 IAM 用户和部门，之后才能可靠地分配本地 RBAC。",
-    "An RBAC manager must create local role assignments before operators can use diagnosis-room permissions.":
-      "操作员使用诊断室权限前，必须由 RBAC 管理员创建本地角色分配。",
-  };
-  return exact[value] ?? value;
+  let match = value.match(/^(Alert source|Department|Diagnosis room|Diagnosis tool template|Grouping policy|Notification channel|Report workflow|Report workflow schedule) \/ (.+)$/);
+  if (match) {
+    return t("runtimePattern.scopedValue", {
+      key: match[2]!,
+      kind: localizeDirectoryText(match[1]!, t),
+    });
+  }
+  match = value.match(/^(.+) \(disabled\)$/);
+  if (match) {
+    return t("runtimePattern.disabledOption", { label: match[1]! });
+  }
+  return value;
 }

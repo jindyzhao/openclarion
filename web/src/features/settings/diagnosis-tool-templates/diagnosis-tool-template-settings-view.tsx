@@ -228,8 +228,8 @@ export function DiagnosisToolTemplateSettingsManager({
   const visibleNotice =
     currentAuthorization.notice ?? readPermissionNotice ?? notice;
   const relationOptions = useMemo(
-    () => buildToolTemplateRelationOptions(alertSourcesResult, locale),
-    [alertSourcesResult, locale],
+    () => buildToolTemplateRelationOptions(alertSourcesResult, t),
+    [alertSourcesResult, t],
   );
   const initialFormValues = useMemo(
     () => diagnosisToolTemplateLaunchInitialForm(launchIntent, relationOptions),
@@ -244,8 +244,8 @@ export function DiagnosisToolTemplateSettingsManager({
     [relationOptions.alertSources]
   );
   const recommendationOptions = useMemo(
-    () => recommendationSelectOptions(recommendations, locale),
-    [locale, recommendations]
+    () => recommendationSelectOptions(recommendations, t),
+    [recommendations, t]
   );
   const selectedTool = Form.useWatch("tool", form) ?? "active_alerts";
   const selectedAlertSourceID = Form.useWatch("alertSourceProfileID", form) ?? null;
@@ -263,8 +263,8 @@ export function DiagnosisToolTemplateSettingsManager({
     [relationOptions.alertSources, selectedAlertSourceID, selectedTool]
   );
   const sourceOptions = useMemo(
-    () => sourceOptionsForTool(selectedTool, relationOptions, locale),
-    [locale, relationOptions, selectedTool]
+    () => sourceOptionsForTool(selectedTool, relationOptions, t),
+    [relationOptions, selectedTool, t]
   );
   const workflowReturn = launchIntent?.workflowReturn ?? null;
 
@@ -282,7 +282,7 @@ export function DiagnosisToolTemplateSettingsManager({
   async function handleSubmit(values: DiagnosisToolTemplateFormState) {
     const parsed = formStateToWriteRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeDiagnosisToolText(parsed.message, locale) });
+      setNotice({ kind: "error", message: localizeDiagnosisToolText(parsed.message, t) });
       return;
     }
     const saveCompatibility = diagnosisToolSaveCompatibility({
@@ -291,7 +291,7 @@ export function DiagnosisToolTemplateSettingsManager({
       tool: values.tool
     });
     if (!saveCompatibility.ok) {
-      setNotice({ kind: "error", message: localizeDiagnosisToolText(saveCompatibility.message, locale) });
+      setNotice({ kind: "error", message: localizeDiagnosisToolText(saveCompatibility.message, t) });
       return;
     }
 
@@ -330,7 +330,7 @@ export function DiagnosisToolTemplateSettingsManager({
           message: localizeDiagnosisToolMessages(
             readiness.blockers,
             readiness.detail,
-            locale,
+            t,
           ),
         });
         return;
@@ -400,7 +400,12 @@ export function DiagnosisToolTemplateSettingsManager({
       return;
     }
     form.setFieldsValue(presetToFormState(preset, recommendation.sourceID));
-    setLaunchNotice(recommendation.detail);
+    setLaunchNotice(
+      t("catalog.recommendationDetail", {
+        label: localizeDiagnosisToolText(recommendation.label, t),
+        source: recommendation.sourceName,
+      }),
+    );
     setNotice(null);
   }
 
@@ -416,7 +421,7 @@ export function DiagnosisToolTemplateSettingsManager({
       {launchNotice ? (
         <Alert
           aria-label={t("launchPreset")}
-          description={localizeDiagnosisToolText(launchNotice, locale)}
+          description={localizeDiagnosisToolText(launchNotice, t)}
           message={t("presetLoaded")}
           role="status"
           showIcon
@@ -424,17 +429,17 @@ export function DiagnosisToolTemplateSettingsManager({
         />
       ) : null}
       {visibleNotice ? <Notice notice={visibleNotice} t={t} /> : null}
-      <DiagnosisToolWorkflowReturnPanel locale={locale} t={t} workflowReturn={workflowReturn} />
+      <DiagnosisToolWorkflowReturnPanel t={t} workflowReturn={workflowReturn} />
       {relationOptions.warnings.length > 0 ? (
         <Alert
-          description={localizeDiagnosisToolMessages(relationOptions.warnings, "", locale)}
+          description={localizeDiagnosisToolMessages(relationOptions.warnings, "", t)}
           message={t("relatedUnavailable")}
           role="status"
           showIcon
           type="warning"
         />
       ) : null}
-      <EvidenceCoveragePanel coverage={coverage} locale={locale} t={t} />
+      <EvidenceCoveragePanel coverage={coverage} t={t} />
 
       <Row align="top" className="settings-console-grid" gutter={[16, 16]}>
         <Col lg={8} md={24} xs={24}>
@@ -468,7 +473,7 @@ export function DiagnosisToolTemplateSettingsManager({
                     }
                   }}
                   options={diagnosisToolTemplatePresets.map((preset) => ({
-                    label: localizeDiagnosisToolText(preset.label, locale),
+                    label: localizeDiagnosisToolText(preset.label, t),
                     value: preset.id
                   }))}
                   placeholder={t("applyTemplate")}
@@ -531,7 +536,7 @@ export function DiagnosisToolTemplateSettingsManager({
                   ]}
                 />
               </Form.Item>
-              <SourceCompatibilityPreview locale={locale} readiness={sourceReadiness} t={t} />
+              <SourceCompatibilityPreview readiness={sourceReadiness} t={t} />
 
               <Form.Item
                 label={t("queryTemplate")}
@@ -547,7 +552,7 @@ export function DiagnosisToolTemplateSettingsManager({
                   placeholder="rate(container_cpu_usage_seconds_total[5m])"
                 />
               </Form.Item>
-              {queryTool && queryTemplate.trim() !== "" ? <QueryTemplatePreview locale={locale} preview={queryPreview} t={t} /> : null}
+              {queryTool && queryTemplate.trim() !== "" ? <QueryTemplatePreview preview={queryPreview} t={t} /> : null}
 
               <Row gutter={12}>
                 <Col sm={12} xs={24}>
@@ -639,11 +644,9 @@ function diagnosisToolTemplateManageKey(templateID: number): string {
 }
 
 function DiagnosisToolWorkflowReturnPanel({
-  locale,
   t,
   workflowReturn
 }: {
-  locale: string;
   t: DiagnosisToolTranslator;
   workflowReturn: DiagnosisToolTemplateWorkflowReturn | null;
 }) {
@@ -654,11 +657,11 @@ function DiagnosisToolWorkflowReturnPanel({
     <Alert
       action={
         <Button href={workflowReturn.href} icon={<BranchesOutlined />} type="primary">
-          {localizeDiagnosisToolText(workflowReturn.label, locale)}
+          {localizeDiagnosisToolText(workflowReturn.label, t)}
         </Button>
       }
       aria-label={t("workflowReturnLabel")}
-      description={localizeDiagnosisToolText(workflowReturn.detail, locale)}
+      description={localizeDiagnosisToolText(workflowReturn.detail, t)}
       message={t("workflowReturn")}
       role="status"
       showIcon
@@ -669,11 +672,9 @@ function DiagnosisToolWorkflowReturnPanel({
 
 function EvidenceCoveragePanel({
   coverage,
-  locale,
   t,
 }: {
   coverage: DiagnosisToolCoverage;
-  locale: string;
   t: DiagnosisToolTranslator;
 }) {
   return (
@@ -681,7 +682,7 @@ function EvidenceCoveragePanel({
       aria-label={t("coverageLabel")}
       description={
         <Space direction="vertical" size={8}>
-          <Typography.Text>{localizeDiagnosisToolText(coverage.detail, locale)}</Typography.Text>
+          <Typography.Text>{localizeDiagnosisToolText(coverage.detail, t)}</Typography.Text>
           <Space wrap>
             <Tag color="blue">{t("activeAlertCount", { count: coverage.activeAlertTemplates })}</Tag>
             <Tag color="cyan">{t("metricToolCount", { count: coverage.metricTemplates })}</Tag>
@@ -701,7 +702,7 @@ function EvidenceCoveragePanel({
       message={
         <Space wrap>
           <Tag color={coverageStatusColor(coverage.status)}>{coverageStatusLabel(coverage.status, t)}</Tag>
-          <Typography.Text strong>{localizeDiagnosisToolText(coverage.label, locale)}</Typography.Text>
+          <Typography.Text strong>{localizeDiagnosisToolText(coverage.label, t)}</Typography.Text>
         </Space>
       }
       showIcon
@@ -747,11 +748,9 @@ function coverageAlertType(status: DiagnosisToolCoverage["status"]) {
 }
 
 function QueryTemplatePreview({
-  locale,
   preview,
   t,
 }: {
-  locale: string;
   preview: ReturnType<typeof diagnosisQueryTemplatePreview>;
   t: DiagnosisToolTranslator;
 }) {
@@ -778,7 +777,7 @@ function QueryTemplatePreview({
             </Typography.Text>
           </Space>
         ) : (
-          <Alert message={localizeDiagnosisToolText(preview.message, locale)} showIcon type="error" />
+          <Alert message={localizeDiagnosisToolText(preview.message, t)} showIcon type="error" />
         )}
       </Space>
     </div>
@@ -786,11 +785,9 @@ function QueryTemplatePreview({
 }
 
 function SourceCompatibilityPreview({
-  locale,
   readiness,
   t,
 }: {
-  locale: string;
   readiness: ReturnType<typeof diagnosisToolSourceReadiness>;
   t: DiagnosisToolTranslator;
 }) {
@@ -798,7 +795,7 @@ function SourceCompatibilityPreview({
     <div aria-label={t("sourceCompatibility")} className="settings-preview-panel">
       <Space direction="vertical" size={8}>
         <Space wrap>
-          <Tag color={sourceReadinessColor(readiness.status)}>{localizeDiagnosisToolText(readiness.status, locale)}</Tag>
+          <Tag color={sourceReadinessColor(readiness.status)}>{localizeDiagnosisToolText(readiness.status, t)}</Tag>
           <Tag>{t("compatibleSources", { count: readiness.compatibleSourceCount })}</Tag>
           {readiness.requiredKinds.map((kind) => (
             <Tag color={kind === "prometheus" ? "cyan" : "blue"} key={kind}>
@@ -806,8 +803,8 @@ function SourceCompatibilityPreview({
             </Tag>
           ))}
         </Space>
-        <Typography.Text strong>{localizeDiagnosisToolText(readiness.label, locale)}</Typography.Text>
-        <Typography.Text type="secondary">{localizeDiagnosisToolText(readiness.detail, locale)}</Typography.Text>
+        <Typography.Text strong>{localizeDiagnosisToolText(readiness.label, t)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeDiagnosisToolText(readiness.detail, t)}</Typography.Text>
         {readiness.status === "blocked" ? (
           <Button href="/settings/alert-sources" size="small" type="default">
             {t("openSources")}
@@ -842,20 +839,27 @@ function Notice({ notice, t }: { notice: SettingsNotice; t: DiagnosisToolTransla
 
 function buildToolTemplateRelationOptions(
   alertSourcesResult: ApiResult<AlertSourceProfileListResponse>,
-  locale: string,
+  t: DiagnosisToolTranslator,
 ): ToolTemplateRelationOptions {
   if (!alertSourcesResult.ok) {
     return {
       alertSources: [],
       alertSourceLabels: {},
-      warnings: [locale === "zh-CN"
-        ? `告警源加载失败：${alertSourcesResult.error.message}。`
-        : `Alert sources failed to load: ${alertSourcesResult.error.message}.`]
+      warnings: [
+        t("runtimePattern.alertSourcesFailed", {
+          error: alertSourcesResult.error.message,
+        }),
+      ]
     };
   }
   return {
     alertSources: alertSourcesResult.data.items,
-    alertSourceLabels: Object.fromEntries(alertSourcesResult.data.items.map((source) => [source.id, alertSourceLabel(source, locale)])),
+    alertSourceLabels: Object.fromEntries(
+      alertSourcesResult.data.items.map((source) => [
+        source.id,
+        alertSourceLabel(source, t),
+      ]),
+    ),
     warnings: []
   };
 }
@@ -900,17 +904,18 @@ function launchSourceIDForTool(
 function sourceOptionsForTool(
   tool: DiagnosisToolKind,
   relationOptions: ToolTemplateRelationOptions,
-  locale: string,
+  t: DiagnosisToolTranslator,
 ): RelationSelectOption[] {
   return relationOptions.alertSources.map((source) => {
     const compatible = diagnosisToolSupportsSourceProfile(tool, source);
-    const label = alertSourceLabel(source, locale);
+    const label = alertSourceLabel(source, t);
+    const toolLabel = localizeDiagnosisToolText(diagnosisToolKindLabels[tool], t);
     return {
       disabled: !compatible,
-      label: compatible ? label : locale === "zh-CN" ? `${label} - 不兼容` : `${label} - incompatible`,
-      title: compatible ? label : locale === "zh-CN"
-        ? `${label} 与${localizeDiagnosisToolText(diagnosisToolKindLabels[tool], locale)}不兼容`
-        : `${label} is not compatible with ${diagnosisToolKindLabels[tool]}`,
+      label: compatible ? label : t("catalog.sourceOptionIncompatible", { label }),
+      title: compatible
+        ? label
+        : t("catalog.sourceOptionIncompatibleWithTool", { label, tool: toolLabel }),
       value: source.id
     };
   });
@@ -918,20 +923,26 @@ function sourceOptionsForTool(
 
 function recommendationSelectOptions(
   recommendations: ReturnType<typeof diagnosisToolTemplateRecommendations>,
-  locale: string,
+  t: DiagnosisToolTranslator,
 ): RecommendationSelectGroup[] {
   const groups = new Map<string, RecommendationSelectOption[]>();
   recommendations.forEach((recommendation) => {
     const options = groups.get(recommendation.group) ?? [];
     options.push({
-      label: `${localizeDiagnosisToolText(recommendation.label, locale)} - ${recommendation.sourceName}`,
-      title: localizeDiagnosisToolText(recommendation.detail, locale),
+      label: t("catalog.recommendationOption", {
+        label: localizeDiagnosisToolText(recommendation.label, t),
+        source: recommendation.sourceName,
+      }),
+      title: t("catalog.recommendationDetail", {
+        label: localizeDiagnosisToolText(recommendation.label, t),
+        source: recommendation.sourceName,
+      }),
       value: recommendation.id
     });
     groups.set(recommendation.group, options);
   });
   return Array.from(groups.entries()).map(([label, options]) => ({
-    label: localizeDiagnosisToolText(label, locale),
+    label: localizeDiagnosisToolText(label, t),
     options
   }));
 }
@@ -951,15 +962,12 @@ function compatibleSourceIDForTool(
   return sourceID;
 }
 
-function alertSourceLabel(source: AlertSourceProfile, locale: string): string {
-  return `#${source.id} ${source.name} (${source.kind}, ${enabledLabel(source.enabled, locale)})`;
+function alertSourceLabel(source: AlertSourceProfile, t: DiagnosisToolTranslator): string {
+  return `#${source.id} ${source.name} (${source.kind}, ${enabledLabel(source.enabled, t)})`;
 }
 
-function enabledLabel(enabled: boolean, locale: string): string {
-  if (locale === "zh-CN") {
-    return enabled ? "已启用" : "已停用";
-  }
-  return enabled ? "enabled" : "disabled";
+function enabledLabel(enabled: boolean, t: DiagnosisToolTranslator): string {
+  return localizeDiagnosisToolText(enabled ? "enabled" : "disabled", t);
 }
 
 function relationLabel(labels: Record<number, string>, id: number, fallback: string): string {
@@ -1020,7 +1028,7 @@ function DiagnosisToolTemplateTable({
       dataIndex: "tool",
       key: "tool",
       title: t("tool"),
-      render: (tool: DiagnosisToolKind) => <Tag color={toolTagColor(tool)}>{localizeDiagnosisToolText(diagnosisToolKindLabels[tool], locale)}</Tag>
+      render: (tool: DiagnosisToolKind) => <Tag color={toolTagColor(tool)}>{localizeDiagnosisToolText(diagnosisToolKindLabels[tool], t)}</Tag>
     },
     {
       key: "bounds",
@@ -1091,7 +1099,6 @@ function DiagnosisToolTemplateTable({
                 canManage={canManage}
                 onEnable={onEnable}
                 relationOptions={relationOptions}
-                locale={locale}
                 t={t}
                 template={template}
               />
@@ -1133,7 +1140,6 @@ function EnableTemplateButton({
   actionID,
   busy,
   canManage,
-  locale,
   onEnable,
   relationOptions,
   t,
@@ -1142,7 +1148,6 @@ function EnableTemplateButton({
   actionID: number | null;
   busy: boolean;
   canManage: boolean;
-  locale: string;
   onEnable: (template: DiagnosisToolTemplate) => void;
   relationOptions: ToolTemplateRelationOptions;
   t: DiagnosisToolTranslator;
@@ -1174,7 +1179,7 @@ function EnableTemplateButton({
       title={localizeDiagnosisToolMessages(
         readiness.blockers,
         readiness.detail,
-        locale,
+        t,
       )}
     >
       <span>{button}</span>
@@ -1211,143 +1216,149 @@ function nullableDate(value: string | null, locale: string): string {
 function localizeDiagnosisToolMessages(
   messages: readonly string[],
   fallback: string,
-  locale: string,
+  t: DiagnosisToolTranslator,
 ): string {
   const values = messages.length > 0 ? messages : [fallback];
   return values
     .filter((value) => value !== "")
-    .map((value) => localizeDiagnosisToolText(value, locale))
+    .map((value) => localizeDiagnosisToolText(value, t))
     .join(" ");
 }
 
-function localizeDiagnosisToolText(value: string, locale: string): string {
-  if (locale !== "zh-CN") {
-    return value;
-  }
-  const exact: Readonly<Record<string, string>> = {
-    blocked: "已阻塞",
-    disabled: "已停用",
-    enabled: "已启用",
-    pending: "等待中",
-    ready: "就绪",
-    review: "需检查",
-    "Active alerts": "活动告警",
-    "active alerts": "活动告警",
-    "AI follow-up has active alert collection and metric evidence tools.":
-      "AI 后续诊断已具备活动告警采集和指标证据工具。",
-    "Active alert collection can read Alertmanager or Prometheus-compatible alert APIs.":
-      "活动告警采集可读取 Alertmanager 或 Prometheus 兼容的告警 API。",
-    "Active alert templates must not include a query, windows, or step.":
-      "活动告警模板不能包含查询、窗口或步长。",
-    "Active alert templates support a default limit between 1 and 10.":
-      "活动告警模板的默认条数限制必须在 1 到 10 之间。",
-    "Alertmanager": "Alertmanager",
-    "Alertmanager or Prometheus-compatible": "Alertmanager 或 Prometheus 兼容告警源",
-    "Alertmanager active-alert intake": "Alertmanager 活动告警接入",
-    "Back to workflow": "返回工作流",
-    "Bound alert source must be enabled before template enablement.":
-      "启用模板前，必须先启用绑定的告警源。",
-    "Current active alerts": "当前活动告警",
-    "Default limit must be a positive integer.": "默认条数限制必须是正整数。",
-    "Default step": "默认步长",
-    "Default step must be between 15 seconds and the default window.":
-      "默认步长必须在 15 秒与默认窗口之间。",
-    "Default window must be between 15 and 21600 seconds.":
-      "默认窗口必须在 15 到 21600 秒之间。",
-    "Default window": "默认窗口",
-    "Enable active alert and metric templates before relying on AI follow-up.":
-      "依赖 AI 后续诊断前，请先启用活动告警和指标模板。",
-    "Evidence coverage needs review.": "证据覆盖需要检查。",
-    "Evidence coverage ready.": "证据覆盖已就绪。",
-    "Instant metric": "即时指标",
-    "Instant metric templates must not include windows or step.":
-      "即时指标模板不能包含窗口或步长。",
-    "Kubernetes JVM heap usage pct range": "Kubernetes JVM 堆使用率范围",
-    "Kubernetes JVM heap used range": "Kubernetes JVM 已用堆范围",
-    "Kubernetes pod CPU range": "Kubernetes Pod CPU 范围",
-    "Kubernetes pod memory range": "Kubernetes Pod 内存范围",
-    "Kubernetes pod restarts range": "Kubernetes Pod 重启次数范围",
-    "Max window must be between 15 and 21600 seconds.":
-      "最大窗口必须在 15 到 21600 秒之间。",
-    "Max window": "最大窗口",
-    "Max window must be greater than or equal to default window.":
-      "最大窗口必须大于或等于默认窗口。",
-    "Metric evidence runs against Prometheus-compatible query APIs, including Thanos Query endpoints; Thanos Rule active-alert sources are excluded.":
-      "指标证据使用 Prometheus 兼容查询 API，包括 Thanos Query 端点；不包含 Thanos Rule 活动告警源。",
-    "metric evidence": "指标证据",
-    "Metric query templates require a query template.": "指标查询模板需要查询模板。",
-    "Metric templates support a default limit between 1 and 20.":
-      "指标模板的默认条数限制必须在 1 到 20 之间。",
-    "No enabled compatible alert source.": "没有已启用的兼容告警源。",
-    "No enabled evidence tools.": "没有已启用的证据工具。",
-    "No query template.": "没有查询模板。",
-    "Oracle tablespace pct used instant": "Oracle 表空间使用率即时查询",
-    "Oracle tablespace pct used range": "Oracle 表空间使用率范围查询",
-    "Parameterized query template.": "参数化查询模板。",
-    "Placeholders must use {{label.NAME}} or {{annotation.NAME}} inside quoted PromQL label values.":
-      "占位符必须在带引号的 PromQL 标签值中使用 {{label.NAME}} 或 {{annotation.NAME}}。",
-    "Prometheus metric evidence": "Prometheus 指标证据",
-    "Prometheus-compatible": "Prometheus 兼容",
-    "Prometheus-compatible or Alertmanager": "Prometheus 兼容告警源或 Alertmanager",
-    "Prometheus-compatible metric evidence": "Prometheus 兼容指标证据",
-    "Query template must be 500 characters or fewer.": "查询模板不能超过 500 个字符。",
-    "Query template must be a single line.": "查询模板必须为单行。",
-    "Range field": "范围字段",
-    "Range metric": "范围指标",
-    "Range metric templates require a query template.": "范围指标模板需要查询模板。",
-    "Select a compatible alert source.": "请选择兼容的告警源。",
-    "Select a compatible source.": "请选择兼容的告警源。",
-    "Select an alert source.": "请选择告警源。",
-    "Selected source is disabled.": "所选告警源已停用。",
-    "Selected source is incompatible.": "所选告警源不兼容。",
-    "Source compatible.": "告警源兼容。",
-    "Static query template.": "静态查询模板。",
-    "Target availability instant": "目标可用性即时查询",
-    "Template name is required.": "模板名称为必填项。",
-    "Template name must be 120 characters or fewer.": "模板名称不能超过 120 个字符。",
-    "Prepared Kubernetes pod CPU range from the settings overview action.":
-      "已根据配置概览操作准备 Kubernetes Pod CPU 范围模板。",
-    "Prepared current active alerts from the settings overview action.":
-      "已根据配置概览操作准备当前活动告警模板。",
-    "Return to workflow policies after the required evidence templates are saved and enabled.":
-      "保存并启用所需证据模板后，请返回工作流策略。",
-    "Thanos Query metric evidence": "Thanos Query 指标证据",
-    "Thanos Rule active alerts": "Thanos Rule 活动告警",
-    "Tool kind is unsupported.": "不支持此工具类型。",
-  };
-  if (exact[value] !== undefined) {
-    return exact[value]!;
+const diagnosisToolRuntimeTextKeys = {
+    "blocked": "runtimeText.blocked",
+    "disabled": "runtimeText.disabled",
+    "enabled": "runtimeText.enabled",
+    "pending": "runtimeText.pending",
+    "ready": "runtimeText.ready",
+    "review": "runtimeText.review",
+    "Active alerts": "runtimeText.activeAlerts",
+    "active alerts": "runtimeText.activeAlerts2",
+    "active alert collection": "runtimeText.activeAlertCollection",
+    "AI follow-up has active alert collection and metric evidence tools.": "runtimeText.aiFollowUpHasActiveAlertCollectionAndMetricEvidenceTools",
+    "Active alert collection can read Alertmanager or Prometheus-compatible alert APIs.": "runtimeText.activeAlertCollectionCanReadAlertmanagerOrPrometheusCompatibleAlertApis",
+    "Active alert templates must not include a query, windows, or step.": "runtimeText.activeAlertTemplatesMustNotIncludeAQueryWindowsOrStep",
+    "Active alert templates support a default limit between 1 and 10.": "runtimeText.activeAlertTemplatesSupportADefaultLimitBetween1And10",
+    "Alertmanager": "runtimeText.alertmanager",
+    "Alertmanager or Prometheus-compatible": "runtimeText.alertmanagerOrPrometheusCompatible",
+    "Alertmanager active-alert intake": "runtimeText.alertmanagerActiveAlertIntake",
+    "Back to workflow": "runtimeText.backToWorkflow",
+    "Bound alert source must be enabled before template enablement.": "runtimeText.boundAlertSourceMustBeEnabledBeforeTemplateEnablement",
+    "Current active alerts": "runtimeText.currentActiveAlerts",
+    "Default limit must be a positive integer.": "runtimeText.defaultLimitMustBeAPositiveInteger",
+    "Default step": "runtimeText.defaultStep",
+    "Default step must be between 15 seconds and the default window.": "runtimeText.defaultStepMustBeBetween15SecondsAndTheDefaultWindow",
+    "Default window must be between 15 and 21600 seconds.": "runtimeText.defaultWindowMustBeBetween15And21600Seconds",
+    "Default window": "runtimeText.defaultWindow",
+    "Enable active alert and metric templates before relying on AI follow-up.": "runtimeText.enableActiveAlertAndMetricTemplatesBeforeRelyingOnAiFollowUp",
+    "Evidence coverage needs review.": "runtimeText.evidenceCoverageNeedsReview",
+    "Evidence coverage ready.": "runtimeText.evidenceCoverageReady",
+    "Instant metric": "runtimeText.instantMetric",
+    "Instant metric templates must not include windows or step.": "runtimeText.instantMetricTemplatesMustNotIncludeWindowsOrStep",
+    "Kubernetes JVM heap usage pct range": "runtimeText.kubernetesJvmHeapUsagePctRange",
+    "Kubernetes JVM heap used range": "runtimeText.kubernetesJvmHeapUsedRange",
+    "Kubernetes pod CPU range": "runtimeText.kubernetesPodCpuRange",
+    "Kubernetes pod memory range": "runtimeText.kubernetesPodMemoryRange",
+    "Kubernetes pod restarts range": "runtimeText.kubernetesPodRestartsRange",
+    "Max window must be between 15 and 21600 seconds.": "runtimeText.maxWindowMustBeBetween15And21600Seconds",
+    "Max window": "runtimeText.maxWindow",
+    "Max window must be greater than or equal to default window.": "runtimeText.maxWindowMustBeGreaterThanOrEqualToDefaultWindow",
+    "Metric evidence runs against Prometheus-compatible query APIs, including Thanos Query endpoints; Thanos Rule active-alert sources are excluded.": "runtimeText.metricEvidenceRunsAgainstPrometheusCompatibleQueryApisIncludingThanosQueryEndpoints",
+    "metric evidence": "runtimeText.metricEvidence",
+    "Metric query templates require a query template.": "runtimeText.metricQueryTemplatesRequireAQueryTemplate",
+    "Metric templates support a default limit between 1 and 20.": "runtimeText.metricTemplatesSupportADefaultLimitBetween1And20",
+    "No enabled compatible alert source.": "runtimeText.noEnabledCompatibleAlertSource",
+    "No enabled evidence tools.": "runtimeText.noEnabledEvidenceTools",
+    "No query template.": "runtimeText.noQueryTemplate",
+    "Oracle tablespace pct used instant": "runtimeText.oracleTablespacePctUsedInstant",
+    "Oracle tablespace pct used range": "runtimeText.oracleTablespacePctUsedRange",
+    "Parameterized query template.": "runtimeText.parameterizedQueryTemplate",
+    "Placeholders must use {{label.NAME}} or {{annotation.NAME}} inside quoted PromQL label values.": "runtimeText.placeholdersMustUseLabelNameOrAnnotationNameInsideQuotedPromqlLabel",
+    "Prometheus metric evidence": "runtimeText.prometheusMetricEvidence",
+    "Prometheus-compatible": "runtimeText.prometheusCompatible",
+    "Prometheus-compatible or Alertmanager": "runtimeText.prometheusCompatibleOrAlertmanager",
+    "Prometheus-compatible metric evidence": "runtimeText.prometheusCompatibleMetricEvidence",
+    "Query template must be 500 characters or fewer.": "runtimeText.queryTemplateMustBe500CharactersOrFewer",
+    "Query template must be a single line.": "runtimeText.queryTemplateMustBeASingleLine",
+    "Range field": "runtimeText.rangeField",
+    "Range metric": "runtimeText.rangeMetric",
+    "Range metric templates require a query template.": "runtimeText.rangeMetricTemplatesRequireAQueryTemplate",
+    "Select a compatible alert source.": "runtimeText.selectACompatibleAlertSource",
+    "Select a compatible source.": "runtimeText.selectACompatibleSource",
+    "Select an alert source.": "runtimeText.selectAnAlertSource",
+    "Selected source is disabled.": "runtimeText.selectedSourceIsDisabled",
+    "Selected source is incompatible.": "runtimeText.selectedSourceIsIncompatible",
+    "Source compatible.": "runtimeText.sourceCompatible",
+    "Static query template.": "runtimeText.staticQueryTemplate",
+    "Target availability instant": "runtimeText.targetAvailabilityInstant",
+    "Template name is required.": "runtimeText.templateNameIsRequired",
+    "Template name must be 120 characters or fewer.": "runtimeText.templateNameMustBe120CharactersOrFewer",
+    "Prepared Kubernetes pod CPU range from the settings overview action.": "runtimeText.preparedKubernetesPodCpuRangeFromTheSettingsOverviewAction",
+    "Prepared current active alerts from the settings overview action.": "runtimeText.preparedCurrentActiveAlertsFromTheSettingsOverviewAction",
+    "Return to workflow policies after the required evidence templates are saved and enabled.": "runtimeText.returnToWorkflowPoliciesAfterTheRequiredEvidenceTemplatesAreSavedAnd",
+    "Thanos Query metric evidence": "runtimeText.thanosQueryMetricEvidence",
+    "Thanos Rule active alerts": "runtimeText.thanosRuleActiveAlerts",
+    "Tool kind is unsupported.": "runtimeText.toolKindIsUnsupported",
+} as const;
+
+export function localizeDiagnosisToolText(value: string, t: DiagnosisToolTranslator): string {
+  const key =
+    diagnosisToolRuntimeTextKeys[
+      value as keyof typeof diagnosisToolRuntimeTextKeys
+    ];
+  if (key !== undefined) {
+    return t(key);
   }
   let match = value.match(/^Prepared (.+) from the URL preset\.$/);
   if (match) {
-    return `已根据 URL 预设准备${localizeDiagnosisToolText(match[1]!, locale)}。`;
+    return t("runtimePattern.preparedFromURLPreset", {
+      item: localizeDiagnosisToolText(match[1]!, t),
+    });
   }
   match = value.match(/^Missing (.+) for AI follow-up\.$/);
   if (match) {
-    return `AI 后续诊断缺少${match[1]!
-      .split(" and ")
-      .map((item) => localizeDiagnosisToolText(item, locale))
-      .join("和")}。`;
+    return t("runtimePattern.missingForAIFollowUp", {
+      items: match[1]!
+        .split(" and ")
+        .map((item) => localizeDiagnosisToolText(item, t))
+        .join(" / "),
+    });
   }
   match = value.match(/^Select (.+) for this tool\.$/);
   if (match) {
-    return `请为此工具选择${localizeDiagnosisToolText(match[1]!, locale)}。`;
+    return t("runtimePattern.selectForTool", {
+      item: localizeDiagnosisToolText(match[1]!, t),
+    });
   }
   match = value.match(/^Alert sources failed to load: (.+)\.$/);
   if (match) {
-    return `告警源加载失败：${match[1]}。`;
+    return t("runtimePattern.alertSourcesFailed", { error: match[1]! });
   }
   match = value.match(/^(.+) must be a non-negative integer\.$/);
   if (match) {
-    return `${localizeDiagnosisToolText(match[1]!, locale)}必须是非负整数。`;
+    return t("runtimePattern.nonNegativeInteger", {
+      field: localizeDiagnosisToolText(match[1]!, t),
+    });
   }
   match = value.match(/^(.+) cannot run against Thanos Rule active-alert sources\. Use a Thanos Query or Prometheus metric source\.$/);
   if (match) {
-    return `${localizeDiagnosisToolText(match[1]!, locale)}不能针对 Thanos Rule 活动告警源运行。请使用 Thanos Query 或 Prometheus 指标源。`;
+    return t("runtimePattern.cannotRunAgainstThanosRule", {
+      tool: localizeDiagnosisToolText(match[1]!, t),
+    });
   }
   match = value.match(/^(.+) cannot run against (.+)\.$/);
   if (match) {
-    return `${localizeDiagnosisToolText(match[1]!, locale)}不能针对${localizeDiagnosisToolText(match[2]!, locale)}运行。`;
+    return t("runtimePattern.cannotRunAgainst", {
+      source: localizeDiagnosisToolText(match[2]!, t),
+      tool: localizeDiagnosisToolText(match[1]!, t),
+    });
+  }
+  match = value.match(/^(.+) needs an enabled (.+) source before it can collect evidence\.$/);
+  if (match) {
+    return t("runtimePattern.toolNeedsEnabledSource", {
+      source: localizeDiagnosisToolText(match[2]!, t),
+      tool: localizeDiagnosisToolText(match[1]!, t),
+    });
   }
   return value;
 }

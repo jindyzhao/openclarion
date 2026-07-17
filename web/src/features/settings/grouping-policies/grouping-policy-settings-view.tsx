@@ -52,7 +52,8 @@ import {
   formStateToWriteRequest,
   groupingPolicyLaunchInitialForm,
   policyToFormState,
-  type GroupingPolicyLaunchIntent
+  type GroupingPolicyLaunchIntent,
+  type GroupingPolicyValidationError
 } from "./format";
 import type {
   GroupingPolicy,
@@ -187,7 +188,10 @@ export function GroupingPolicySettingsManager({
   async function handleSubmit(values: GroupingPolicyFormState) {
     const parsed = formStateToWriteRequest(normalizeFormValues(values));
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: localizeGroupingMessage(parsed.message, locale, t) });
+      setNotice({
+        kind: "error",
+        message: localizeGroupingValidationError(parsed.error, t)
+      });
       return;
     }
 
@@ -256,7 +260,7 @@ export function GroupingPolicySettingsManager({
       {launchNotice ? (
         <Alert
           aria-label={t("launchPreset")}
-          description={localizeGroupingMessage(launchNotice, locale, t)}
+          description={localizeGroupingMessage(launchNotice, t)}
           message={t("actionLoaded")}
           role="status"
           showIcon
@@ -686,45 +690,52 @@ function severityColor(severity: GroupingPolicyPreviewGroup["severity"]) {
 
 function localizeGroupingMessage(
   message: string,
-  locale: string,
   t: GroupingTranslator,
 ): string {
-  if (locale !== "zh-CN") {
-    return message;
-  }
   const exact: Readonly<Record<string, string>> = {
-    "At least one dimension key is required.": t("dimensionRequired"),
-    "Dimension key list is required.": t("dimensionRequired"),
-    "Policy name is required.": t("nameRequired"),
-    "Policy name must be 120 bytes or fewer.": t("nameLength"),
     "Prepared a default alert grouping policy for alert name, service, namespace, and pod dimensions.":
-      t("defaultPrepared"),
-    "Severity key is required.": t("severityRequired"),
-    "Severity key must be 64 characters or fewer.": t("severityLength"),
-    "Severity key must not contain whitespace or control characters.":
-      t("severityCharacters"),
+      t("defaultPrepared")
   };
-  if (exact[message] !== undefined) {
-    return exact[message]!;
+  return exact[message] ?? message;
+}
+
+function localizeGroupingValidationError(
+  error: GroupingPolicyValidationError,
+  t: GroupingTranslator
+): string {
+  switch (error.code) {
+    case "policy_name_required":
+      return t("nameRequired");
+    case "policy_name_too_long":
+      return t("nameLength", { count: error.limit });
+    case "token_list_required":
+      return t("dimensionRequired");
+    case "token_list_too_long":
+      return t("listLength", {
+        count: error.limit,
+        field: groupingPolicyFieldLabel(error.field, t)
+      });
+    case "token_invalid_characters":
+      return t("invalidCharacters", {
+        field: groupingPolicyFieldLabel(error.field, t)
+      });
+    case "token_too_long":
+      return t("byteLength", {
+        count: error.limit,
+        field: groupingPolicyFieldLabel(error.field, t)
+      });
+    case "severity_required":
+      return t("severityRequired");
+    case "severity_invalid_characters":
+      return t("severityCharacters");
+    case "severity_too_long":
+      return t("severityLength", { count: error.limit });
   }
-  const listMatch = message.match(/^(Dimension key|Source filter) list must contain (\d+) entries or fewer\.$/);
-  if (listMatch) {
-    return t("listLength", {
-      count: Number(listMatch[2]),
-      field: listMatch[1] === "Dimension key" ? t("dimensionKeys") : t("sourceFilter"),
-    });
-  }
-  const characterMatch = message.match(/^(Dimension key|Source filter) must not contain whitespace or control characters\.$/);
-  if (characterMatch) {
-    return t("invalidCharacters", {
-      field: characterMatch[1] === "Dimension key" ? t("dimensionKeys") : t("sourceFilter"),
-    });
-  }
-  const byteMatch = message.match(/^(Dimension key|Source filter) must be 64 bytes or fewer\.$/);
-  if (byteMatch) {
-    return t("byteLength", {
-      field: byteMatch[1] === "Dimension key" ? t("dimensionKeys") : t("sourceFilter"),
-    });
-  }
-  return message;
+}
+
+function groupingPolicyFieldLabel(
+  field: "dimension_key" | "source_filter",
+  t: GroupingTranslator
+): string {
+  return field === "dimension_key" ? t("dimensionKeys") : t("sourceFilter");
 }

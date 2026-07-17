@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   currentRBACAuthorizationCheckBatches,
+  currentRBACAuthorizationErrorDetail,
   currentRBACAuthorizationNeedsSignIn,
   currentRBACAuthorizationsFromState,
   currentRBACAuthorizationStateAfterActivationChange,
@@ -147,5 +148,30 @@ describe("current RBAC authorization view", () => {
         kind: "loading",
       }),
     ).toBe(false);
+  });
+
+  it("localizes unauthenticated details without hiding unknown backend errors", () => {
+    expect(
+      currentRBACAuthorizationErrorDetail(
+        {
+          fingerprint: "current",
+          kind: "error",
+          message: "Authentication required.",
+          status: 401,
+        },
+        "需要登录认证。",
+      ),
+    ).toBe("需要登录认证。");
+    expect(
+      currentRBACAuthorizationErrorDetail(
+        {
+          fingerprint: "current",
+          kind: "error",
+          message: "identity provider unavailable",
+          status: 503,
+        },
+        "需要登录认证。",
+      ),
+    ).toBe("identity provider unavailable");
   });
 });

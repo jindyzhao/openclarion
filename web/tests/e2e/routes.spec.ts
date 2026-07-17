@@ -2302,7 +2302,7 @@ test("report workflow schedule settings route creates and toggles schedules", as
   await expect(scheduleReadiness).toContainText("#1 Default report workflow");
   await expect(scheduleReadiness).toContainText("Every 6h");
   await expect(scheduleReadiness).toContainText(
-    "Starts every 6h after offset 0s.",
+    "Starts every 6h with 0s offset.",
   );
   await expect(scheduleReadiness).toContainText(
     "Window 1h / delay 5m / limit 10000",

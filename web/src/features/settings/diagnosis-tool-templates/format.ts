@@ -27,7 +27,6 @@ export type DiagnosisToolTemplatePreset = {
 };
 
 export type DiagnosisToolTemplateRecommendation = {
-  detail: string;
   group: string;
   id: string;
   label: string;
@@ -243,7 +242,6 @@ export function diagnosisToolTemplateRecommendations(
           return null;
         }
         return {
-          detail: recommendationDetailForPreset(source, preset),
           group: recommendationGroupForSource(source),
           id: `${source.id}:${preset.id}`,
           label: preset.label,
@@ -470,13 +468,6 @@ function recommendationGroupForSource(source: AlertSourceProfile): string {
     return "Prometheus metric evidence";
   }
   return "Prometheus-compatible metric evidence";
-}
-
-function recommendationDetailForPreset(
-  source: AlertSourceProfile,
-  preset: DiagnosisToolTemplatePreset
-): string {
-  return `${preset.label} on ${source.name}`;
 }
 
 export function diagnosisToolSupportsSourceKind(tool: DiagnosisToolKind, kind: AlertSourceKind): boolean {
