@@ -1345,15 +1345,19 @@ func finalReportSummaries(reports []domain.FinalReport) []api.FinalReportSummary
 	items := make([]api.FinalReportSummary, len(reports))
 	for i, report := range reports {
 		items[i] = api.FinalReportSummary{
-			ID:                int64(report.ID),
-			CorrelationKey:    report.CorrelationKey,
-			Title:             report.Title,
-			ExecutiveSummary:  report.ExecutiveSummary,
-			Severity:          api.ReportSeverity(report.Severity),
-			Confidence:        api.ReportConfidence(report.Confidence),
-			NotificationText:  report.NotificationText,
-			CreatedByWorkflow: report.CreatedByWorkflow,
-			CreatedAt:         report.CreatedAt,
+			ID:                       int64(report.ID),
+			CorrelationKey:           report.CorrelationKey,
+			Title:                    report.Title,
+			ExecutiveSummary:         report.ExecutiveSummary,
+			Severity:                 api.ReportSeverity(report.Severity),
+			Confidence:               api.ReportConfidence(report.Confidence),
+			GenerationStatus:         api.FinalReportGenerationStatus(report.GenerationStatus),
+			ExpectedSubReportCount:   report.ExpectedSubReportCount,
+			SuccessfulSubReportCount: report.SuccessfulSubReportCount,
+			FailedSubReportCount:     report.FailedSubReportCount,
+			NotificationText:         report.NotificationText,
+			CreatedByWorkflow:        report.CreatedByWorkflow,
+			CreatedAt:                report.CreatedAt,
 		}
 	}
 	return items
@@ -3606,15 +3610,19 @@ func finalReportDetail(
 		return api.FinalReportDetail{}, err
 	}
 	return api.FinalReportDetail{
-		ID:                 int64(report.ID),
-		CorrelationKey:     report.CorrelationKey,
-		Title:              report.Title,
-		ExecutiveSummary:   report.ExecutiveSummary,
-		Severity:           api.ReportSeverity(report.Severity),
-		Confidence:         api.ReportConfidence(report.Confidence),
-		SubReports:         reportSummaries,
-		RecommendedActions: actions,
-		NotificationText:   report.NotificationText,
+		ID:                       int64(report.ID),
+		CorrelationKey:           report.CorrelationKey,
+		Title:                    report.Title,
+		ExecutiveSummary:         report.ExecutiveSummary,
+		Severity:                 api.ReportSeverity(report.Severity),
+		Confidence:               api.ReportConfidence(report.Confidence),
+		GenerationStatus:         api.FinalReportGenerationStatus(report.GenerationStatus),
+		ExpectedSubReportCount:   report.ExpectedSubReportCount,
+		SuccessfulSubReportCount: report.SuccessfulSubReportCount,
+		FailedSubReportCount:     report.FailedSubReportCount,
+		SubReports:               reportSummaries,
+		RecommendedActions:       actions,
+		NotificationText:         report.NotificationText,
 		NotificationDeliveries: reportNotificationDeliveryProofs(
 			notificationDeliveries,
 		),

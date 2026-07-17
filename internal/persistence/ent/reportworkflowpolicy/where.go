@@ -80,6 +80,11 @@ func ReportNotificationChannelProfileID(v int) predicate.ReportWorkflowPolicy {
 	return predicate.ReportWorkflowPolicy(sql.FieldEQ(FieldReportNotificationChannelProfileID, v))
 }
 
+// MaxFailedSubReports applies equality check predicate on the "max_failed_sub_reports" field. It's identical to MaxFailedSubReportsEQ.
+func MaxFailedSubReports(v int) predicate.ReportWorkflowPolicy {
+	return predicate.ReportWorkflowPolicy(sql.FieldEQ(FieldMaxFailedSubReports, v))
+}
+
 // TriggerMode applies equality check predicate on the "trigger_mode" field. It's identical to TriggerModeEQ.
 func TriggerMode(v string) predicate.ReportWorkflowPolicy {
 	return predicate.ReportWorkflowPolicy(sql.FieldEQ(FieldTriggerMode, v))
@@ -333,6 +338,46 @@ func ReportNotificationChannelProfileIDIsNil() predicate.ReportWorkflowPolicy {
 // ReportNotificationChannelProfileIDNotNil applies the NotNil predicate on the "report_notification_channel_profile_id" field.
 func ReportNotificationChannelProfileIDNotNil() predicate.ReportWorkflowPolicy {
 	return predicate.ReportWorkflowPolicy(sql.FieldNotNull(FieldReportNotificationChannelProfileID))
+}
+
+// MaxFailedSubReportsEQ applies the EQ predicate on the "max_failed_sub_reports" field.
+func MaxFailedSubReportsEQ(v int) predicate.ReportWorkflowPolicy {
+	return predicate.ReportWorkflowPolicy(sql.FieldEQ(FieldMaxFailedSubReports, v))
+}
+
+// MaxFailedSubReportsNEQ applies the NEQ predicate on the "max_failed_sub_reports" field.
+func MaxFailedSubReportsNEQ(v int) predicate.ReportWorkflowPolicy {
+	return predicate.ReportWorkflowPolicy(sql.FieldNEQ(FieldMaxFailedSubReports, v))
+}
+
+// MaxFailedSubReportsIn applies the In predicate on the "max_failed_sub_reports" field.
+func MaxFailedSubReportsIn(vs ...int) predicate.ReportWorkflowPolicy {
+	return predicate.ReportWorkflowPolicy(sql.FieldIn(FieldMaxFailedSubReports, vs...))
+}
+
+// MaxFailedSubReportsNotIn applies the NotIn predicate on the "max_failed_sub_reports" field.
+func MaxFailedSubReportsNotIn(vs ...int) predicate.ReportWorkflowPolicy {
+	return predicate.ReportWorkflowPolicy(sql.FieldNotIn(FieldMaxFailedSubReports, vs...))
+}
+
+// MaxFailedSubReportsGT applies the GT predicate on the "max_failed_sub_reports" field.
+func MaxFailedSubReportsGT(v int) predicate.ReportWorkflowPolicy {
+	return predicate.ReportWorkflowPolicy(sql.FieldGT(FieldMaxFailedSubReports, v))
+}
+
+// MaxFailedSubReportsGTE applies the GTE predicate on the "max_failed_sub_reports" field.
+func MaxFailedSubReportsGTE(v int) predicate.ReportWorkflowPolicy {
+	return predicate.ReportWorkflowPolicy(sql.FieldGTE(FieldMaxFailedSubReports, v))
+}
+
+// MaxFailedSubReportsLT applies the LT predicate on the "max_failed_sub_reports" field.
+func MaxFailedSubReportsLT(v int) predicate.ReportWorkflowPolicy {
+	return predicate.ReportWorkflowPolicy(sql.FieldLT(FieldMaxFailedSubReports, v))
+}
+
+// MaxFailedSubReportsLTE applies the LTE predicate on the "max_failed_sub_reports" field.
+func MaxFailedSubReportsLTE(v int) predicate.ReportWorkflowPolicy {
+	return predicate.ReportWorkflowPolicy(sql.FieldLTE(FieldMaxFailedSubReports, v))
 }
 
 // TriggerModeEQ applies the EQ predicate on the "trigger_mode" field.

@@ -181,6 +181,24 @@ func (c ReportConfidence) Valid() bool {
 	}
 }
 
+// FinalReportGenerationStatus records whether fan-in included every expected
+// SubReport or proceeded within an explicitly configured failure threshold.
+type FinalReportGenerationStatus string
+
+const (
+	// FinalReportGenerationStatusComplete means every expected SubReport was
+	// generated and included.
+	FinalReportGenerationStatusComplete FinalReportGenerationStatus = "complete"
+	// FinalReportGenerationStatusPartial means at least one expected SubReport
+	// failed, while at least one successful SubReport was retained for fan-in.
+	FinalReportGenerationStatusPartial FinalReportGenerationStatus = "partial"
+)
+
+// Valid reports whether s is a supported final-report coverage state.
+func (s FinalReportGenerationStatus) Valid() bool {
+	return s == FinalReportGenerationStatusComplete || s == FinalReportGenerationStatusPartial
+}
+
 // SubReport is one schema-validated AI report for a single
 // EvidenceSnapshot. The accepted JSON is retained in Content for
 // audit/replay; selected fields are duplicated into typed columns for
@@ -274,21 +292,25 @@ func NewSubReport(in SubReport) (SubReport, error) {
 // ReportNotificationDelivery so report queryability is independent of
 // webhook success.
 type FinalReport struct {
-	ID                 FinalReportID
-	CorrelationKey     string
-	IdempotencyKey     string
-	Title              string
-	ExecutiveSummary   string
-	Severity           ReportSeverity
-	Confidence         ReportConfidence
-	SubReports         json.RawMessage
-	RecommendedActions json.RawMessage
-	NotificationText   string
-	Content            json.RawMessage
-	Model              string
-	OutputMode         string
-	CreatedByWorkflow  string
-	CreatedAt          time.Time
+	ID                       FinalReportID
+	CorrelationKey           string
+	IdempotencyKey           string
+	Title                    string
+	ExecutiveSummary         string
+	Severity                 ReportSeverity
+	Confidence               ReportConfidence
+	GenerationStatus         FinalReportGenerationStatus
+	ExpectedSubReportCount   int
+	SuccessfulSubReportCount int
+	FailedSubReportCount     int
+	SubReports               json.RawMessage
+	RecommendedActions       json.RawMessage
+	NotificationText         string
+	Content                  json.RawMessage
+	Model                    string
+	OutputMode               string
+	CreatedByWorkflow        string
+	CreatedAt                time.Time
 }
 
 // NewFinalReport constructs a FinalReport draft ready for
@@ -312,6 +334,17 @@ func NewFinalReport(in FinalReport) (FinalReport, error) {
 	}
 	if !in.Confidence.Valid() {
 		return FinalReport{}, fmt.Errorf("final report: confidence %q is invalid: %w", in.Confidence, ErrInvariantViolation)
+	}
+	if !in.GenerationStatus.Valid() {
+		return FinalReport{}, fmt.Errorf("final report: generation_status %q is invalid: %w", in.GenerationStatus, ErrInvariantViolation)
+	}
+	if in.ExpectedSubReportCount <= 0 || in.SuccessfulSubReportCount <= 0 || in.FailedSubReportCount < 0 ||
+		in.ExpectedSubReportCount != in.SuccessfulSubReportCount+in.FailedSubReportCount {
+		return FinalReport{}, fmt.Errorf("final report: coverage counts must be positive, internally consistent, and include one success: %w", ErrInvariantViolation)
+	}
+	if (in.GenerationStatus == FinalReportGenerationStatusComplete && in.FailedSubReportCount != 0) ||
+		(in.GenerationStatus == FinalReportGenerationStatusPartial && in.FailedSubReportCount == 0) {
+		return FinalReport{}, fmt.Errorf("final report: generation_status does not match failed_sub_report_count: %w", ErrInvariantViolation)
 	}
 	if err := requireValidJSON("final report: sub_reports", in.SubReports); err != nil {
 		return FinalReport{}, err

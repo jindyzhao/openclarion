@@ -1228,6 +1228,7 @@ func mustReportWorkflowPolicy(
 		sourceID,
 		domain.GroupingPolicyID(21),
 		0,
+		0,
 		domain.ReportWorkflowTriggerModeManualReplay,
 		domain.ReportWorkflowScenarioSingleAlert,
 		followUp,

@@ -24,6 +24,7 @@ type Request struct {
 	WorkflowID                         string
 	Scenario                           reportprompt.Scenario
 	ReportNotificationChannelProfileID domain.NotificationChannelProfileID
+	MaxFailedSubReports                int
 }
 
 // Result records both replay output and the optional workflow handle.
@@ -147,6 +148,16 @@ func BuildStartRequest(replay alertreplay.Result, req Request) (ports.ReportBatc
 	if !scenario.Valid() {
 		return ports.ReportBatchStartRequest{}, false, fmt.Errorf("report trigger: scenario %q is unsupported: %w", scenario, domain.ErrInvariantViolation)
 	}
+	if req.ReportNotificationChannelProfileID < 0 {
+		return ports.ReportBatchStartRequest{}, false, fmt.Errorf("report trigger: report_notification_channel_profile_id must be non-negative: %w", domain.ErrInvariantViolation)
+	}
+	if req.MaxFailedSubReports < 0 || req.MaxFailedSubReports > domain.ReportWorkflowMaxFailedSubReports {
+		return ports.ReportBatchStartRequest{}, false, fmt.Errorf(
+			"report trigger: max_failed_sub_reports must be between 0 and %d: %w",
+			domain.ReportWorkflowMaxFailedSubReports,
+			domain.ErrInvariantViolation,
+		)
+	}
 	if len(replay.Snapshots) == 0 {
 		return ports.ReportBatchStartRequest{}, false, nil
 	}
@@ -182,6 +193,7 @@ func BuildStartRequest(replay alertreplay.Result, req Request) (ports.ReportBatc
 		WorkflowID:                         workflowID,
 		CorrelationKey:                     correlationKey,
 		ReportNotificationChannelProfileID: req.ReportNotificationChannelProfileID,
+		MaxFailedSubReports:                req.MaxFailedSubReports,
 		Items:                              items,
 	}, true, nil
 }

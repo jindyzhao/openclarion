@@ -24,6 +24,8 @@ const (
 	FieldGroupingPolicyID = "grouping_policy_id"
 	// FieldReportNotificationChannelProfileID holds the string denoting the report_notification_channel_profile_id field in the database.
 	FieldReportNotificationChannelProfileID = "report_notification_channel_profile_id"
+	// FieldMaxFailedSubReports holds the string denoting the max_failed_sub_reports field in the database.
+	FieldMaxFailedSubReports = "max_failed_sub_reports"
 	// FieldTriggerMode holds the string denoting the trigger_mode field in the database.
 	FieldTriggerMode = "trigger_mode"
 	// FieldReportScenario holds the string denoting the report_scenario field in the database.
@@ -61,6 +63,7 @@ var Columns = []string{
 	FieldAlertSourceProfileID,
 	FieldGroupingPolicyID,
 	FieldReportNotificationChannelProfileID,
+	FieldMaxFailedSubReports,
 	FieldTriggerMode,
 	FieldReportScenario,
 	FieldDiagnosisFollowUp,
@@ -92,6 +95,10 @@ var (
 	GroupingPolicyIDValidator func(int) error
 	// ReportNotificationChannelProfileIDValidator is a validator for the "report_notification_channel_profile_id" field. It is called by the builders before save.
 	ReportNotificationChannelProfileIDValidator func(int) error
+	// DefaultMaxFailedSubReports holds the default value on creation for the "max_failed_sub_reports" field.
+	DefaultMaxFailedSubReports int
+	// MaxFailedSubReportsValidator is a validator for the "max_failed_sub_reports" field. It is called by the builders before save.
+	MaxFailedSubReportsValidator func(int) error
 	// DefaultTriggerMode holds the default value on creation for the "trigger_mode" field.
 	DefaultTriggerMode string
 	// TriggerModeValidator is a validator for the "trigger_mode" field. It is called by the builders before save.
@@ -145,6 +152,11 @@ func ByGroupingPolicyID(opts ...sql.OrderTermOption) OrderOption {
 // ByReportNotificationChannelProfileID orders the results by the report_notification_channel_profile_id field.
 func ByReportNotificationChannelProfileID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldReportNotificationChannelProfileID, opts...).ToFunc()
+}
+
+// ByMaxFailedSubReports orders the results by the max_failed_sub_reports field.
+func ByMaxFailedSubReports(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMaxFailedSubReports, opts...).ToFunc()
 }
 
 // ByTriggerMode orders the results by the trigger_mode field.

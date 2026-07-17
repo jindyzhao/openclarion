@@ -485,6 +485,7 @@ func mustReportWorkflowPolicy(
 		sourceID,
 		groupingID,
 		channelID,
+		0,
 		domain.ReportWorkflowTriggerModeManualReplay,
 		domain.ReportWorkflowScenarioSingleAlert,
 		domain.DiagnosisFollowUpModeSuggestRoom,

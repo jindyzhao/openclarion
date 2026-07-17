@@ -13,13 +13,13 @@
   "components.schemas.DiagnosisWSTicketResponse": "fd69c4e8705ed3f419a11c022f3c7f8b9959aff43e3b3defd3b1b1951682d0da",
   "components.schemas.EvidenceSnapshotListResponse": "d8822ffcf4c6973fa63cc5d85709aa2f3e8110f8e723441e5f998218cb268726",
   "components.schemas.EvidenceSnapshotSummary": "4d6f0103b9b615c370fce3cce1f6904d4d0f5bfcfde9552ce9fa4ff31702ad53",
-  "components.schemas.FinalReportDetail": "33d8d3923d669bb405e58be816896cc723b3f5ad769bb011736d677cd2ad1dc1",
+  "components.schemas.FinalReportDetail": "aaf32ffc9863e2031d2af4214f883821fbd855032c8523614ac55d0380eafbea",
   "components.schemas.FinalReportSubReportSummary": "7077c2a3c9b83969775cc53e953f7819e7a7c73b1e3eea0eaab55e2206852df1",
-  "components.schemas.FinalReportSummary": "438b68388d301682035d8ddf5427af796e7aefdd13e1f03f892b029add6df8b4",
+  "components.schemas.FinalReportSummary": "8cc0c023d4da4d6e6cdec77401974146ba606e5ee12ea3042ef7c05609b93c34",
   "components.schemas.ReportAction": "3fa8cf2f5f03a20f4492633f1e1ad3145256df698a9e7c638dd22e5834509104",
   "components.schemas.ReportConfidence": "2d05fbed9c6f0ab4062cb5d99bbf93b14d4a843d2039f1a3f67178310b601357",
   "components.schemas.ReportFinding": "a900eb2504a82dd50994e79f430c54bfe68b90a6baa9eadd2ea295df70634aaa",
-  "components.schemas.ReportListResponse": "1e87a7ea4b92af9688d382d775d6f16b2fae8f2d090b9c8acd1fc828400397e5",
+  "components.schemas.ReportListResponse": "ac84a62c3e7a32cc0d1fdec13bafd4024be6978ceb4cefb17cdf7d347d2d3ada",
   "components.schemas.ReportReplayIngestStats": "4a21845f9b533a31961e39936a299049bbc3d6380b220d4d8e1b05d6f162e53d",
   "components.schemas.ReportReplaySnapshotRef": "b11e4d728e48c4ec1b1aa556823b4bd5c11aceb341337f54818093b90b1dda9f",
   "components.schemas.ReportReplayStats": "84fc6a88ee9083ea7a2e40d147ec842db15b1f3fb13b9019a2cd4a4e024b10b1",
@@ -33,6 +33,6 @@
   "paths./api/v1/diagnosis/ws-ticket.post": "510cbef5d7bb2d421a0d8f981ec2640c926502afc3612993cc35566245e3484d",
   "paths./api/v1/evidence-snapshots.get": "a9b37ffb3ac0ded690dc4fc609a11623f549110da0da4278b5bd09a00a43832d",
   "paths./api/v1/report-triggers/replay-window.post": "56dac9e8e9653d4473fdef2b221dfebb36d06e5715797df1b0be57f3fff44474",
-  "paths./api/v1/reports.get": "aa2fabb0d5f4c016db644fcf1cd8729a040f860beeab662cf760a445a54dae56",
-  "paths./api/v1/reports/{report_id}.get": "4fff8de8f4f1b2912a406fd53c1eb3bc549491d790efd4dd969ffc6c1b1be42a"
+  "paths./api/v1/reports.get": "e6a9d32234ae9800c28eea9431588eccb32debd6499224bdd4452bc8036c5d54",
+  "paths./api/v1/reports/{report_id}.get": "a51f4c14af4e407d530b029af1f1d6b8c753584a0b8925ee88467685deb870bb"
 }

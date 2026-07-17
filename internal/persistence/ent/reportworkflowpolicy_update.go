@@ -111,6 +111,27 @@ func (_u *ReportWorkflowPolicyUpdate) ClearReportNotificationChannelProfileID() 
 	return _u
 }
 
+// SetMaxFailedSubReports sets the "max_failed_sub_reports" field.
+func (_u *ReportWorkflowPolicyUpdate) SetMaxFailedSubReports(v int) *ReportWorkflowPolicyUpdate {
+	_u.mutation.ResetMaxFailedSubReports()
+	_u.mutation.SetMaxFailedSubReports(v)
+	return _u
+}
+
+// SetNillableMaxFailedSubReports sets the "max_failed_sub_reports" field if the given value is not nil.
+func (_u *ReportWorkflowPolicyUpdate) SetNillableMaxFailedSubReports(v *int) *ReportWorkflowPolicyUpdate {
+	if v != nil {
+		_u.SetMaxFailedSubReports(*v)
+	}
+	return _u
+}
+
+// AddMaxFailedSubReports adds value to the "max_failed_sub_reports" field.
+func (_u *ReportWorkflowPolicyUpdate) AddMaxFailedSubReports(v int) *ReportWorkflowPolicyUpdate {
+	_u.mutation.AddMaxFailedSubReports(v)
+	return _u
+}
+
 // SetTriggerMode sets the "trigger_mode" field.
 func (_u *ReportWorkflowPolicyUpdate) SetTriggerMode(v string) *ReportWorkflowPolicyUpdate {
 	_u.mutation.SetTriggerMode(v)
@@ -276,6 +297,11 @@ func (_u *ReportWorkflowPolicyUpdate) check() error {
 			return &ValidationError{Name: "report_notification_channel_profile_id", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.report_notification_channel_profile_id": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.MaxFailedSubReports(); ok {
+		if err := reportworkflowpolicy.MaxFailedSubReportsValidator(v); err != nil {
+			return &ValidationError{Name: "max_failed_sub_reports", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.max_failed_sub_reports": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.TriggerMode(); ok {
 		if err := reportworkflowpolicy.TriggerModeValidator(v); err != nil {
 			return &ValidationError{Name: "trigger_mode", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.trigger_mode": %w`, err)}
@@ -332,6 +358,12 @@ func (_u *ReportWorkflowPolicyUpdate) sqlSave(ctx context.Context) (_node int, e
 	}
 	if _u.mutation.ReportNotificationChannelProfileIDCleared() {
 		_spec.ClearField(reportworkflowpolicy.FieldReportNotificationChannelProfileID, field.TypeInt)
+	}
+	if value, ok := _u.mutation.MaxFailedSubReports(); ok {
+		_spec.SetField(reportworkflowpolicy.FieldMaxFailedSubReports, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMaxFailedSubReports(); ok {
+		_spec.AddField(reportworkflowpolicy.FieldMaxFailedSubReports, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.TriggerMode(); ok {
 		_spec.SetField(reportworkflowpolicy.FieldTriggerMode, field.TypeString, value)
@@ -460,6 +492,27 @@ func (_u *ReportWorkflowPolicyUpdateOne) AddReportNotificationChannelProfileID(v
 // ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
 func (_u *ReportWorkflowPolicyUpdateOne) ClearReportNotificationChannelProfileID() *ReportWorkflowPolicyUpdateOne {
 	_u.mutation.ClearReportNotificationChannelProfileID()
+	return _u
+}
+
+// SetMaxFailedSubReports sets the "max_failed_sub_reports" field.
+func (_u *ReportWorkflowPolicyUpdateOne) SetMaxFailedSubReports(v int) *ReportWorkflowPolicyUpdateOne {
+	_u.mutation.ResetMaxFailedSubReports()
+	_u.mutation.SetMaxFailedSubReports(v)
+	return _u
+}
+
+// SetNillableMaxFailedSubReports sets the "max_failed_sub_reports" field if the given value is not nil.
+func (_u *ReportWorkflowPolicyUpdateOne) SetNillableMaxFailedSubReports(v *int) *ReportWorkflowPolicyUpdateOne {
+	if v != nil {
+		_u.SetMaxFailedSubReports(*v)
+	}
+	return _u
+}
+
+// AddMaxFailedSubReports adds value to the "max_failed_sub_reports" field.
+func (_u *ReportWorkflowPolicyUpdateOne) AddMaxFailedSubReports(v int) *ReportWorkflowPolicyUpdateOne {
+	_u.mutation.AddMaxFailedSubReports(v)
 	return _u
 }
 
@@ -641,6 +694,11 @@ func (_u *ReportWorkflowPolicyUpdateOne) check() error {
 			return &ValidationError{Name: "report_notification_channel_profile_id", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.report_notification_channel_profile_id": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.MaxFailedSubReports(); ok {
+		if err := reportworkflowpolicy.MaxFailedSubReportsValidator(v); err != nil {
+			return &ValidationError{Name: "max_failed_sub_reports", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.max_failed_sub_reports": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.TriggerMode(); ok {
 		if err := reportworkflowpolicy.TriggerModeValidator(v); err != nil {
 			return &ValidationError{Name: "trigger_mode", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.trigger_mode": %w`, err)}
@@ -714,6 +772,12 @@ func (_u *ReportWorkflowPolicyUpdateOne) sqlSave(ctx context.Context) (_node *Re
 	}
 	if _u.mutation.ReportNotificationChannelProfileIDCleared() {
 		_spec.ClearField(reportworkflowpolicy.FieldReportNotificationChannelProfileID, field.TypeInt)
+	}
+	if value, ok := _u.mutation.MaxFailedSubReports(); ok {
+		_spec.SetField(reportworkflowpolicy.FieldMaxFailedSubReports, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMaxFailedSubReports(); ok {
+		_spec.AddField(reportworkflowpolicy.FieldMaxFailedSubReports, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.TriggerMode(); ok {
 		_spec.SetField(reportworkflowpolicy.FieldTriggerMode, field.TypeString, value)

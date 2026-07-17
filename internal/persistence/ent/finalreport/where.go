@@ -90,6 +90,26 @@ func Confidence(v string) predicate.FinalReport {
 	return predicate.FinalReport(sql.FieldEQ(FieldConfidence, v))
 }
 
+// GenerationStatus applies equality check predicate on the "generation_status" field. It's identical to GenerationStatusEQ.
+func GenerationStatus(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldEQ(FieldGenerationStatus, v))
+}
+
+// ExpectedSubReportCount applies equality check predicate on the "expected_sub_report_count" field. It's identical to ExpectedSubReportCountEQ.
+func ExpectedSubReportCount(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldEQ(FieldExpectedSubReportCount, v))
+}
+
+// SuccessfulSubReportCount applies equality check predicate on the "successful_sub_report_count" field. It's identical to SuccessfulSubReportCountEQ.
+func SuccessfulSubReportCount(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldEQ(FieldSuccessfulSubReportCount, v))
+}
+
+// FailedSubReportCount applies equality check predicate on the "failed_sub_report_count" field. It's identical to FailedSubReportCountEQ.
+func FailedSubReportCount(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldEQ(FieldFailedSubReportCount, v))
+}
+
 // NotificationText applies equality check predicate on the "notification_text" field. It's identical to NotificationTextEQ.
 func NotificationText(v string) predicate.FinalReport {
 	return predicate.FinalReport(sql.FieldEQ(FieldNotificationText, v))
@@ -523,6 +543,191 @@ func ConfidenceEqualFold(v string) predicate.FinalReport {
 // ConfidenceContainsFold applies the ContainsFold predicate on the "confidence" field.
 func ConfidenceContainsFold(v string) predicate.FinalReport {
 	return predicate.FinalReport(sql.FieldContainsFold(FieldConfidence, v))
+}
+
+// GenerationStatusEQ applies the EQ predicate on the "generation_status" field.
+func GenerationStatusEQ(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldEQ(FieldGenerationStatus, v))
+}
+
+// GenerationStatusNEQ applies the NEQ predicate on the "generation_status" field.
+func GenerationStatusNEQ(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldNEQ(FieldGenerationStatus, v))
+}
+
+// GenerationStatusIn applies the In predicate on the "generation_status" field.
+func GenerationStatusIn(vs ...string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldIn(FieldGenerationStatus, vs...))
+}
+
+// GenerationStatusNotIn applies the NotIn predicate on the "generation_status" field.
+func GenerationStatusNotIn(vs ...string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldNotIn(FieldGenerationStatus, vs...))
+}
+
+// GenerationStatusGT applies the GT predicate on the "generation_status" field.
+func GenerationStatusGT(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldGT(FieldGenerationStatus, v))
+}
+
+// GenerationStatusGTE applies the GTE predicate on the "generation_status" field.
+func GenerationStatusGTE(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldGTE(FieldGenerationStatus, v))
+}
+
+// GenerationStatusLT applies the LT predicate on the "generation_status" field.
+func GenerationStatusLT(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldLT(FieldGenerationStatus, v))
+}
+
+// GenerationStatusLTE applies the LTE predicate on the "generation_status" field.
+func GenerationStatusLTE(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldLTE(FieldGenerationStatus, v))
+}
+
+// GenerationStatusContains applies the Contains predicate on the "generation_status" field.
+func GenerationStatusContains(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldContains(FieldGenerationStatus, v))
+}
+
+// GenerationStatusHasPrefix applies the HasPrefix predicate on the "generation_status" field.
+func GenerationStatusHasPrefix(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldHasPrefix(FieldGenerationStatus, v))
+}
+
+// GenerationStatusHasSuffix applies the HasSuffix predicate on the "generation_status" field.
+func GenerationStatusHasSuffix(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldHasSuffix(FieldGenerationStatus, v))
+}
+
+// GenerationStatusEqualFold applies the EqualFold predicate on the "generation_status" field.
+func GenerationStatusEqualFold(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldEqualFold(FieldGenerationStatus, v))
+}
+
+// GenerationStatusContainsFold applies the ContainsFold predicate on the "generation_status" field.
+func GenerationStatusContainsFold(v string) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldContainsFold(FieldGenerationStatus, v))
+}
+
+// ExpectedSubReportCountEQ applies the EQ predicate on the "expected_sub_report_count" field.
+func ExpectedSubReportCountEQ(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldEQ(FieldExpectedSubReportCount, v))
+}
+
+// ExpectedSubReportCountNEQ applies the NEQ predicate on the "expected_sub_report_count" field.
+func ExpectedSubReportCountNEQ(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldNEQ(FieldExpectedSubReportCount, v))
+}
+
+// ExpectedSubReportCountIn applies the In predicate on the "expected_sub_report_count" field.
+func ExpectedSubReportCountIn(vs ...int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldIn(FieldExpectedSubReportCount, vs...))
+}
+
+// ExpectedSubReportCountNotIn applies the NotIn predicate on the "expected_sub_report_count" field.
+func ExpectedSubReportCountNotIn(vs ...int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldNotIn(FieldExpectedSubReportCount, vs...))
+}
+
+// ExpectedSubReportCountGT applies the GT predicate on the "expected_sub_report_count" field.
+func ExpectedSubReportCountGT(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldGT(FieldExpectedSubReportCount, v))
+}
+
+// ExpectedSubReportCountGTE applies the GTE predicate on the "expected_sub_report_count" field.
+func ExpectedSubReportCountGTE(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldGTE(FieldExpectedSubReportCount, v))
+}
+
+// ExpectedSubReportCountLT applies the LT predicate on the "expected_sub_report_count" field.
+func ExpectedSubReportCountLT(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldLT(FieldExpectedSubReportCount, v))
+}
+
+// ExpectedSubReportCountLTE applies the LTE predicate on the "expected_sub_report_count" field.
+func ExpectedSubReportCountLTE(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldLTE(FieldExpectedSubReportCount, v))
+}
+
+// SuccessfulSubReportCountEQ applies the EQ predicate on the "successful_sub_report_count" field.
+func SuccessfulSubReportCountEQ(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldEQ(FieldSuccessfulSubReportCount, v))
+}
+
+// SuccessfulSubReportCountNEQ applies the NEQ predicate on the "successful_sub_report_count" field.
+func SuccessfulSubReportCountNEQ(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldNEQ(FieldSuccessfulSubReportCount, v))
+}
+
+// SuccessfulSubReportCountIn applies the In predicate on the "successful_sub_report_count" field.
+func SuccessfulSubReportCountIn(vs ...int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldIn(FieldSuccessfulSubReportCount, vs...))
+}
+
+// SuccessfulSubReportCountNotIn applies the NotIn predicate on the "successful_sub_report_count" field.
+func SuccessfulSubReportCountNotIn(vs ...int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldNotIn(FieldSuccessfulSubReportCount, vs...))
+}
+
+// SuccessfulSubReportCountGT applies the GT predicate on the "successful_sub_report_count" field.
+func SuccessfulSubReportCountGT(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldGT(FieldSuccessfulSubReportCount, v))
+}
+
+// SuccessfulSubReportCountGTE applies the GTE predicate on the "successful_sub_report_count" field.
+func SuccessfulSubReportCountGTE(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldGTE(FieldSuccessfulSubReportCount, v))
+}
+
+// SuccessfulSubReportCountLT applies the LT predicate on the "successful_sub_report_count" field.
+func SuccessfulSubReportCountLT(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldLT(FieldSuccessfulSubReportCount, v))
+}
+
+// SuccessfulSubReportCountLTE applies the LTE predicate on the "successful_sub_report_count" field.
+func SuccessfulSubReportCountLTE(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldLTE(FieldSuccessfulSubReportCount, v))
+}
+
+// FailedSubReportCountEQ applies the EQ predicate on the "failed_sub_report_count" field.
+func FailedSubReportCountEQ(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldEQ(FieldFailedSubReportCount, v))
+}
+
+// FailedSubReportCountNEQ applies the NEQ predicate on the "failed_sub_report_count" field.
+func FailedSubReportCountNEQ(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldNEQ(FieldFailedSubReportCount, v))
+}
+
+// FailedSubReportCountIn applies the In predicate on the "failed_sub_report_count" field.
+func FailedSubReportCountIn(vs ...int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldIn(FieldFailedSubReportCount, vs...))
+}
+
+// FailedSubReportCountNotIn applies the NotIn predicate on the "failed_sub_report_count" field.
+func FailedSubReportCountNotIn(vs ...int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldNotIn(FieldFailedSubReportCount, vs...))
+}
+
+// FailedSubReportCountGT applies the GT predicate on the "failed_sub_report_count" field.
+func FailedSubReportCountGT(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldGT(FieldFailedSubReportCount, v))
+}
+
+// FailedSubReportCountGTE applies the GTE predicate on the "failed_sub_report_count" field.
+func FailedSubReportCountGTE(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldGTE(FieldFailedSubReportCount, v))
+}
+
+// FailedSubReportCountLT applies the LT predicate on the "failed_sub_report_count" field.
+func FailedSubReportCountLT(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldLT(FieldFailedSubReportCount, v))
+}
+
+// FailedSubReportCountLTE applies the LTE predicate on the "failed_sub_report_count" field.
+func FailedSubReportCountLTE(v int) predicate.FinalReport {
+	return predicate.FinalReport(sql.FieldLTE(FieldFailedSubReportCount, v))
 }
 
 // NotificationTextEQ applies the EQ predicate on the "notification_text" field.

@@ -997,6 +997,9 @@ function reportDetail(
 ): FinalReportDetail {
   return {
     confidence: "high",
+    expected_sub_report_count: 1,
+    failed_sub_report_count: 0,
+    generation_status: "complete",
     content: {
       title: "Checkout latency incident",
     },
@@ -1019,6 +1022,7 @@ function reportDetail(
       },
     ],
     severity: "warning",
+    successful_sub_report_count: 1,
     sub_reports: linkedSubReports.map((subReport) => ({
       severity: subReport.severity,
       summary: subReport.summary,

@@ -13,6 +13,7 @@ export type ReportWorkflowPolicyFormState = {
   alertSourceProfileID: number | null;
   groupingPolicyID: number | null;
   reportNotificationChannelProfileID: number | undefined;
+  maxFailedSubReports: number | null;
   triggerMode: "manual_replay";
   reportScenario: "single_alert" | "cascade" | "alert_storm";
   diagnosisFollowUp: "disabled" | "suggest_room" | "auto_room";

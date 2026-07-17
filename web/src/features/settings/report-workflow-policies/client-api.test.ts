@@ -15,6 +15,7 @@ describe("report workflow policy client API", () => {
       alert_source_profile_id: 1,
       grouping_policy_id: 2,
       report_notification_channel_profile_id: 3,
+      max_failed_sub_reports: 0,
       trigger_mode: "manual_replay",
       report_scenario: "single_alert",
       diagnosis_follow_up: "auto_room"

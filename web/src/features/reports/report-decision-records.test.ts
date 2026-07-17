@@ -432,6 +432,9 @@ describe("report diagnosis decision records", () => {
 function reportDetail(linkedSubReports: FinalReportDetail["linked_sub_reports"]): FinalReportDetail {
   return {
     confidence: "high",
+    expected_sub_report_count: 1,
+    failed_sub_report_count: 0,
+    generation_status: "complete",
     content: {
       title: "Checkout latency incident",
     },
@@ -454,6 +457,7 @@ function reportDetail(linkedSubReports: FinalReportDetail["linked_sub_reports"])
     output_mode: "json_schema",
     recommended_actions: [],
     severity: "warning",
+    successful_sub_report_count: 1,
     sub_reports: linkedSubReports.map((subReport) => ({
       severity: subReport.severity,
       summary: subReport.summary,

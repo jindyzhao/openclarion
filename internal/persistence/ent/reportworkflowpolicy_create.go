@@ -61,6 +61,20 @@ func (_c *ReportWorkflowPolicyCreate) SetNillableReportNotificationChannelProfil
 	return _c
 }
 
+// SetMaxFailedSubReports sets the "max_failed_sub_reports" field.
+func (_c *ReportWorkflowPolicyCreate) SetMaxFailedSubReports(v int) *ReportWorkflowPolicyCreate {
+	_c.mutation.SetMaxFailedSubReports(v)
+	return _c
+}
+
+// SetNillableMaxFailedSubReports sets the "max_failed_sub_reports" field if the given value is not nil.
+func (_c *ReportWorkflowPolicyCreate) SetNillableMaxFailedSubReports(v *int) *ReportWorkflowPolicyCreate {
+	if v != nil {
+		_c.SetMaxFailedSubReports(*v)
+	}
+	return _c
+}
+
 // SetTriggerMode sets the "trigger_mode" field.
 func (_c *ReportWorkflowPolicyCreate) SetTriggerMode(v string) *ReportWorkflowPolicyCreate {
 	_c.mutation.SetTriggerMode(v)
@@ -213,6 +227,10 @@ func (_c *ReportWorkflowPolicyCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *ReportWorkflowPolicyCreate) defaults() {
+	if _, ok := _c.mutation.MaxFailedSubReports(); !ok {
+		v := reportworkflowpolicy.DefaultMaxFailedSubReports
+		_c.mutation.SetMaxFailedSubReports(v)
+	}
 	if _, ok := _c.mutation.TriggerMode(); !ok {
 		v := reportworkflowpolicy.DefaultTriggerMode
 		_c.mutation.SetTriggerMode(v)
@@ -276,6 +294,14 @@ func (_c *ReportWorkflowPolicyCreate) check() error {
 	if v, ok := _c.mutation.ReportNotificationChannelProfileID(); ok {
 		if err := reportworkflowpolicy.ReportNotificationChannelProfileIDValidator(v); err != nil {
 			return &ValidationError{Name: "report_notification_channel_profile_id", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.report_notification_channel_profile_id": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.MaxFailedSubReports(); !ok {
+		return &ValidationError{Name: "max_failed_sub_reports", err: errors.New(`ent: missing required field "ReportWorkflowPolicy.max_failed_sub_reports"`)}
+	}
+	if v, ok := _c.mutation.MaxFailedSubReports(); ok {
+		if err := reportworkflowpolicy.MaxFailedSubReportsValidator(v); err != nil {
+			return &ValidationError{Name: "max_failed_sub_reports", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.max_failed_sub_reports": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.TriggerMode(); !ok {
@@ -356,6 +382,10 @@ func (_c *ReportWorkflowPolicyCreate) createSpec() (*ReportWorkflowPolicy, *sqlg
 	if value, ok := _c.mutation.ReportNotificationChannelProfileID(); ok {
 		_spec.SetField(reportworkflowpolicy.FieldReportNotificationChannelProfileID, field.TypeInt, value)
 		_node.ReportNotificationChannelProfileID = &value
+	}
+	if value, ok := _c.mutation.MaxFailedSubReports(); ok {
+		_spec.SetField(reportworkflowpolicy.FieldMaxFailedSubReports, field.TypeInt, value)
+		_node.MaxFailedSubReports = value
 	}
 	if value, ok := _c.mutation.TriggerMode(); ok {
 		_spec.SetField(reportworkflowpolicy.FieldTriggerMode, field.TypeString, value)
@@ -527,6 +557,24 @@ func (u *ReportWorkflowPolicyUpsert) AddReportNotificationChannelProfileID(v int
 // ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
 func (u *ReportWorkflowPolicyUpsert) ClearReportNotificationChannelProfileID() *ReportWorkflowPolicyUpsert {
 	u.SetNull(reportworkflowpolicy.FieldReportNotificationChannelProfileID)
+	return u
+}
+
+// SetMaxFailedSubReports sets the "max_failed_sub_reports" field.
+func (u *ReportWorkflowPolicyUpsert) SetMaxFailedSubReports(v int) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldMaxFailedSubReports, v)
+	return u
+}
+
+// UpdateMaxFailedSubReports sets the "max_failed_sub_reports" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateMaxFailedSubReports() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldMaxFailedSubReports)
+	return u
+}
+
+// AddMaxFailedSubReports adds v to the "max_failed_sub_reports" field.
+func (u *ReportWorkflowPolicyUpsert) AddMaxFailedSubReports(v int) *ReportWorkflowPolicyUpsert {
+	u.Add(reportworkflowpolicy.FieldMaxFailedSubReports, v)
 	return u
 }
 
@@ -755,6 +803,27 @@ func (u *ReportWorkflowPolicyUpsertOne) UpdateReportNotificationChannelProfileID
 func (u *ReportWorkflowPolicyUpsertOne) ClearReportNotificationChannelProfileID() *ReportWorkflowPolicyUpsertOne {
 	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
 		s.ClearReportNotificationChannelProfileID()
+	})
+}
+
+// SetMaxFailedSubReports sets the "max_failed_sub_reports" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetMaxFailedSubReports(v int) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetMaxFailedSubReports(v)
+	})
+}
+
+// AddMaxFailedSubReports adds v to the "max_failed_sub_reports" field.
+func (u *ReportWorkflowPolicyUpsertOne) AddMaxFailedSubReports(v int) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.AddMaxFailedSubReports(v)
+	})
+}
+
+// UpdateMaxFailedSubReports sets the "max_failed_sub_reports" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateMaxFailedSubReports() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateMaxFailedSubReports()
 	})
 }
 
@@ -1165,6 +1234,27 @@ func (u *ReportWorkflowPolicyUpsertBulk) UpdateReportNotificationChannelProfileI
 func (u *ReportWorkflowPolicyUpsertBulk) ClearReportNotificationChannelProfileID() *ReportWorkflowPolicyUpsertBulk {
 	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
 		s.ClearReportNotificationChannelProfileID()
+	})
+}
+
+// SetMaxFailedSubReports sets the "max_failed_sub_reports" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetMaxFailedSubReports(v int) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetMaxFailedSubReports(v)
+	})
+}
+
+// AddMaxFailedSubReports adds v to the "max_failed_sub_reports" field.
+func (u *ReportWorkflowPolicyUpsertBulk) AddMaxFailedSubReports(v int) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.AddMaxFailedSubReports(v)
+	})
+}
+
+// UpdateMaxFailedSubReports sets the "max_failed_sub_reports" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateMaxFailedSubReports() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateMaxFailedSubReports()
 	})
 }
 

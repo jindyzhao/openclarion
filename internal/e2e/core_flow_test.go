@@ -336,6 +336,7 @@ func seedE2ECoreConfiguration(
 			result.Source.ID,
 			grouping.ID,
 			result.Channel.ID,
+			0,
 			domain.ReportWorkflowTriggerModeManualReplay,
 			domain.ReportWorkflowScenarioSingleAlert,
 			domain.DiagnosisFollowUpModeSuggestRoom,

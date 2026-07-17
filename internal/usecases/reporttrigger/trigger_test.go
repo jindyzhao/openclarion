@@ -132,6 +132,7 @@ func TestBuildStartRequest_ExplicitValuesAndNoSnapshots(t *testing.T) {
 		WorkflowID:                         " report-workflow-42 ",
 		Scenario:                           reportprompt.ScenarioCascade,
 		ReportNotificationChannelProfileID: 3,
+		MaxFailedSubReports:                2,
 	})
 	if err != nil {
 		t.Fatalf("BuildStartRequest explicit: %v", err)
@@ -144,6 +145,9 @@ func TestBuildStartRequest_ExplicitValuesAndNoSnapshots(t *testing.T) {
 	}
 	if startReq.ReportNotificationChannelProfileID != 3 {
 		t.Fatalf("ReportNotificationChannelProfileID = %d, want 3", startReq.ReportNotificationChannelProfileID)
+	}
+	if startReq.MaxFailedSubReports != 2 {
+		t.Fatalf("MaxFailedSubReports = %d, want 2", startReq.MaxFailedSubReports)
 	}
 	if got := startReq.Items[0]; got != (ports.ReportBatchStartItem{
 		EvidenceSnapshotID: 201,
@@ -218,6 +222,33 @@ func TestBuildStartRequestValidation(t *testing.T) {
 				WindowStart: time.Date(2026, 5, 26, 12, 0, 0, 500, time.UTC),
 				WindowEnd:   time.Date(2026, 5, 26, 12, 0, 0, 800, time.UTC),
 			}},
+		},
+		{
+			name:   "negative_notification_channel",
+			replay: validReplay,
+			req: Request{
+				CorrelationKey:                     "window-1",
+				Scenario:                           reportprompt.ScenarioSingleAlert,
+				ReportNotificationChannelProfileID: -1,
+			},
+		},
+		{
+			name:   "negative_failure_threshold",
+			replay: validReplay,
+			req: Request{
+				CorrelationKey:      "window-1",
+				Scenario:            reportprompt.ScenarioSingleAlert,
+				MaxFailedSubReports: -1,
+			},
+		},
+		{
+			name:   "excessive_failure_threshold",
+			replay: validReplay,
+			req: Request{
+				CorrelationKey:      "window-1",
+				Scenario:            reportprompt.ScenarioSingleAlert,
+				MaxFailedSubReports: domain.ReportWorkflowMaxFailedSubReports + 1,
+			},
 		},
 	}
 

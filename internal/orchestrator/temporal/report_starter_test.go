@@ -70,6 +70,7 @@ func TestReportStarter_StartReportBatchMapsRequestAndOptions(t *testing.T) {
 		WorkflowID:                         " report-batch-1 ",
 		CorrelationKey:                     " window-1 ",
 		ReportNotificationChannelProfileID: 9,
+		MaxFailedSubReports:                2,
 		Items: []ports.ReportBatchStartItem{
 			{EvidenceSnapshotID: domain.EvidenceSnapshotID(101), Scenario: " single_alert ", GroupIndex: 0},
 			{EvidenceSnapshotID: domain.EvidenceSnapshotID(102), Scenario: "cascade", GroupIndex: 1},
@@ -120,6 +121,9 @@ func TestReportStarter_StartReportBatchMapsRequestAndOptions(t *testing.T) {
 	}
 	if input.ReportNotificationChannelProfileID != 9 {
 		t.Fatalf("input.ReportNotificationChannelProfileID = %d, want 9", input.ReportNotificationChannelProfileID)
+	}
+	if input.MaxFailedSubReports != 2 {
+		t.Fatalf("input.MaxFailedSubReports = %d, want 2", input.MaxFailedSubReports)
 	}
 	wantItems := []ReportBatchItem{
 		{EvidenceSnapshotID: 101, Scenario: "single_alert", GroupIndex: 0},
@@ -239,6 +243,24 @@ func TestReportStarter_StartReportBatchValidation(t *testing.T) {
 			req: func() ports.ReportBatchStartRequest {
 				req := good
 				req.ReportNotificationChannelProfileID = -1
+				return req
+			}(),
+		},
+		{
+			name:    "negative_failure_threshold",
+			starter: newReportStarter(&recordingWorkflowExecutor{}),
+			req: func() ports.ReportBatchStartRequest {
+				req := good
+				req.MaxFailedSubReports = -1
+				return req
+			}(),
+		},
+		{
+			name:    "excessive_failure_threshold",
+			starter: newReportStarter(&recordingWorkflowExecutor{}),
+			req: func() ports.ReportBatchStartRequest {
+				req := good
+				req.MaxFailedSubReports = domain.ReportWorkflowMaxFailedSubReports + 1
 				return req
 			}(),
 		},

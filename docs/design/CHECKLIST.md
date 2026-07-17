@@ -82,6 +82,16 @@
   SubReport prompts
 - [x] retrieval reindex CLI backfills recent FinalReports and their linked SubReports idempotently
 - [x] ReportBatchWorkflow fans out SubReport child workflows and fans in to FinalReportWorkflow
+- [x] SubReport child lifecycle persists stable started and terminal task state;
+  provider error text is not retained in report task events
+- [x] ReportBatchWorkflow settles sibling children before enforcing the bounded
+  partial-failure threshold and requires at least one successful SubReport
+- [x] FinalReport persistence and read APIs expose explicit complete/partial
+  coverage with expected, successful, and failed SubReport counts
+- [x] version markers preserve legacy child-input and batch-result payload
+  shapes; report fan-out tasks do not consume diagnosis-room history limits
+- [x] the coverage migration derives historical successful counts from
+  immutable FinalReport-to-SubReport links instead of assuming one child
 - [x] alert replay exposes persisted EvidenceSnapshot refs for report dispatch
 - [x] report trigger usecase maps replay refs to an idempotent ReportBatchWorkflow start request
 - [x] HTTP report trigger endpoint starts replay-window report generation when Prometheus wiring is configured

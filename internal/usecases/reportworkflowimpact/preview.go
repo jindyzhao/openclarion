@@ -70,6 +70,7 @@ type DraftRequest struct {
 	AlertSourceProfileID               domain.AlertSourceProfileID
 	GroupingPolicyID                   domain.GroupingPolicyID
 	ReportNotificationChannelProfileID domain.NotificationChannelProfileID
+	MaxFailedSubReports                int
 	TriggerMode                        domain.ReportWorkflowTriggerMode
 	ReportScenario                     domain.ReportWorkflowScenario
 	DiagnosisFollowUp                  domain.DiagnosisFollowUpMode
@@ -243,6 +244,7 @@ func policyFromDraftRequest(req DraftRequest) (domain.ReportWorkflowPolicy, erro
 		req.AlertSourceProfileID,
 		req.GroupingPolicyID,
 		req.ReportNotificationChannelProfileID,
+		req.MaxFailedSubReports,
 		triggerMode,
 		reportScenario,
 		diagnosisFollowUp,

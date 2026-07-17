@@ -37,6 +37,10 @@ func (ReportWorkflowPolicy) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("optional bound NotificationChannelProfile identifier for final report delivery"),
+		field.Int("max_failed_sub_reports").
+			NonNegative().
+			Default(0).
+			Comment("maximum failed SubReport children tolerated before fan-in is rejected"),
 		field.String("trigger_mode").
 			MaxLen(32).
 			Default("manual_replay").

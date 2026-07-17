@@ -131,8 +131,9 @@ func (r *diagnosisRepo) FindTaskByExecution(ctx context.Context, workflowID, run
 	return diagnosisTaskToDomain(row), nil
 }
 
-// ListTasksByEvidenceSnapshot returns recent task executions for one
-// EvidenceSnapshot.
+// ListTasksByEvidenceSnapshot returns recent diagnosis task executions for one
+// EvidenceSnapshot. Report fan-out tasks share the lifecycle tables but carry
+// a subreport.started marker and must not consume diagnosis-room history slots.
 func (r *diagnosisRepo) ListTasksByEvidenceSnapshot(ctx context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]domain.DiagnosisTask, error) {
 	if err := checkOpen(r.closed); err != nil {
 		return nil, err
@@ -144,7 +145,12 @@ func (r *diagnosisRepo) ListTasksByEvidenceSnapshot(ctx context.Context, snapsho
 		return nil, fmt.Errorf("list diagnosis tasks by evidence snapshot: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
 	}
 	rows, err := r.tx.DiagnosisTask.Query().
-		Where(diagnosistask.EvidenceSnapshotIDEQ(int(snapshotID))).
+		Where(
+			diagnosistask.EvidenceSnapshotIDEQ(int(snapshotID)),
+			diagnosistask.Not(diagnosistask.HasEventsWith(
+				diagnosistaskevent.KindEQ(domain.DiagnosisTaskEventKindSubReportStarted),
+			)),
+		).
 		Order(
 			diagnosistask.ByCreatedAt(sql.OrderDesc()),
 			diagnosistask.ByID(sql.OrderDesc()),
@@ -247,7 +253,12 @@ func (r *diagnosisRepo) loadDiagnosisHistoryTaskChunk(
 	storageIDs := evidenceSnapshotIDsToInts(ids)
 	var counts []diagnosisHistoryTaskCount
 	if err := r.tx.DiagnosisTask.Query().
-		Where(diagnosistask.EvidenceSnapshotIDIn(storageIDs...)).
+		Where(
+			diagnosistask.EvidenceSnapshotIDIn(storageIDs...),
+			diagnosistask.Not(diagnosistask.HasEventsWith(
+				diagnosistaskevent.KindEQ(domain.DiagnosisTaskEventKindSubReportStarted),
+			)),
+		).
 		GroupBy(diagnosistask.FieldEvidenceSnapshotID).
 		Aggregate(ent.Count()).
 		Scan(ctx, &counts); err != nil {
@@ -271,7 +282,12 @@ func (r *diagnosisRepo) loadDiagnosisHistoryTaskChunk(
 	}
 
 	rows, err := r.tx.DiagnosisTask.Query().
-		Where(diagnosistask.EvidenceSnapshotIDIn(eligibleStorageIDs...)).
+		Where(
+			diagnosistask.EvidenceSnapshotIDIn(eligibleStorageIDs...),
+			diagnosistask.Not(diagnosistask.HasEventsWith(
+				diagnosistaskevent.KindEQ(domain.DiagnosisTaskEventKindSubReportStarted),
+			)),
+		).
 		Order(
 			diagnosistask.ByEvidenceSnapshotID(),
 			diagnosistask.ByCreatedAt(sql.OrderDesc()),

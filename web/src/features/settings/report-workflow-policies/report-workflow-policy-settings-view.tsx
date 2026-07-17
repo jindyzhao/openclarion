@@ -360,6 +360,8 @@ export function ReportWorkflowPolicySettingsManager({
     Form.useWatch("reportScenario", form) ?? "single_alert";
   const selectedDiagnosisFollowUp =
     Form.useWatch("diagnosisFollowUp", form) ?? "disabled";
+  const selectedMaxFailedSubReports =
+    Form.useWatch("maxFailedSubReports", form) ?? 0;
   const selectedReportNotificationChannelProfileID = Form.useWatch(
     "reportNotificationChannelProfileID",
     form,
@@ -519,6 +521,7 @@ export function ReportWorkflowPolicySettingsManager({
       groupingPolicyID: selectedGroupingPolicyID,
       reportNotificationChannelProfileID:
         selectedReportNotificationChannelProfileID,
+      maxFailedSubReports: selectedMaxFailedSubReports,
       triggerMode: selectedTriggerMode,
       reportScenario: selectedReportScenario,
       diagnosisFollowUp: selectedDiagnosisFollowUp,
@@ -526,6 +529,7 @@ export function ReportWorkflowPolicySettingsManager({
     [
       selectedAlertSourceID,
       selectedDiagnosisFollowUp,
+      selectedMaxFailedSubReports,
       selectedGroupingPolicyID,
       selectedName,
       selectedReportNotificationChannelProfileID,
@@ -1138,19 +1142,45 @@ export function ReportWorkflowPolicySettingsManager({
                 />
               </Form.Item>
 
-              <Form.Item
-                label={t("scenario")}
-                name="reportScenario"
-                rules={[{ required: true, message: t("scenarioRequired") }]}
-              >
-                <Select
-                  options={[
-                    { value: "single_alert", label: t("singleAlert") },
-                    { value: "cascade", label: t("cascade") },
-                    { value: "alert_storm", label: t("alertStorm") },
-                  ]}
-                />
-              </Form.Item>
+              <Row gutter={12}>
+                <Col sm={12} xs={24}>
+                  <Form.Item
+                    label={t("scenario")}
+                    name="reportScenario"
+                    rules={[{ required: true, message: t("scenarioRequired") }]}
+                  >
+                    <Select
+                      options={[
+                        { value: "single_alert", label: t("singleAlert") },
+                        { value: "cascade", label: t("cascade") },
+                        { value: "alert_storm", label: t("alertStorm") },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col sm={12} xs={24}>
+                  <Form.Item
+                    label={t("maxFailedSubReports")}
+                    name="maxFailedSubReports"
+                    rules={[
+                      { required: true, message: t("maxFailedSubReportsRequired") },
+                      {
+                        type: "number",
+                        min: 0,
+                        max: 100000,
+                        message: t("maxFailedSubReportsRange"),
+                      },
+                    ]}
+                  >
+                    <InputNumber
+                      max={100000}
+                      min={0}
+                      precision={0}
+                      style={{ width: "100%" }}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
 
               <Form.Item
                 label={t("diagnosisFollowUp")}
@@ -2673,6 +2703,12 @@ function ReportWorkflowPolicyTable({
       render: (mode: ReportWorkflowPolicy["diagnosis_follow_up"]) => (
         <Tag color={followUpTagColor(mode)}>{localizeWorkflowPolicyText(mode, locale)}</Tag>
       ),
+    },
+    {
+      dataIndex: "max_failed_sub_reports",
+      key: "maxFailedSubReports",
+      title: t("failureTolerance"),
+      render: (count: number) => t("failedSubReportCount", { count }),
     },
     {
       dataIndex: "report_notification_channel_profile_id",

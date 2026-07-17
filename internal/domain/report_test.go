@@ -144,6 +144,20 @@ func TestNewFinalReport(t *testing.T) {
 			t.Fatalf("got = %+v", got)
 		}
 	})
+	t.Run("valid partial coverage", func(t *testing.T) {
+		report := validFinalReport()
+		report.GenerationStatus = FinalReportGenerationStatusPartial
+		report.ExpectedSubReportCount = 2
+		report.SuccessfulSubReportCount = 1
+		report.FailedSubReportCount = 1
+		got, err := NewFinalReport(report)
+		if err != nil {
+			t.Fatalf("NewFinalReport partial: %v", err)
+		}
+		if got.GenerationStatus != FinalReportGenerationStatusPartial || got.FailedSubReportCount != 1 {
+			t.Fatalf("partial report = %+v", got)
+		}
+	})
 
 	tests := []struct {
 		name string
@@ -154,6 +168,16 @@ func TestNewFinalReport(t *testing.T) {
 		{name: "empty title", edit: func(r *FinalReport) { r.Title = "" }},
 		{name: "invalid severity", edit: func(r *FinalReport) { r.Severity = ReportSeverity("page") }},
 		{name: "invalid confidence", edit: func(r *FinalReport) { r.Confidence = ReportConfidence("sure") }},
+		{name: "invalid generation status", edit: func(r *FinalReport) { r.GenerationStatus = "unknown" }},
+		{name: "missing expected count", edit: func(r *FinalReport) { r.ExpectedSubReportCount = 0 }},
+		{name: "missing successful count", edit: func(r *FinalReport) { r.SuccessfulSubReportCount = 0 }},
+		{name: "negative failed count", edit: func(r *FinalReport) { r.FailedSubReportCount = -1 }},
+		{name: "inconsistent coverage counts", edit: func(r *FinalReport) { r.ExpectedSubReportCount = 2 }},
+		{name: "complete with failures", edit: func(r *FinalReport) {
+			r.ExpectedSubReportCount = 2
+			r.FailedSubReportCount = 1
+		}},
+		{name: "partial without failures", edit: func(r *FinalReport) { r.GenerationStatus = FinalReportGenerationStatusPartial }},
 		{name: "invalid subreports", edit: func(r *FinalReport) { r.SubReports = json.RawMessage(`{`) }},
 		{name: "duplicate subreports key", edit: func(r *FinalReport) { r.SubReports = json.RawMessage(`[{"title":"old","title":"new"}]`) }},
 		{name: "duplicate recommended action key", edit: func(r *FinalReport) { r.RecommendedActions = json.RawMessage(`[{"label":"Scale","label":"Restart"}]`) }},
@@ -347,18 +371,22 @@ func validSubReport() SubReport {
 
 func validFinalReport() FinalReport {
 	return FinalReport{
-		CorrelationKey:     "window-1",
-		IdempotencyKey:     "final-key",
-		Title:              "Payments degradation",
-		ExecutiveSummary:   "Payments is degraded.",
-		Severity:           ReportSeverityWarning,
-		Confidence:         ReportConfidenceHigh,
-		SubReports:         json.RawMessage(`[{"title":"CPU saturation","summary":"CPU is high.","severity":"warning"}]`),
-		RecommendedActions: json.RawMessage(`[{"label":"Scale","detail":"Add one replica","priority":"medium"}]`),
-		NotificationText:   "Scale payments.",
-		Content:            json.RawMessage(`{"title":"Payments degradation"}`),
-		Model:              "gpt-test",
-		OutputMode:         "json_schema",
-		CreatedByWorkflow:  "wf-1",
+		CorrelationKey:           "window-1",
+		IdempotencyKey:           "final-key",
+		Title:                    "Payments degradation",
+		ExecutiveSummary:         "Payments is degraded.",
+		Severity:                 ReportSeverityWarning,
+		Confidence:               ReportConfidenceHigh,
+		GenerationStatus:         FinalReportGenerationStatusComplete,
+		ExpectedSubReportCount:   1,
+		SuccessfulSubReportCount: 1,
+		FailedSubReportCount:     0,
+		SubReports:               json.RawMessage(`[{"title":"CPU saturation","summary":"CPU is high.","severity":"warning"}]`),
+		RecommendedActions:       json.RawMessage(`[{"label":"Scale","detail":"Add one replica","priority":"medium"}]`),
+		NotificationText:         "Scale payments.",
+		Content:                  json.RawMessage(`{"title":"Payments degradation"}`),
+		Model:                    "gpt-test",
+		OutputMode:               "json_schema",
+		CreatedByWorkflow:        "wf-1",
 	}
 }

@@ -68,6 +68,62 @@ func (_c *FinalReportCreate) SetConfidence(v string) *FinalReportCreate {
 	return _c
 }
 
+// SetGenerationStatus sets the "generation_status" field.
+func (_c *FinalReportCreate) SetGenerationStatus(v string) *FinalReportCreate {
+	_c.mutation.SetGenerationStatus(v)
+	return _c
+}
+
+// SetNillableGenerationStatus sets the "generation_status" field if the given value is not nil.
+func (_c *FinalReportCreate) SetNillableGenerationStatus(v *string) *FinalReportCreate {
+	if v != nil {
+		_c.SetGenerationStatus(*v)
+	}
+	return _c
+}
+
+// SetExpectedSubReportCount sets the "expected_sub_report_count" field.
+func (_c *FinalReportCreate) SetExpectedSubReportCount(v int) *FinalReportCreate {
+	_c.mutation.SetExpectedSubReportCount(v)
+	return _c
+}
+
+// SetNillableExpectedSubReportCount sets the "expected_sub_report_count" field if the given value is not nil.
+func (_c *FinalReportCreate) SetNillableExpectedSubReportCount(v *int) *FinalReportCreate {
+	if v != nil {
+		_c.SetExpectedSubReportCount(*v)
+	}
+	return _c
+}
+
+// SetSuccessfulSubReportCount sets the "successful_sub_report_count" field.
+func (_c *FinalReportCreate) SetSuccessfulSubReportCount(v int) *FinalReportCreate {
+	_c.mutation.SetSuccessfulSubReportCount(v)
+	return _c
+}
+
+// SetNillableSuccessfulSubReportCount sets the "successful_sub_report_count" field if the given value is not nil.
+func (_c *FinalReportCreate) SetNillableSuccessfulSubReportCount(v *int) *FinalReportCreate {
+	if v != nil {
+		_c.SetSuccessfulSubReportCount(*v)
+	}
+	return _c
+}
+
+// SetFailedSubReportCount sets the "failed_sub_report_count" field.
+func (_c *FinalReportCreate) SetFailedSubReportCount(v int) *FinalReportCreate {
+	_c.mutation.SetFailedSubReportCount(v)
+	return _c
+}
+
+// SetNillableFailedSubReportCount sets the "failed_sub_report_count" field if the given value is not nil.
+func (_c *FinalReportCreate) SetNillableFailedSubReportCount(v *int) *FinalReportCreate {
+	if v != nil {
+		_c.SetFailedSubReportCount(*v)
+	}
+	return _c
+}
+
 // SetSubreportSummaries sets the "subreport_summaries" field.
 func (_c *FinalReportCreate) SetSubreportSummaries(v json.RawMessage) *FinalReportCreate {
 	_c.mutation.SetSubreportSummaries(v)
@@ -218,6 +274,22 @@ func (_c *FinalReportCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *FinalReportCreate) defaults() {
+	if _, ok := _c.mutation.GenerationStatus(); !ok {
+		v := finalreport.DefaultGenerationStatus
+		_c.mutation.SetGenerationStatus(v)
+	}
+	if _, ok := _c.mutation.ExpectedSubReportCount(); !ok {
+		v := finalreport.DefaultExpectedSubReportCount
+		_c.mutation.SetExpectedSubReportCount(v)
+	}
+	if _, ok := _c.mutation.SuccessfulSubReportCount(); !ok {
+		v := finalreport.DefaultSuccessfulSubReportCount
+		_c.mutation.SetSuccessfulSubReportCount(v)
+	}
+	if _, ok := _c.mutation.FailedSubReportCount(); !ok {
+		v := finalreport.DefaultFailedSubReportCount
+		_c.mutation.SetFailedSubReportCount(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := finalreport.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -280,6 +352,38 @@ func (_c *FinalReportCreate) check() error {
 	if v, ok := _c.mutation.Confidence(); ok {
 		if err := finalreport.ConfidenceValidator(v); err != nil {
 			return &ValidationError{Name: "confidence", err: fmt.Errorf(`ent: validator failed for field "FinalReport.confidence": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.GenerationStatus(); !ok {
+		return &ValidationError{Name: "generation_status", err: errors.New(`ent: missing required field "FinalReport.generation_status"`)}
+	}
+	if v, ok := _c.mutation.GenerationStatus(); ok {
+		if err := finalreport.GenerationStatusValidator(v); err != nil {
+			return &ValidationError{Name: "generation_status", err: fmt.Errorf(`ent: validator failed for field "FinalReport.generation_status": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ExpectedSubReportCount(); !ok {
+		return &ValidationError{Name: "expected_sub_report_count", err: errors.New(`ent: missing required field "FinalReport.expected_sub_report_count"`)}
+	}
+	if v, ok := _c.mutation.ExpectedSubReportCount(); ok {
+		if err := finalreport.ExpectedSubReportCountValidator(v); err != nil {
+			return &ValidationError{Name: "expected_sub_report_count", err: fmt.Errorf(`ent: validator failed for field "FinalReport.expected_sub_report_count": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.SuccessfulSubReportCount(); !ok {
+		return &ValidationError{Name: "successful_sub_report_count", err: errors.New(`ent: missing required field "FinalReport.successful_sub_report_count"`)}
+	}
+	if v, ok := _c.mutation.SuccessfulSubReportCount(); ok {
+		if err := finalreport.SuccessfulSubReportCountValidator(v); err != nil {
+			return &ValidationError{Name: "successful_sub_report_count", err: fmt.Errorf(`ent: validator failed for field "FinalReport.successful_sub_report_count": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.FailedSubReportCount(); !ok {
+		return &ValidationError{Name: "failed_sub_report_count", err: errors.New(`ent: missing required field "FinalReport.failed_sub_report_count"`)}
+	}
+	if v, ok := _c.mutation.FailedSubReportCount(); ok {
+		if err := finalreport.FailedSubReportCountValidator(v); err != nil {
+			return &ValidationError{Name: "failed_sub_report_count", err: fmt.Errorf(`ent: validator failed for field "FinalReport.failed_sub_report_count": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.SubreportSummaries(); !ok {
@@ -370,6 +474,22 @@ func (_c *FinalReportCreate) createSpec() (*FinalReport, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Confidence(); ok {
 		_spec.SetField(finalreport.FieldConfidence, field.TypeString, value)
 		_node.Confidence = value
+	}
+	if value, ok := _c.mutation.GenerationStatus(); ok {
+		_spec.SetField(finalreport.FieldGenerationStatus, field.TypeString, value)
+		_node.GenerationStatus = value
+	}
+	if value, ok := _c.mutation.ExpectedSubReportCount(); ok {
+		_spec.SetField(finalreport.FieldExpectedSubReportCount, field.TypeInt, value)
+		_node.ExpectedSubReportCount = value
+	}
+	if value, ok := _c.mutation.SuccessfulSubReportCount(); ok {
+		_spec.SetField(finalreport.FieldSuccessfulSubReportCount, field.TypeInt, value)
+		_node.SuccessfulSubReportCount = value
+	}
+	if value, ok := _c.mutation.FailedSubReportCount(); ok {
+		_spec.SetField(finalreport.FieldFailedSubReportCount, field.TypeInt, value)
+		_node.FailedSubReportCount = value
 	}
 	if value, ok := _c.mutation.SubreportSummaries(); ok {
 		_spec.SetField(finalreport.FieldSubreportSummaries, field.TypeJSON, value)
@@ -535,6 +655,18 @@ func (u *FinalReportUpsertOne) UpdateNewValues() *FinalReportUpsertOne {
 		}
 		if _, exists := u.create.mutation.Confidence(); exists {
 			s.SetIgnore(finalreport.FieldConfidence)
+		}
+		if _, exists := u.create.mutation.GenerationStatus(); exists {
+			s.SetIgnore(finalreport.FieldGenerationStatus)
+		}
+		if _, exists := u.create.mutation.ExpectedSubReportCount(); exists {
+			s.SetIgnore(finalreport.FieldExpectedSubReportCount)
+		}
+		if _, exists := u.create.mutation.SuccessfulSubReportCount(); exists {
+			s.SetIgnore(finalreport.FieldSuccessfulSubReportCount)
+		}
+		if _, exists := u.create.mutation.FailedSubReportCount(); exists {
+			s.SetIgnore(finalreport.FieldFailedSubReportCount)
 		}
 		if _, exists := u.create.mutation.SubreportSummaries(); exists {
 			s.SetIgnore(finalreport.FieldSubreportSummaries)
@@ -787,6 +919,18 @@ func (u *FinalReportUpsertBulk) UpdateNewValues() *FinalReportUpsertBulk {
 			}
 			if _, exists := b.mutation.Confidence(); exists {
 				s.SetIgnore(finalreport.FieldConfidence)
+			}
+			if _, exists := b.mutation.GenerationStatus(); exists {
+				s.SetIgnore(finalreport.FieldGenerationStatus)
+			}
+			if _, exists := b.mutation.ExpectedSubReportCount(); exists {
+				s.SetIgnore(finalreport.FieldExpectedSubReportCount)
+			}
+			if _, exists := b.mutation.SuccessfulSubReportCount(); exists {
+				s.SetIgnore(finalreport.FieldSuccessfulSubReportCount)
+			}
+			if _, exists := b.mutation.FailedSubReportCount(); exists {
+				s.SetIgnore(finalreport.FieldFailedSubReportCount)
 			}
 			if _, exists := b.mutation.SubreportSummaries(); exists {
 				s.SetIgnore(finalreport.FieldSubreportSummaries)

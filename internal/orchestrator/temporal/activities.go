@@ -412,10 +412,17 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 	if err != nil {
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report input")
 	}
+	expectedSubReportCount, failedSubReportCount, err := normalizedFinalReportCoverage(req)
+	if err != nil {
+		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report coverage")
+	}
 	idempotencyKey := finalReportIdempotencyKey(correlationKey)
 	if existing, found, err := a.lookupFinalReport(ctx, idempotencyKey); err != nil {
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report pre-check")
 	} else if found {
+		if err := validatePersistedFinalReportCoverage(existing, expectedSubReportCount, len(subReportIDs), failedSubReportCount); err != nil {
+			return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report pre-check")
+		}
 		if err := a.indexLinkedReportCorpus(ctx, existing, subReportIDs); err != nil {
 			return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index existing corpus")
 		}
@@ -427,8 +434,10 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report load subreports")
 	}
 	llmReq, err := reportprompt.BuildFinalReportRequest(reportprompt.FinalReportInput{
-		CorrelationKey: correlationKey,
-		SubReports:     drafts,
+		CorrelationKey:         correlationKey,
+		SubReports:             drafts,
+		ExpectedSubReportCount: expectedSubReportCount,
+		FailedSubReportCount:   failedSubReportCount,
 	})
 	if err != nil {
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report request")
@@ -446,7 +455,15 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 	if err != nil {
 		return FinalReportWorkflowResult{}, fmt.Errorf("generate-final-report parse accepted output: %w", err)
 	}
-	report, err := finalReportDomainFromDraft(correlationKey, llmReq.IdempotencyKey, draft, result)
+	report, err := finalReportDomainFromDraft(
+		correlationKey,
+		llmReq.IdempotencyKey,
+		expectedSubReportCount,
+		len(subReportIDs),
+		failedSubReportCount,
+		draft,
+		result,
+	)
 	if err != nil {
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report build domain")
 	}
@@ -469,6 +486,9 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 		return FinalReportWorkflowResult{}, fmt.Errorf(
 			"generate-final-report: duplicate re-fetch missing for idempotency_key %q",
 			llmReq.IdempotencyKey)
+	}
+	if err := validatePersistedFinalReportCoverage(existing, expectedSubReportCount, len(subReportIDs), failedSubReportCount); err != nil {
+		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report re-fetch")
 	}
 	if err := a.indexLinkedReportCorpus(ctx, existing, subReportIDs); err != nil {
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index duplicate corpus")
@@ -679,12 +699,12 @@ func (a *Activities) indexFinalReport(ctx context.Context, report domain.FinalRe
 }
 
 func (a *Activities) indexLinkedReportCorpus(ctx context.Context, finalReport domain.FinalReport, expectedSubReportIDs []domain.SubReportID) error {
-	if a.embeddingProvider == nil {
-		return nil
-	}
 	linked, err := a.loadLinkedSubReportsForIndex(ctx, finalReport.ID, expectedSubReportIDs)
 	if err != nil {
 		return err
+	}
+	if a.embeddingProvider == nil {
+		return nil
 	}
 	indexErrors := make([]error, 0, len(linked)+1)
 	for _, report := range linked {
@@ -783,7 +803,15 @@ func subReportDomainFromDraft(snapshotID domain.EvidenceSnapshotID, idempotencyK
 	})
 }
 
-func finalReportDomainFromDraft(correlationKey, idempotencyKey string, draft reportdraft.FinalReport, result llmretry.Result) (domain.FinalReport, error) {
+func finalReportDomainFromDraft(
+	correlationKey string,
+	idempotencyKey string,
+	expectedSubReportCount int,
+	successfulSubReportCount int,
+	failedSubReportCount int,
+	draft reportdraft.FinalReport,
+	result llmretry.Result,
+) (domain.FinalReport, error) {
 	subReports, err := marshalRaw("final report sub_reports", draft.SubReports)
 	if err != nil {
 		return domain.FinalReport{}, err
@@ -792,21 +820,47 @@ func finalReportDomainFromDraft(correlationKey, idempotencyKey string, draft rep
 	if err != nil {
 		return domain.FinalReport{}, err
 	}
+	generationStatus := domain.FinalReportGenerationStatusComplete
+	if failedSubReportCount > 0 {
+		generationStatus = domain.FinalReportGenerationStatusPartial
+	}
 	return domain.NewFinalReport(domain.FinalReport{
-		CorrelationKey:     correlationKey,
-		IdempotencyKey:     idempotencyKey,
-		Title:              draft.Title,
-		ExecutiveSummary:   draft.ExecutiveSummary,
-		Severity:           domain.ReportSeverity(draft.Severity),
-		Confidence:         domain.ReportConfidence(draft.Confidence),
-		SubReports:         subReports,
-		RecommendedActions: actions,
-		NotificationText:   draft.NotificationText,
-		Content:            result.Output.Content,
-		Model:              result.Accepted.Model,
-		OutputMode:         string(result.Accepted.OutputMode),
-		CreatedByWorkflow:  "FinalReportWorkflow",
+		CorrelationKey:           correlationKey,
+		IdempotencyKey:           idempotencyKey,
+		Title:                    draft.Title,
+		ExecutiveSummary:         draft.ExecutiveSummary,
+		Severity:                 domain.ReportSeverity(draft.Severity),
+		Confidence:               domain.ReportConfidence(draft.Confidence),
+		GenerationStatus:         generationStatus,
+		ExpectedSubReportCount:   expectedSubReportCount,
+		SuccessfulSubReportCount: successfulSubReportCount,
+		FailedSubReportCount:     failedSubReportCount,
+		SubReports:               subReports,
+		RecommendedActions:       actions,
+		NotificationText:         draft.NotificationText,
+		Content:                  result.Output.Content,
+		Model:                    result.Accepted.Model,
+		OutputMode:               string(result.Accepted.OutputMode),
+		CreatedByWorkflow:        "FinalReportWorkflow",
 	})
+}
+
+func validatePersistedFinalReportCoverage(report domain.FinalReport, expected, successful, failed int) error {
+	if report.ExpectedSubReportCount != expected ||
+		report.SuccessfulSubReportCount != successful ||
+		report.FailedSubReportCount != failed {
+		return fmt.Errorf(
+			"persisted report coverage (%d/%d successful, %d failed) does not match request (%d/%d successful, %d failed): %w",
+			report.SuccessfulSubReportCount,
+			report.ExpectedSubReportCount,
+			report.FailedSubReportCount,
+			successful,
+			expected,
+			failed,
+			domain.ErrInvariantViolation,
+		)
+	}
+	return nil
 }
 
 func marshalRaw(label string, value any) (json.RawMessage, error) {
@@ -822,11 +876,17 @@ func subReportIDsFromWorkflow(ids []int64) ([]domain.SubReportID, error) {
 		return nil, fmt.Errorf("subreport ids must be non-empty: %w", domain.ErrInvariantViolation)
 	}
 	out := make([]domain.SubReportID, len(ids))
+	seen := make(map[domain.SubReportID]struct{}, len(ids))
 	for i, id := range ids {
 		if id == 0 {
 			return nil, fmt.Errorf("subreport ids must be non-zero: %w", domain.ErrInvariantViolation)
 		}
-		out[i] = domain.SubReportID(id)
+		domainID := domain.SubReportID(id)
+		if _, exists := seen[domainID]; exists {
+			return nil, fmt.Errorf("subreport ids contain duplicate %d: %w", id, domain.ErrInvariantViolation)
+		}
+		seen[domainID] = struct{}{}
+		out[i] = domainID
 	}
 	return out, nil
 }

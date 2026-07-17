@@ -310,14 +310,16 @@ type DiagnosisRepository interface {
 	// domain.ErrNotFound.
 	FindTaskByExecution(ctx context.Context, workflowID, runID string) (domain.DiagnosisTask, error)
 
-	// ListTasksByEvidenceSnapshot returns recent DiagnosisTasks for
-	// one EvidenceSnapshot, ordered by (created_at DESC, id DESC),
-	// capped by limit. limit MUST be > 0.
+	// ListTasksByEvidenceSnapshot returns recent interactive-diagnosis tasks for
+	// one EvidenceSnapshot, ordered by (created_at DESC, id DESC), capped by
+	// limit. Report fan-out tasks sharing the lifecycle store are excluded.
+	// limit MUST be > 0.
 	ListTasksByEvidenceSnapshot(ctx context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]domain.DiagnosisTask, error)
 
-	// ListSnapshotHistories returns one bounded history for each distinct
-	// EvidenceSnapshot ID, preserving first-seen input order. taskLimit MUST be
-	// positive and every event kind MUST be canonical non-empty text.
+	// ListSnapshotHistories returns one bounded interactive-diagnosis history
+	// for each distinct EvidenceSnapshot ID, preserving first-seen input order.
+	// Report fan-out tasks sharing the lifecycle store are excluded. taskLimit
+	// MUST be positive and every event kind MUST be canonical non-empty text.
 	// Implementations batch storage reads.
 	ListSnapshotHistories(
 		ctx context.Context,

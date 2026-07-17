@@ -60,7 +60,8 @@ func TestBuildFinalReportRequest_StructuralGolden(t *testing.T) {
 	}
 	assertMessagesRequireJSON(t, req.Messages)
 	assertActionShapePrompt(t, req.Messages[0].Content)
-	if !strings.Contains(req.Messages[1].Content, `"recommended_actions"`) {
+	if !strings.Contains(req.Messages[1].Content, `"recommended_actions"`) ||
+		!strings.Contains(req.Messages[1].Content, "Coverage: 1 of 1 expected SubReports succeeded; 0 failed.") {
 		t.Fatalf("final user prompt does not include serialized subreports: %s", req.Messages[1].Content)
 	}
 	if _, err := llmoutput.Validate(req, response(validFinalReportJSON())); err != nil {
@@ -68,6 +69,28 @@ func TestBuildFinalReportRequest_StructuralGolden(t *testing.T) {
 	}
 	if _, err := reportdraft.ParseFinalReport(response(validFinalReportJSON())); err != nil {
 		t.Fatalf("ParseFinalReport fixture: %v", err)
+	}
+}
+
+func TestBuildFinalReportRequest_PreservesPartialCoverage(t *testing.T) {
+	req, err := BuildFinalReportRequest(FinalReportInput{
+		CorrelationKey:         "window-partial",
+		SubReports:             []reportdraft.SubReport{validSubReport()},
+		ExpectedSubReportCount: 3,
+		FailedSubReportCount:   2,
+	})
+	if err != nil {
+		t.Fatalf("BuildFinalReportRequest: %v", err)
+	}
+	userPrompt := req.Messages[1].Content
+	for _, required := range []string{
+		"Coverage: 1 of 3 expected SubReports succeeded; 2 failed.",
+		"This is a partial report.",
+		"do not infer facts for failed SubReports",
+	} {
+		if !strings.Contains(userPrompt, required) {
+			t.Fatalf("partial final prompt missing %q: %s", required, userPrompt)
+		}
 	}
 }
 
@@ -211,6 +234,23 @@ func TestBuildFinalReportRequest_RejectsInvalidInput(t *testing.T) {
 		{
 			name:  "empty subreports",
 			input: FinalReportInput{CorrelationKey: "window"},
+		},
+		{
+			name: "coverage count mismatch",
+			input: FinalReportInput{
+				CorrelationKey:         "window",
+				SubReports:             []reportdraft.SubReport{validSubReport()},
+				ExpectedSubReportCount: 2,
+			},
+		},
+		{
+			name: "negative failed count",
+			input: FinalReportInput{
+				CorrelationKey:         "window",
+				SubReports:             []reportdraft.SubReport{validSubReport()},
+				ExpectedSubReportCount: 1,
+				FailedSubReportCount:   -1,
+			},
 		},
 	}
 	for _, tc := range tests {

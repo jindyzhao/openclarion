@@ -6,7 +6,12 @@ import (
 	"time"
 )
 
-const maxReportWorkflowPolicyNameLen = 120
+const (
+	maxReportWorkflowPolicyNameLen = 120
+	// ReportWorkflowMaxFailedSubReports bounds the operator-configured
+	// per-batch child failure threshold to the replay API's maximum batch size.
+	ReportWorkflowMaxFailedSubReports = 100000
+)
 
 // ReportWorkflowTriggerMode describes how a report workflow policy may be
 // invoked. The first persisted mode binds the existing replay-window trigger;
@@ -86,6 +91,7 @@ type ReportWorkflowPolicy struct {
 	AlertSourceProfileID               AlertSourceProfileID
 	GroupingPolicyID                   GroupingPolicyID
 	ReportNotificationChannelProfileID NotificationChannelProfileID
+	MaxFailedSubReports                int
 	TriggerMode                        ReportWorkflowTriggerMode
 	ReportScenario                     ReportWorkflowScenario
 	DiagnosisFollowUp                  DiagnosisFollowUpMode
@@ -102,6 +108,7 @@ func NewReportWorkflowPolicy(
 	alertSourceProfileID AlertSourceProfileID,
 	groupingPolicyID GroupingPolicyID,
 	reportNotificationChannelProfileID NotificationChannelProfileID,
+	maxFailedSubReports int,
 	triggerMode ReportWorkflowTriggerMode,
 	reportScenario ReportWorkflowScenario,
 	diagnosisFollowUp DiagnosisFollowUpMode,
@@ -125,6 +132,13 @@ func NewReportWorkflowPolicy(
 	if reportNotificationChannelProfileID < 0 {
 		return ReportWorkflowPolicy{}, fmt.Errorf("report workflow policy: report_notification_channel_profile_id must be non-negative: %w", ErrInvariantViolation)
 	}
+	if maxFailedSubReports < 0 || maxFailedSubReports > ReportWorkflowMaxFailedSubReports {
+		return ReportWorkflowPolicy{}, fmt.Errorf(
+			"report workflow policy: max_failed_sub_reports must be between 0 and %d: %w",
+			ReportWorkflowMaxFailedSubReports,
+			ErrInvariantViolation,
+		)
+	}
 	if !triggerMode.Valid() {
 		return ReportWorkflowPolicy{}, fmt.Errorf("report workflow policy: trigger_mode %q is unsupported: %w", triggerMode, ErrInvariantViolation)
 	}
@@ -145,6 +159,7 @@ func NewReportWorkflowPolicy(
 		AlertSourceProfileID:               alertSourceProfileID,
 		GroupingPolicyID:                   groupingPolicyID,
 		ReportNotificationChannelProfileID: reportNotificationChannelProfileID,
+		MaxFailedSubReports:                maxFailedSubReports,
 		TriggerMode:                        triggerMode,
 		ReportScenario:                     reportScenario,
 		DiagnosisFollowUp:                  diagnosisFollowUp,

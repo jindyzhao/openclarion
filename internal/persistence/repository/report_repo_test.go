@@ -58,19 +58,23 @@ func mustNewReportSubReport(t *testing.T, snapshotID domain.EvidenceSnapshotID, 
 func mustNewReportFinalReport(t *testing.T, key string) domain.FinalReport {
 	t.Helper()
 	r, err := domain.NewFinalReport(domain.FinalReport{
-		CorrelationKey:     "incident-window-1",
-		IdempotencyKey:     key,
-		Title:              "Payments degradation",
-		ExecutiveSummary:   "Payments is degraded by CPU saturation.",
-		Severity:           domain.ReportSeverityWarning,
-		Confidence:         domain.ReportConfidenceHigh,
-		SubReports:         json.RawMessage(`[{"title":"CPU saturation","summary":"CPU usage is above threshold.","severity":"warning"}]`),
-		RecommendedActions: json.RawMessage(`[{"label":"Scale","detail":"Add one replica","priority":"medium"}]`),
-		NotificationText:   "Payments is degraded. Scale the payments deployment.",
-		Content:            json.RawMessage(`{"title":"Payments degradation","notification_text":"Payments is degraded. Scale the payments deployment."}`),
-		Model:              "gpt-test",
-		OutputMode:         "json_schema",
-		CreatedByWorkflow:  "FinalReportWorkflow",
+		CorrelationKey:           "incident-window-1",
+		IdempotencyKey:           key,
+		Title:                    "Payments degradation",
+		ExecutiveSummary:         "Payments is degraded by CPU saturation.",
+		Severity:                 domain.ReportSeverityWarning,
+		Confidence:               domain.ReportConfidenceHigh,
+		GenerationStatus:         domain.FinalReportGenerationStatusComplete,
+		ExpectedSubReportCount:   1,
+		SuccessfulSubReportCount: 1,
+		FailedSubReportCount:     0,
+		SubReports:               json.RawMessage(`[{"title":"CPU saturation","summary":"CPU usage is above threshold.","severity":"warning"}]`),
+		RecommendedActions:       json.RawMessage(`[{"label":"Scale","detail":"Add one replica","priority":"medium"}]`),
+		NotificationText:         "Payments is degraded. Scale the payments deployment.",
+		Content:                  json.RawMessage(`{"title":"Payments degradation","notification_text":"Payments is degraded. Scale the payments deployment."}`),
+		Model:                    "gpt-test",
+		OutputMode:               "json_schema",
+		CreatedByWorkflow:        "FinalReportWorkflow",
 	})
 	if err != nil {
 		t.Fatalf("NewFinalReport: %v", err)
@@ -371,7 +375,10 @@ func TestReportRepository_SaveFinalReportAndQuery(t *testing.T) {
 
 	var saved domain.FinalReport
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
-		got, err := uow.Reports().SaveFinalReport(ctx, mustNewReportFinalReport(t, "final-key-1"), []domain.SubReportID{newer.ID, older.ID})
+		report := mustNewReportFinalReport(t, "final-key-1")
+		report.ExpectedSubReportCount = 2
+		report.SuccessfulSubReportCount = 2
+		got, err := uow.Reports().SaveFinalReport(ctx, report, []domain.SubReportID{newer.ID, older.ID})
 		if err != nil {
 			t.Fatalf("SaveFinalReport: %v", err)
 		}
@@ -391,6 +398,10 @@ func TestReportRepository_SaveFinalReportAndQuery(t *testing.T) {
 		}
 		if byID.IdempotencyKey != "final-key-1" {
 			t.Errorf("FindFinalReportByID.IdempotencyKey = %q, want final-key-1", byID.IdempotencyKey)
+		}
+		if byID.GenerationStatus != domain.FinalReportGenerationStatusComplete || byID.ExpectedSubReportCount != 2 ||
+			byID.SuccessfulSubReportCount != 2 || byID.FailedSubReportCount != 0 {
+			t.Errorf("FindFinalReportByID coverage = %+v", byID)
 		}
 		byKey, err := uow.Reports().FindFinalReportByIdempotencyKey(ctx, "final-key-1")
 		if err != nil {
@@ -610,6 +621,23 @@ func TestReportRepository_RejectsBadInputs(t *testing.T) {
 				name: "save final report zero subreport id",
 				call: func() error {
 					_, err := uow.Reports().SaveFinalReport(ctx, mustNewReportFinalReport(t, "bad-input-final-zero"), []domain.SubReportID{0})
+					return err
+				},
+			},
+			{
+				name: "save final report mismatched coverage",
+				call: func() error {
+					_, err := uow.Reports().SaveFinalReport(ctx, mustNewReportFinalReport(t, "bad-input-final-coverage"), []domain.SubReportID{1, 2})
+					return err
+				},
+			},
+			{
+				name: "save final report duplicate subreport id",
+				call: func() error {
+					report := mustNewReportFinalReport(t, "bad-input-final-duplicate")
+					report.ExpectedSubReportCount = 2
+					report.SuccessfulSubReportCount = 2
+					_, err := uow.Reports().SaveFinalReport(ctx, report, []domain.SubReportID{1, 1})
 					return err
 				},
 			},

@@ -1237,7 +1237,12 @@
     "retainedManualRooms": "{count, plural, one {# snapshot retained for manual AI room creation after the automatic room limit was reached.} other {# snapshots retained for manual AI room creation after the automatic room limit was reached.}}",
     "startReplay": "Start Replay",
     "proofTraceLabel": "Replay proof trace",
-    "proofTrace": "Replay Proof Trace"
+    "proofTrace": "Replay Proof Trace",
+    "failedSubReportCount": "{count, plural, =0 {None} one {# failure} other {# failures}}",
+    "failureTolerance": "Failure tolerance",
+    "maxFailedSubReports": "Allowed child failures",
+    "maxFailedSubReportsRange": "Allowed child failures must be between 0 and 100000.",
+    "maxFailedSubReportsRequired": "Allowed child failures is required."
   },
   "WorkflowScheduleSettings": {
     "refreshed": "Schedules refreshed.",
@@ -1900,7 +1905,8 @@
       "high": "High",
       "medium": "Medium",
       "low": "Low"
-    }
+    },
+    "partialCoverage": "Partial: {failed} of {expected} subreports failed"
   },
   "ReportDetail": {
     "fallbackTitle": "Report {id}",
@@ -2220,7 +2226,9 @@
       "window": "window {seconds}s",
       "step": "step {seconds}s",
       "limit": "limit {count}"
-    }
+    },
+    "partialCoverage": "{successful} of {expected} subreports succeeded; {failed} failed and were not included.",
+    "partialReport": "Partial report"
   },
   "Alerts": {
     "title": "Alerts",
@@ -2490,9 +2498,9 @@
       "enableChannel": "Enable channel",
       "switchChannel": "Switch channel",
       "reviewScopes": "Review scopes",
-    "useAutoRoom": "Use auto room",
-    "fixChannel": "Fix channel",
-    "testChannel": "Test channel",
+      "useAutoRoom": "Use auto room",
+      "fixChannel": "Fix channel",
+      "testChannel": "Test channel",
       "reviewChannel": "Review channel",
       "reviewSource": "Review source",
       "switchSource": "Switch source",
@@ -2614,9 +2622,9 @@
         "noChannelDetail": "Bind an Enterprise WeChat channel with report, diagnosis consultation, and diagnosis close scopes.",
         "disabledDetail": "Enable the bound Enterprise WeChat channel before live AI notification proof.",
         "wrongKindDetail": "Automatic diagnosis rollout requires Enterprise WeChat; generic webhook proof is not enough.",
-      "missingScopesDetail": "Add {scopes} before accepting Enterprise WeChat rollout.",
-      "followUpDetail": "Enterprise WeChat is bound, but the workflow still needs auto-room follow-up for automatic AI consultation.",
-      "readyDetail": "Enterprise WeChat has the required scopes and AI diagnosis plus close-notification sample proof."
+        "missingScopesDetail": "Add {scopes} before accepting Enterprise WeChat rollout.",
+        "followUpDetail": "Enterprise WeChat is bound, but the workflow still needs auto-room follow-up for automatic AI consultation.",
+        "readyDetail": "Enterprise WeChat has the required scopes and AI diagnosis plus close-notification sample proof."
       },
       "autoRoom": {
         "title": "Alertmanager auto-room",
@@ -2701,21 +2709,21 @@
       "allowed": "Allowed",
       "denied": "Denied"
     },
-  "deliveryScopes": {
-    "report": "report scope",
-    "consultation": "diagnosis consultation scope",
-    "close": "diagnosis close scope"
-  },
-  "notificationProof": {
-    "blockedDetail": "Fix the notification channel credential configuration before running delivery tests.",
-    "reviewDetail": "Review the current notification channel proof before accepting delivery.",
-    "missingTestsDetail": "Run {tests} after the latest channel update before accepting notification proof.",
-    "tests": {
-      "transport": "transport sample test",
-      "aiDiagnosis": "AI diagnosis sample test",
-      "diagnosisClose": "diagnosis close sample test"
-    }
-  },
+    "deliveryScopes": {
+      "report": "report scope",
+      "consultation": "diagnosis consultation scope",
+      "close": "diagnosis close scope"
+    },
+    "notificationProof": {
+      "blockedDetail": "Fix the notification channel credential configuration before running delivery tests.",
+      "reviewDetail": "Review the current notification channel proof before accepting delivery.",
+      "missingTestsDetail": "Run {tests} after the latest channel update before accepting notification proof.",
+      "tests": {
+        "transport": "transport sample test",
+        "aiDiagnosis": "AI diagnosis sample test",
+        "diagnosisClose": "diagnosis close sample test"
+      }
+    },
     "sourceKinds": {
       "alertmanager": "Alertmanager",
       "prometheus": "Prometheus"
@@ -2826,18 +2834,24 @@
           "title": "Source",
           "notAlertmanager": "{source} is not Alertmanager"
         },
-        "grouping": { "title": "Grouping" },
+        "grouping": {
+          "title": "Grouping"
+        },
         "evidence": {
           "title": "Evidence",
           "detail": "{alerts} active / {metrics} metric"
         },
-        "aiRoom": { "title": "AI room" },
+        "aiRoom": {
+          "title": "AI room"
+        },
         "delivery": {
           "title": "Delivery",
           "missingScopes": "{channel} missing {scopes}",
           "notWeCom": "{channel} is not Enterprise WeChat"
         },
-        "schedule": { "title": "Schedule" }
+        "schedule": {
+          "title": "Schedule"
+        }
       },
       "descriptions": {
         "policy": "Policy",
@@ -2877,7 +2891,9 @@
           "title": "Metrics",
           "detail": "{count, plural, one {# metric tool} other {# metric tools}}"
         },
-        "aiRoom": { "title": "AI room" },
+        "aiRoom": {
+          "title": "AI room"
+        },
         "replay": {
           "title": "Replay",
           "ready": "Automatic diagnosis ready",
@@ -2927,9 +2943,9 @@
         "noAIChannelDetail": "Bind an Enterprise WeChat channel before accepting AI update notification proof.",
         "noReportChannelDetail": "Bind a report notification channel before accepting delivery proof.",
         "disabledDetail": "Enable the bound notification channel before live notification proof.",
-      "missingScopesDetail": "Add {scopes} before live AI notification proof.",
-      "wrongKindDetail": "Switch the bound notification channel to Enterprise WeChat before attempting operator handoff proof.",
-      "autoRoomReadyDetail": "Enterprise WeChat channel scopes are ready for report, AI update, and close proof.",
+        "missingScopesDetail": "Add {scopes} before live AI notification proof.",
+        "wrongKindDetail": "Switch the bound notification channel to Enterprise WeChat before attempting operator handoff proof.",
+        "autoRoomReadyDetail": "Enterprise WeChat channel scopes are ready for report, AI update, and close proof.",
         "reportReadyDetail": "Notification channel scopes are ready for report delivery proof."
       }
     },
@@ -2959,9 +2975,9 @@
         "toolsDetail": "Add active-alert and metric-evidence tools before proving automatic AI diagnosis.",
         "noChannelDetail": "Bind an Enterprise WeChat channel before proving AI diagnosis update and final-conclusion delivery.",
         "disabledChannelDetail": "Enable the Enterprise WeChat channel before retaining auto-diagnosis notification proof.",
-      "wrongChannelDetail": "Automatic AI diagnosis proof requires Enterprise WeChat because generic webhook delivery does not prove operator handoff.",
-      "missingScopesDetail": "Add {scopes} before retaining automatic AI notification proof.",
-      "readyDetail": "Inputs are ready for retained Alertmanager webhook proof. Open the matching auto-room workflow, run bounded replay for retained proof, and use the live webhook smoke target for real Alertmanager ingress proof.",
+        "wrongChannelDetail": "Automatic AI diagnosis proof requires Enterprise WeChat because generic webhook delivery does not prove operator handoff.",
+        "missingScopesDetail": "Add {scopes} before retaining automatic AI notification proof.",
+        "readyDetail": "Inputs are ready for retained Alertmanager webhook proof. Open the matching auto-room workflow, run bounded replay for retained proof, and use the live webhook smoke target for real Alertmanager ingress proof.",
         "historyDetail": "Latest retained auto-diagnosis proof for {alert} in room {room}: {detail}"
       },
       "replay": {

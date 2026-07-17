@@ -3,14 +3,17 @@ package temporal_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
@@ -161,6 +164,201 @@ func llmResponse(content string) ports.LLMResponse {
 		FinishReason: "stop",
 		OutputMode:   ports.LLMOutputModeJSONSchema,
 		Model:        "fake-report-model",
+	}
+}
+
+func loadReportTaskLifecycle(
+	t *testing.T,
+	taskID domain.DiagnosisTaskID,
+	eventKinds ...string,
+) (domain.DiagnosisTask, map[string]domain.DiagnosisTaskEvent) {
+	t.Helper()
+	ctx := workflowTestContext(t)
+	events := make(map[string]domain.DiagnosisTaskEvent, len(eventKinds))
+	var task domain.DiagnosisTask
+	err := env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var err error
+		task, err = uow.Diagnosis().FindTaskByID(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		for _, kind := range eventKinds {
+			event, err := uow.Diagnosis().FindEventByTaskAndDedupeKey(ctx, taskID, kind)
+			if err != nil {
+				return err
+			}
+			events[kind] = event
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("load report task lifecycle: %v", err)
+	}
+	return task, events
+}
+
+func TestReportActivities_ReportTaskLifecycleIsDurableAndIdempotent(t *testing.T) {
+	t.Run("succeeded", func(t *testing.T) {
+		seed := seedDiagnosisTask(t, "report-task-succeeded")
+		provider := newReportLLMProvider()
+		activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithLLMProvider(provider))
+		startedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+		ensureReq := temporalpkg.EnsureReportTaskInput{
+			EvidenceSnapshotID: int64(seed.SnapshotID),
+			WorkflowID:         "report-task-succeeded-workflow",
+			RunID:              "report-task-succeeded-run",
+			Scenario:           "cascade",
+			GroupIndex:         2,
+			StartedAt:          startedAt,
+		}
+		ctx := workflowTestContext(t)
+		first, err := activities.EnsureReportTask(ctx, ensureReq)
+		if err != nil {
+			t.Fatalf("EnsureReportTask first: %v", err)
+		}
+		second, err := activities.EnsureReportTask(ctx, ensureReq)
+		if err != nil {
+			t.Fatalf("EnsureReportTask second: %v", err)
+		}
+		if first.DiagnosisTaskID == 0 || second.DiagnosisTaskID != first.DiagnosisTaskID {
+			t.Fatalf("idempotent task IDs = first %d, second %d", first.DiagnosisTaskID, second.DiagnosisTaskID)
+		}
+
+		subReport, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
+			EvidenceSnapshotID: int64(seed.SnapshotID),
+			Scenario:           "cascade",
+			GroupIndex:         2,
+		})
+		if err != nil {
+			t.Fatalf("GenerateSubReport: %v", err)
+		}
+		finishedAt := startedAt.Add(30 * time.Second)
+		finishReq := temporalpkg.FinishReportTaskInput{
+			DiagnosisTaskID:    first.DiagnosisTaskID,
+			EvidenceSnapshotID: int64(seed.SnapshotID),
+			Scenario:           "cascade",
+			GroupIndex:         2,
+			SubReportID:        subReport.SubReportID,
+			Status:             "succeeded",
+			FinishedAt:         finishedAt,
+		}
+		finished, err := activities.FinishReportTask(ctx, finishReq)
+		if err != nil {
+			t.Fatalf("FinishReportTask first: %v", err)
+		}
+		finishedAgain, err := activities.FinishReportTask(ctx, finishReq)
+		if err != nil {
+			t.Fatalf("FinishReportTask second: %v", err)
+		}
+		if finished.LifecycleEventID == 0 || finishedAgain.LifecycleEventID != finished.LifecycleEventID {
+			t.Fatalf("idempotent lifecycle event IDs = first %d, second %d", finished.LifecycleEventID, finishedAgain.LifecycleEventID)
+		}
+
+		task, events := loadReportTaskLifecycle(t, domain.DiagnosisTaskID(first.DiagnosisTaskID), "subreport.started", "subreport.succeeded")
+		if task.Status != domain.DiagnosisStatusSucceeded || task.FailureReason != "" || task.StartedAt == nil ||
+			task.FinishedAt == nil || !task.StartedAt.Equal(startedAt) || !task.FinishedAt.Equal(finishedAt) {
+			t.Fatalf("persisted succeeded task = %+v", task)
+		}
+		if !events["subreport.started"].OccurredAt.Equal(*task.StartedAt) ||
+			!events["subreport.succeeded"].OccurredAt.Equal(*task.FinishedAt) ||
+			!strings.Contains(string(events["subreport.succeeded"].Payload), `"sub_report_id":`) {
+			t.Fatalf("persisted succeeded events = %+v", events)
+		}
+	})
+
+	t.Run("failed with stable reason", func(t *testing.T) {
+		seed := seedDiagnosisTask(t, "report-task-failed")
+		activities := temporalpkg.NewActivities(env.factory)
+		startedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+		ctx := workflowTestContext(t)
+		ensured, err := activities.EnsureReportTask(ctx, temporalpkg.EnsureReportTaskInput{
+			EvidenceSnapshotID: int64(seed.SnapshotID),
+			WorkflowID:         "report-task-failed-workflow",
+			RunID:              "report-task-failed-run",
+			Scenario:           "single_alert",
+			GroupIndex:         0,
+			StartedAt:          startedAt,
+		})
+		if err != nil {
+			t.Fatalf("EnsureReportTask: %v", err)
+		}
+		finishReq := temporalpkg.FinishReportTaskInput{
+			DiagnosisTaskID:    ensured.DiagnosisTaskID,
+			EvidenceSnapshotID: int64(seed.SnapshotID),
+			Scenario:           "single_alert",
+			GroupIndex:         0,
+			Status:             "failed",
+			FailureReason:      "provider credential leaked",
+			FinishedAt:         startedAt.Add(20 * time.Second),
+		}
+		if _, err := activities.FinishReportTask(ctx, finishReq); err == nil {
+			t.Fatal("FinishReportTask accepted an arbitrary provider failure message")
+		}
+		finishReq.FailureReason = "subreport_generation_failed"
+		first, err := activities.FinishReportTask(ctx, finishReq)
+		if err != nil {
+			t.Fatalf("FinishReportTask first: %v", err)
+		}
+		second, err := activities.FinishReportTask(ctx, finishReq)
+		if err != nil {
+			t.Fatalf("FinishReportTask second: %v", err)
+		}
+		if first.LifecycleEventID == 0 || second.LifecycleEventID != first.LifecycleEventID {
+			t.Fatalf("idempotent failure event IDs = first %d, second %d", first.LifecycleEventID, second.LifecycleEventID)
+		}
+
+		task, events := loadReportTaskLifecycle(t, domain.DiagnosisTaskID(ensured.DiagnosisTaskID), "subreport.started", "subreport.failed")
+		if task.Status != domain.DiagnosisStatusFailed || task.FailureReason != "subreport_generation_failed" {
+			t.Fatalf("persisted failed task = %+v", task)
+		}
+		failedPayload := string(events["subreport.failed"].Payload)
+		if !strings.Contains(failedPayload, "subreport_generation_failed") ||
+			strings.Contains(failedPayload, "provider credential") {
+			t.Fatalf("persisted failure event payload = %s", failedPayload)
+		}
+	})
+}
+
+func TestReportActivities_FinishReportTaskRejectsPromptIdentityDrift(t *testing.T) {
+	seed := seedDiagnosisTask(t, "report-task-identity")
+	other := seedDiagnosisTask(t, "report-task-other-snapshot")
+	activities := temporalpkg.NewActivities(env.factory)
+	startedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	ctx := workflowTestContext(t)
+	ensured, err := activities.EnsureReportTask(ctx, temporalpkg.EnsureReportTaskInput{
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		WorkflowID:         "report-task-identity-workflow",
+		RunID:              "report-task-identity-run",
+		Scenario:           "alert_storm",
+		GroupIndex:         3,
+		StartedAt:          startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureReportTask: %v", err)
+	}
+	base := temporalpkg.FinishReportTaskInput{
+		DiagnosisTaskID:    ensured.DiagnosisTaskID,
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		Scenario:           "alert_storm",
+		GroupIndex:         3,
+		Status:             "failed",
+		FailureReason:      "subreport_generation_failed",
+		FinishedAt:         startedAt.Add(15 * time.Second),
+	}
+
+	wrongGroup := base
+	wrongGroup.GroupIndex++
+	if _, err := activities.FinishReportTask(ctx, wrongGroup); err == nil {
+		t.Fatal("FinishReportTask accepted a different group index")
+	}
+	wrongSnapshot := base
+	wrongSnapshot.EvidenceSnapshotID = int64(other.SnapshotID)
+	if _, err := activities.FinishReportTask(ctx, wrongSnapshot); err == nil {
+		t.Fatal("FinishReportTask accepted a different evidence snapshot")
+	}
+	task, _ := loadReportTaskLifecycle(t, domain.DiagnosisTaskID(ensured.DiagnosisTaskID), "subreport.started")
+	if task.Status != domain.DiagnosisStatusRunning || task.FinishedAt != nil {
+		t.Fatalf("identity mismatch mutated task = %+v", task)
 	}
 }
 
@@ -449,8 +647,9 @@ func TestReportActivities_GenerateFinalReportPersistsAndLinksSubReports(t *testi
 		if err != nil {
 			return err
 		}
-		if report.NotificationText == "" {
-			t.Fatalf("NotificationText is empty")
+		if report.NotificationText == "" || report.GenerationStatus != domain.FinalReportGenerationStatusComplete ||
+			report.ExpectedSubReportCount != 1 || report.SuccessfulSubReportCount != 1 || report.FailedSubReportCount != 0 {
+			t.Fatalf("persisted final report = %+v", report)
 		}
 		linked, err := uow.Reports().ListSubReportsForFinalReport(ctx, report.ID, 10)
 		if err != nil {
@@ -463,6 +662,102 @@ func TestReportActivities_GenerateFinalReportPersistsAndLinksSubReports(t *testi
 	})
 	if err != nil {
 		t.Fatalf("verify final report: %v", err)
+	}
+}
+
+func TestReportActivities_GenerateFinalReportPersistsPartialCoverage(t *testing.T) {
+	seed := seedDiagnosisTask(t, "report-final-partial")
+	provider := newReportLLMProvider()
+	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithLLMProvider(provider))
+	ctx := workflowTestContext(t)
+
+	sub, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		Scenario:           "single_alert",
+		GroupIndex:         0,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSubReport: %v", err)
+	}
+	final, err := activities.GenerateFinalReport(ctx, temporalpkg.FinalReportWorkflowInput{
+		CorrelationKey:         "window-report-final-partial",
+		SubReportIDs:           []int64{sub.SubReportID},
+		ExpectedSubReportCount: 2,
+		FailedSubReportCount:   1,
+	})
+	if err != nil {
+		t.Fatalf("GenerateFinalReport: %v", err)
+	}
+	if !strings.Contains(provider.Prompt("final_report:window-report-final-partial"), "Coverage: 1 of 2 expected SubReports succeeded; 1 failed.") {
+		t.Fatalf("partial report prompt = %s", provider.Prompt("final_report:window-report-final-partial"))
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		report, err := uow.Reports().FindFinalReportByID(ctx, domain.FinalReportID(final.FinalReportID))
+		if err != nil {
+			return err
+		}
+		if report.GenerationStatus != domain.FinalReportGenerationStatusPartial ||
+			report.ExpectedSubReportCount != 2 || report.SuccessfulSubReportCount != 1 || report.FailedSubReportCount != 1 {
+			t.Fatalf("persisted partial final report = %+v", report)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify partial final report: %v", err)
+	}
+}
+
+func TestReportActivities_GenerateFinalReportRejectsIdempotencyIdentityDrift(t *testing.T) {
+	firstSeed := seedDiagnosisTask(t, "report-final-identity-first")
+	secondSeed := seedDiagnosisTask(t, "report-final-identity-second")
+	provider := newReportLLMProvider()
+	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithLLMProvider(provider))
+	ctx := workflowTestContext(t)
+
+	generateSubReport := func(seed seededDiagnosisTask) int64 {
+		t.Helper()
+		result, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
+			EvidenceSnapshotID: int64(seed.SnapshotID),
+			Scenario:           "single_alert",
+			GroupIndex:         0,
+		})
+		if err != nil {
+			t.Fatalf("GenerateSubReport: %v", err)
+		}
+		return result.SubReportID
+	}
+	firstSubReportID := generateSubReport(firstSeed)
+	secondSubReportID := generateSubReport(secondSeed)
+	first, err := activities.GenerateFinalReport(ctx, temporalpkg.FinalReportWorkflowInput{
+		CorrelationKey: "window-report-final-identity",
+		SubReportIDs:   []int64{firstSubReportID},
+	})
+	if err != nil {
+		t.Fatalf("GenerateFinalReport first: %v", err)
+	}
+	if _, err := activities.GenerateFinalReport(ctx, temporalpkg.FinalReportWorkflowInput{
+		CorrelationKey: "window-report-final-identity",
+		SubReportIDs:   []int64{secondSubReportID},
+	}); err == nil {
+		t.Fatal("GenerateFinalReport reused an idempotency key with different SubReport links")
+	}
+	if provider.Calls("final_report:window-report-final-identity") != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.Calls("final_report:window-report-final-identity"))
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		linked, err := uow.Reports().ListSubReportsForFinalReport(ctx, domain.FinalReportID(first.FinalReportID), 2)
+		if err != nil {
+			return err
+		}
+		if len(linked) != 1 || int64(linked[0].ID) != firstSubReportID {
+			t.Fatalf("persisted links after drift attempt = %+v", linked)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify idempotent final report links: %v", err)
 	}
 }
 
@@ -834,14 +1129,39 @@ func TestReportFanOutWorkflow_ExecutesGenerateSubReportActivity(t *testing.T) {
 		Scenario:           "single_alert",
 		GroupIndex:         0,
 	}
+	calls := make([]string, 0, 3)
+	tw.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.EnsureReportTaskInput) (temporalpkg.EnsureReportTaskResult, error) {
+			calls = append(calls, "ensure")
+			if got.EvidenceSnapshotID != input.EvidenceSnapshotID || got.Scenario != input.Scenario ||
+				got.GroupIndex != input.GroupIndex || got.WorkflowID == "" || got.RunID == "" || got.StartedAt.IsZero() {
+				t.Fatalf("ensure input = %+v", got)
+			}
+			return temporalpkg.EnsureReportTaskResult{DiagnosisTaskID: 55}, nil
+		},
+		activity.RegisterOptions{Name: "EnsureReportTask"},
+	)
 	tw.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.ReportFanOutWorkflowInput) (temporalpkg.ReportFanOutWorkflowResult, error) {
+			calls = append(calls, "generate")
 			if got != input {
 				t.Fatalf("activity input = %+v, want %+v", got, input)
 			}
 			return temporalpkg.ReportFanOutWorkflowResult{SubReportID: 99}, nil
 		},
 		activity.RegisterOptions{Name: "GenerateSubReport"},
+	)
+	tw.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.FinishReportTaskInput) (temporalpkg.FinishReportTaskResult, error) {
+			calls = append(calls, "finish")
+			if got.DiagnosisTaskID != 55 || got.EvidenceSnapshotID != input.EvidenceSnapshotID ||
+				got.Scenario != input.Scenario || got.GroupIndex != input.GroupIndex ||
+				got.SubReportID != 99 || got.Status != "succeeded" || got.FailureReason != "" || got.FinishedAt.IsZero() {
+				t.Fatalf("finish input = %+v", got)
+			}
+			return temporalpkg.FinishReportTaskResult{LifecycleEventID: 77}, nil
+		},
+		activity.RegisterOptions{Name: "FinishReportTask"},
 	)
 
 	tw.ExecuteWorkflow(temporalpkg.ReportFanOutWorkflow, input)
@@ -857,6 +1177,9 @@ func TestReportFanOutWorkflow_ExecutesGenerateSubReportActivity(t *testing.T) {
 	}
 	if result.SubReportID != 99 {
 		t.Fatalf("SubReportID = %d, want 99", result.SubReportID)
+	}
+	if strings.Join(calls, ",") != "ensure,generate,finish" {
+		t.Fatalf("activity calls = %v", calls)
 	}
 }
 
@@ -915,6 +1238,72 @@ func TestFinalReportWorkflow_ExecutesGenerateFinalReportActivity(t *testing.T) {
 	}
 }
 
+func TestReportBatchWorkflow_LegacyVersionPreservesResultShape(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	tw := suite.NewTestWorkflowEnvironment()
+	tw.RegisterWorkflow(temporalpkg.ReportFanOutWorkflow)
+	tw.RegisterWorkflow(temporalpkg.FinalReportWorkflow)
+	tw.OnGetVersion("report-batch-partial-fan-in", workflow.DefaultVersion, workflow.Version(1)).
+		Return(workflow.DefaultVersion)
+	tw.OnGetVersion("report-fan-out-task-lifecycle", workflow.DefaultVersion, workflow.Version(1)).
+		Return(workflow.DefaultVersion)
+	tw.OnGetVersion("final-report-coverage-input", workflow.DefaultVersion, workflow.Version(1)).
+		Return(workflow.DefaultVersion)
+	tw.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.ReportFanOutWorkflowInput) (temporalpkg.ReportFanOutWorkflowResult, error) {
+			return temporalpkg.ReportFanOutWorkflowResult{SubReportID: got.EvidenceSnapshotID * 10}, nil
+		},
+		activity.RegisterOptions{Name: "GenerateSubReport"},
+	)
+	tw.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.FinalReportWorkflowInput) (temporalpkg.FinalReportWorkflowResult, error) {
+			if got.ExpectedSubReportCount != 0 || got.FailedSubReportCount != 0 {
+				t.Fatalf("legacy final-report input gained coverage fields: %+v", got)
+			}
+			return temporalpkg.FinalReportWorkflowResult{FinalReportID: 90}, nil
+		},
+		activity.RegisterOptions{Name: "GenerateFinalReport"},
+	)
+	tw.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.ReportNotificationActivityInput) (temporalpkg.ReportNotificationResult, error) {
+			return temporalpkg.ReportNotificationResult{
+				FinalReportID:              got.FinalReportID,
+				NotificationIdempotencyKey: "final_report:90/notification",
+				Status:                     "delivered",
+			}, nil
+		},
+		activity.RegisterOptions{Name: "SendReportNotification"},
+	)
+
+	tw.ExecuteWorkflow(temporalpkg.ReportBatchWorkflow, temporalpkg.ReportBatchWorkflowInput{
+		CorrelationKey: "legacy-window",
+		Items: []temporalpkg.ReportBatchItem{{
+			EvidenceSnapshotID: 9,
+			Scenario:           "single_alert",
+		}},
+	})
+	if err := tw.GetWorkflowError(); err != nil {
+		t.Fatalf("legacy workflow error: %v", err)
+	}
+	var result temporalpkg.ReportBatchWorkflowResult
+	if err := tw.GetWorkflowResult(&result); err != nil {
+		t.Fatalf("GetWorkflowResult: %v", err)
+	}
+	if result.ExpectedSubReportCount != 0 || result.SuccessfulSubReportCount != 0 ||
+		result.FailedSubReportCount != 0 || result.FailedItems != nil {
+		t.Fatalf("legacy result shape gained coverage fields: %+v", result)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Marshal legacy result: %v", err)
+	}
+	for _, field := range []string{"ExpectedSubReportCount", "SuccessfulSubReportCount", "FailedSubReportCount", "FailedItems"} {
+		if strings.Contains(string(payload), field) {
+			t.Fatalf("legacy result payload %s contains new field %q", payload, field)
+		}
+	}
+}
+
 func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	tw := suite.NewTestWorkflowEnvironment()
@@ -930,6 +1319,15 @@ func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 		},
 	}
 	tw.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.EnsureReportTaskInput) (temporalpkg.EnsureReportTaskResult, error) {
+			if got.EvidenceSnapshotID == 0 || got.WorkflowID == "" || got.RunID == "" || got.StartedAt.IsZero() {
+				t.Fatalf("ensure input = %+v", got)
+			}
+			return temporalpkg.EnsureReportTaskResult{DiagnosisTaskID: got.EvidenceSnapshotID + 1000}, nil
+		},
+		activity.RegisterOptions{Name: "EnsureReportTask"},
+	)
+	tw.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.ReportFanOutWorkflowInput) (temporalpkg.ReportFanOutWorkflowResult, error) {
 			for _, item := range input.Items {
 				if got.EvidenceSnapshotID == item.EvidenceSnapshotID && got.Scenario == item.Scenario && got.GroupIndex == item.GroupIndex {
@@ -944,6 +1342,15 @@ func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 		activity.RegisterOptions{Name: "GenerateSubReport"},
 	)
 	tw.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.FinishReportTaskInput) (temporalpkg.FinishReportTaskResult, error) {
+			if got.DiagnosisTaskID != got.EvidenceSnapshotID+1000 || got.SubReportID == 0 || got.Status != "succeeded" {
+				t.Fatalf("finish input = %+v", got)
+			}
+			return temporalpkg.FinishReportTaskResult{LifecycleEventID: got.DiagnosisTaskID + 2000}, nil
+		},
+		activity.RegisterOptions{Name: "FinishReportTask"},
+	)
+	tw.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.FinalReportWorkflowInput) (temporalpkg.FinalReportWorkflowResult, error) {
 			if got.CorrelationKey != "window-batch" {
 				t.Fatalf("final correlation = %q, want window-batch", got.CorrelationKey)
@@ -954,6 +1361,9 @@ func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 			want := []int64{70, 81}
 			if len(got.SubReportIDs) != len(want) || got.SubReportIDs[0] != want[0] || got.SubReportIDs[1] != want[1] {
 				t.Fatalf("final SubReportIDs = %+v, want %+v", got.SubReportIDs, want)
+			}
+			if got.ExpectedSubReportCount != 2 || got.FailedSubReportCount != 0 {
+				t.Fatalf("final coverage = %+v", got)
 			}
 			return temporalpkg.FinalReportWorkflowResult{FinalReportID: 500}, nil
 		},
@@ -991,9 +1401,152 @@ func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 		result.NotificationStatus != "delivered" {
 		t.Fatalf("batch result = %+v", result)
 	}
+	if result.ExpectedSubReportCount != 2 || result.SuccessfulSubReportCount != 2 ||
+		result.FailedSubReportCount != 0 || len(result.FailedItems) != 0 {
+		t.Fatalf("batch coverage = %+v", result)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Marshal batch result: %v", err)
+	}
+	for _, field := range []string{"ExpectedSubReportCount", "SuccessfulSubReportCount", "FailedSubReportCount", "FailedItems"} {
+		if !strings.Contains(string(payload), field) {
+			t.Fatalf("new batch result payload %s omits coverage field %q", payload, field)
+		}
+	}
 	wantSubReports := []int64{70, 81}
 	if len(result.SubReportIDs) != len(wantSubReports) || result.SubReportIDs[0] != wantSubReports[0] || result.SubReportIDs[1] != wantSubReports[1] {
 		t.Fatalf("batch SubReportIDs = %+v, want %+v", result.SubReportIDs, wantSubReports)
+	}
+}
+
+func TestReportBatchWorkflow_EnforcesPartialFailurePolicy(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxFailures   int
+		wantSucceeded bool
+	}{
+		{name: "within threshold produces partial report", maxFailures: 1, wantSucceeded: true},
+		{name: "above threshold rejects fan in", maxFailures: 0, wantSucceeded: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var suite testsuite.WorkflowTestSuite
+			tw := suite.NewTestWorkflowEnvironment()
+			tw.RegisterWorkflow(temporalpkg.ReportFanOutWorkflow)
+			tw.RegisterWorkflow(temporalpkg.FinalReportWorkflow)
+
+			input := temporalpkg.ReportBatchWorkflowInput{
+				CorrelationKey:      "window-partial",
+				MaxFailedSubReports: tc.maxFailures,
+				Items: []temporalpkg.ReportBatchItem{
+					{EvidenceSnapshotID: 7, Scenario: "single_alert", GroupIndex: 0},
+					{EvidenceSnapshotID: 8, Scenario: "cascade", GroupIndex: 1},
+				},
+			}
+			var mu sync.Mutex
+			generated := make(map[int64]int, len(input.Items))
+			finished := make(map[int64]temporalpkg.FinishReportTaskInput, len(input.Items))
+			finalCalled := false
+
+			tw.RegisterActivityWithOptions(
+				func(_ context.Context, got temporalpkg.EnsureReportTaskInput) (temporalpkg.EnsureReportTaskResult, error) {
+					return temporalpkg.EnsureReportTaskResult{DiagnosisTaskID: got.EvidenceSnapshotID + 1000}, nil
+				},
+				activity.RegisterOptions{Name: "EnsureReportTask"},
+			)
+			tw.RegisterActivityWithOptions(
+				func(_ context.Context, got temporalpkg.ReportFanOutWorkflowInput) (temporalpkg.ReportFanOutWorkflowResult, error) {
+					mu.Lock()
+					generated[got.EvidenceSnapshotID]++
+					mu.Unlock()
+					if got.EvidenceSnapshotID == 8 {
+						return temporalpkg.ReportFanOutWorkflowResult{}, errors.New("provider credential secret")
+					}
+					return temporalpkg.ReportFanOutWorkflowResult{SubReportID: 70}, nil
+				},
+				activity.RegisterOptions{Name: "GenerateSubReport"},
+			)
+			tw.RegisterActivityWithOptions(
+				func(_ context.Context, got temporalpkg.FinishReportTaskInput) (temporalpkg.FinishReportTaskResult, error) {
+					mu.Lock()
+					finished[got.EvidenceSnapshotID] = got
+					mu.Unlock()
+					if got.EvidenceSnapshotID == 7 && (got.Status != "succeeded" || got.SubReportID != 70 || got.FailureReason != "") {
+						t.Fatalf("successful finish input = %+v", got)
+					}
+					if got.EvidenceSnapshotID == 8 && (got.Status != "failed" || got.SubReportID != 0 || got.FailureReason != "subreport_generation_failed") {
+						t.Fatalf("failed finish input = %+v", got)
+					}
+					return temporalpkg.FinishReportTaskResult{LifecycleEventID: got.DiagnosisTaskID + 2000}, nil
+				},
+				activity.RegisterOptions{Name: "FinishReportTask"},
+			)
+			tw.RegisterActivityWithOptions(
+				func(_ context.Context, got temporalpkg.FinalReportWorkflowInput) (temporalpkg.FinalReportWorkflowResult, error) {
+					mu.Lock()
+					finalCalled = true
+					mu.Unlock()
+					if got.CorrelationKey != input.CorrelationKey || len(got.SubReportIDs) != 1 || got.SubReportIDs[0] != 70 ||
+						got.ExpectedSubReportCount != 2 || got.FailedSubReportCount != 1 {
+						t.Fatalf("partial final input = %+v", got)
+					}
+					return temporalpkg.FinalReportWorkflowResult{FinalReportID: 501}, nil
+				},
+				activity.RegisterOptions{Name: "GenerateFinalReport"},
+			)
+			tw.RegisterActivityWithOptions(
+				func(_ context.Context, got temporalpkg.ReportNotificationActivityInput) (temporalpkg.ReportNotificationResult, error) {
+					return temporalpkg.ReportNotificationResult{
+						FinalReportID:              got.FinalReportID,
+						NotificationIdempotencyKey: "final_report:501/notification/handoff",
+						Status:                     "delivered",
+					}, nil
+				},
+				activity.RegisterOptions{Name: "SendReportNotification"},
+			)
+
+			tw.ExecuteWorkflow(temporalpkg.ReportBatchWorkflow, input)
+			if !tw.IsWorkflowCompleted() {
+				t.Fatal("workflow did not complete")
+			}
+			workflowErr := tw.GetWorkflowError()
+			if tc.wantSucceeded {
+				if workflowErr != nil {
+					t.Fatalf("workflow error: %v", workflowErr)
+				}
+				var result temporalpkg.ReportBatchWorkflowResult
+				if err := tw.GetWorkflowResult(&result); err != nil {
+					t.Fatalf("GetWorkflowResult: %v", err)
+				}
+				if result.FinalReportID != 501 || len(result.SubReportIDs) != 1 || result.SubReportIDs[0] != 70 ||
+					result.ExpectedSubReportCount != 2 || result.SuccessfulSubReportCount != 1 || result.FailedSubReportCount != 1 ||
+					len(result.FailedItems) != 1 || result.FailedItems[0].ItemIndex != 1 ||
+					result.FailedItems[0].Reason != "subreport_generation_failed" {
+					t.Fatalf("partial batch result = %+v", result)
+				}
+				if strings.Contains(result.FailedItems[0].Reason, "provider credential") {
+					t.Fatalf("partial result leaked provider error: %+v", result.FailedItems[0])
+				}
+			} else {
+				if workflowErr == nil {
+					t.Fatal("workflow succeeded above the failure threshold")
+				}
+				if !strings.Contains(workflowErr.Error(), "policy allows at most 0 failures") ||
+					strings.Contains(workflowErr.Error(), "provider credential secret") {
+					t.Fatalf("threshold workflow error = %v", workflowErr)
+				}
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if generated[7] == 0 || generated[8] == 0 || len(finished) != 2 {
+				t.Fatalf("fan-out activity coverage: generated=%v finished=%v", generated, finished)
+			}
+			if finalCalled != tc.wantSucceeded {
+				t.Fatalf("finalCalled = %t, want %t", finalCalled, tc.wantSucceeded)
+			}
+		})
 	}
 }
 
@@ -1039,6 +1592,16 @@ func TestReportWorkflows_RejectInvalidInputBeforeActivity(t *testing.T) {
 			workflow:   temporalpkg.ReportBatchWorkflow,
 			input:      temporalpkg.ReportBatchWorkflowInput{CorrelationKey: "window", ReportNotificationChannelProfileID: -1, Items: []temporalpkg.ReportBatchItem{{EvidenceSnapshotID: 1, Scenario: "single_alert"}}},
 			wantSubstr: "report_notification_channel_profile_id must be >= 0",
+		},
+		{
+			name:     "batch excessive failure tolerance",
+			workflow: temporalpkg.ReportBatchWorkflow,
+			input: temporalpkg.ReportBatchWorkflowInput{
+				CorrelationKey:      "window",
+				MaxFailedSubReports: domain.ReportWorkflowMaxFailedSubReports + 1,
+				Items:               []temporalpkg.ReportBatchItem{{EvidenceSnapshotID: 1, Scenario: "single_alert"}},
+			},
+			wantSubstr: "max_failed_sub_reports must be between 0 and 100000",
 		},
 		{
 			name:       "final empty correlation",

@@ -12,9 +12,10 @@ import (
 	"entgo.io/ent/schema/index"
 )
 
-// DiagnosisTask is the workflow-bound lifecycle record for one
-// DiagnosisWorkflow execution against one EvidenceSnapshot
-// (see docs/design/phases/03-workflows.md).
+// DiagnosisTask is the workflow-bound lifecycle record for one Temporal
+// execution against one EvidenceSnapshot. Interactive diagnosis and report
+// fan-out share this durable store; task-family events keep their read models
+// distinct (see docs/design/phases/03-workflows.md).
 //
 // Identity discipline (matches Temporal's own identity model):
 //

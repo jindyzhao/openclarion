@@ -295,6 +295,7 @@ func TestConfigRepo_SaveFindUpdateAndListReportWorkflowPolicy(t *testing.T) {
 			got.AlertSourceProfileID != 1 ||
 			got.GroupingPolicyID != 2 ||
 			got.ReportNotificationChannelProfileID != 3 ||
+			got.MaxFailedSubReports != 2 ||
 			got.Enabled {
 			t.Fatalf("got = %+v", got)
 		}
@@ -306,6 +307,7 @@ func TestConfigRepo_SaveFindUpdateAndListReportWorkflowPolicy(t *testing.T) {
 	updated.ReportScenario = domain.ReportWorkflowScenarioCascade
 	updated.DiagnosisFollowUp = domain.DiagnosisFollowUpModeSuggestRoom
 	updated.ReportNotificationChannelProfileID = 0
+	updated.MaxFailedSubReports = 3
 	updated.Enabled = true
 	updated.EnabledAt = &enabledAt
 	updated.DisabledAt = nil
@@ -316,6 +318,7 @@ func TestConfigRepo_SaveFindUpdateAndListReportWorkflowPolicy(t *testing.T) {
 		}
 		if got.Name != "Cascade report workflow" ||
 			got.ReportNotificationChannelProfileID != 0 ||
+			got.MaxFailedSubReports != 3 ||
 			!got.Enabled ||
 			got.EnabledAt == nil ||
 			got.DisabledAt != nil {
@@ -1085,6 +1088,7 @@ func mustNewReportWorkflowPolicy(t *testing.T, name string) domain.ReportWorkflo
 		domain.AlertSourceProfileID(1),
 		domain.GroupingPolicyID(2),
 		domain.NotificationChannelProfileID(3),
+		2,
 		domain.ReportWorkflowTriggerModeManualReplay,
 		domain.ReportWorkflowScenarioSingleAlert,
 		domain.DiagnosisFollowUpModeDisabled,

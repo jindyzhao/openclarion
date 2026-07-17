@@ -62,6 +62,26 @@ func (FinalReport) Fields() []ent.Field {
 			NotEmpty().
 			Immutable().
 			Comment(`"low" | "medium" | "high"`),
+		field.String("generation_status").
+			MaxLen(16).
+			Default("complete").
+			Immutable().
+			Comment(`fan-in coverage: "complete" | "partial"`),
+		field.Int("expected_sub_report_count").
+			Positive().
+			Default(1).
+			Immutable().
+			Comment("number of SubReports expected before applying the failure threshold"),
+		field.Int("successful_sub_report_count").
+			Positive().
+			Default(1).
+			Immutable().
+			Comment("number of generated SubReports included in fan-in"),
+		field.Int("failed_sub_report_count").
+			NonNegative().
+			Default(0).
+			Immutable().
+			Comment("number of failed SubReports omitted under the configured threshold"),
 		field.JSON("subreport_summaries", json.RawMessage{}).
 			Immutable().
 			Comment("validated sub_reports projection from the FinalReport JSON"),

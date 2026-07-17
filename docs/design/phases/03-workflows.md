@@ -47,7 +47,11 @@ external I/O.
 ## Acceptance
 
 - workflow tests cover success, timeout, provider failure, and retry
-- failure states persist to `DiagnosisTask`
+- diagnosis and report fan-out failure states persist to `DiagnosisTask`
+- report fan-out collects every child result before applying the configured
+  partial-failure threshold, so one failed SubReport does not cancel siblings
+- FinalReport coverage records expected, successful, and failed SubReport
+  counts; partial output is explicit and never silently presented as complete
 - reports link back to `EvidenceSnapshot`
 - report triggers can bind to configured policy identifiers without hard-coded
   customer endpoints

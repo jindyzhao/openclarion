@@ -1341,8 +1341,32 @@ func init() {
 			return nil
 		}
 	}()
+	// finalreportDescGenerationStatus is the schema descriptor for generation_status field.
+	finalreportDescGenerationStatus := finalreportFields[6].Descriptor()
+	// finalreport.DefaultGenerationStatus holds the default value on creation for the generation_status field.
+	finalreport.DefaultGenerationStatus = finalreportDescGenerationStatus.Default.(string)
+	// finalreport.GenerationStatusValidator is a validator for the "generation_status" field. It is called by the builders before save.
+	finalreport.GenerationStatusValidator = finalreportDescGenerationStatus.Validators[0].(func(string) error)
+	// finalreportDescExpectedSubReportCount is the schema descriptor for expected_sub_report_count field.
+	finalreportDescExpectedSubReportCount := finalreportFields[7].Descriptor()
+	// finalreport.DefaultExpectedSubReportCount holds the default value on creation for the expected_sub_report_count field.
+	finalreport.DefaultExpectedSubReportCount = finalreportDescExpectedSubReportCount.Default.(int)
+	// finalreport.ExpectedSubReportCountValidator is a validator for the "expected_sub_report_count" field. It is called by the builders before save.
+	finalreport.ExpectedSubReportCountValidator = finalreportDescExpectedSubReportCount.Validators[0].(func(int) error)
+	// finalreportDescSuccessfulSubReportCount is the schema descriptor for successful_sub_report_count field.
+	finalreportDescSuccessfulSubReportCount := finalreportFields[8].Descriptor()
+	// finalreport.DefaultSuccessfulSubReportCount holds the default value on creation for the successful_sub_report_count field.
+	finalreport.DefaultSuccessfulSubReportCount = finalreportDescSuccessfulSubReportCount.Default.(int)
+	// finalreport.SuccessfulSubReportCountValidator is a validator for the "successful_sub_report_count" field. It is called by the builders before save.
+	finalreport.SuccessfulSubReportCountValidator = finalreportDescSuccessfulSubReportCount.Validators[0].(func(int) error)
+	// finalreportDescFailedSubReportCount is the schema descriptor for failed_sub_report_count field.
+	finalreportDescFailedSubReportCount := finalreportFields[9].Descriptor()
+	// finalreport.DefaultFailedSubReportCount holds the default value on creation for the failed_sub_report_count field.
+	finalreport.DefaultFailedSubReportCount = finalreportDescFailedSubReportCount.Default.(int)
+	// finalreport.FailedSubReportCountValidator is a validator for the "failed_sub_report_count" field. It is called by the builders before save.
+	finalreport.FailedSubReportCountValidator = finalreportDescFailedSubReportCount.Validators[0].(func(int) error)
 	// finalreportDescNotificationText is the schema descriptor for notification_text field.
-	finalreportDescNotificationText := finalreportFields[8].Descriptor()
+	finalreportDescNotificationText := finalreportFields[12].Descriptor()
 	// finalreport.NotificationTextValidator is a validator for the "notification_text" field. It is called by the builders before save.
 	finalreport.NotificationTextValidator = func() func(string) error {
 		validators := finalreportDescNotificationText.Validators
@@ -1360,19 +1384,19 @@ func init() {
 		}
 	}()
 	// finalreportDescModel is the schema descriptor for model field.
-	finalreportDescModel := finalreportFields[10].Descriptor()
+	finalreportDescModel := finalreportFields[14].Descriptor()
 	// finalreport.ModelValidator is a validator for the "model" field. It is called by the builders before save.
 	finalreport.ModelValidator = finalreportDescModel.Validators[0].(func(string) error)
 	// finalreportDescOutputMode is the schema descriptor for output_mode field.
-	finalreportDescOutputMode := finalreportFields[11].Descriptor()
+	finalreportDescOutputMode := finalreportFields[15].Descriptor()
 	// finalreport.OutputModeValidator is a validator for the "output_mode" field. It is called by the builders before save.
 	finalreport.OutputModeValidator = finalreportDescOutputMode.Validators[0].(func(string) error)
 	// finalreportDescCreatedByWorkflow is the schema descriptor for created_by_workflow field.
-	finalreportDescCreatedByWorkflow := finalreportFields[12].Descriptor()
+	finalreportDescCreatedByWorkflow := finalreportFields[16].Descriptor()
 	// finalreport.CreatedByWorkflowValidator is a validator for the "created_by_workflow" field. It is called by the builders before save.
 	finalreport.CreatedByWorkflowValidator = finalreportDescCreatedByWorkflow.Validators[0].(func(string) error)
 	// finalreportDescCreatedAt is the schema descriptor for created_at field.
-	finalreportDescCreatedAt := finalreportFields[13].Descriptor()
+	finalreportDescCreatedAt := finalreportFields[17].Descriptor()
 	// finalreport.DefaultCreatedAt holds the default value on creation for the created_at field.
 	finalreport.DefaultCreatedAt = finalreportDescCreatedAt.Default.(func() time.Time)
 	groupingpolicyMixin := schema.GroupingPolicy{}.Mixin()
@@ -1775,34 +1799,40 @@ func init() {
 	reportworkflowpolicyDescReportNotificationChannelProfileID := reportworkflowpolicyFields[3].Descriptor()
 	// reportworkflowpolicy.ReportNotificationChannelProfileIDValidator is a validator for the "report_notification_channel_profile_id" field. It is called by the builders before save.
 	reportworkflowpolicy.ReportNotificationChannelProfileIDValidator = reportworkflowpolicyDescReportNotificationChannelProfileID.Validators[0].(func(int) error)
+	// reportworkflowpolicyDescMaxFailedSubReports is the schema descriptor for max_failed_sub_reports field.
+	reportworkflowpolicyDescMaxFailedSubReports := reportworkflowpolicyFields[4].Descriptor()
+	// reportworkflowpolicy.DefaultMaxFailedSubReports holds the default value on creation for the max_failed_sub_reports field.
+	reportworkflowpolicy.DefaultMaxFailedSubReports = reportworkflowpolicyDescMaxFailedSubReports.Default.(int)
+	// reportworkflowpolicy.MaxFailedSubReportsValidator is a validator for the "max_failed_sub_reports" field. It is called by the builders before save.
+	reportworkflowpolicy.MaxFailedSubReportsValidator = reportworkflowpolicyDescMaxFailedSubReports.Validators[0].(func(int) error)
 	// reportworkflowpolicyDescTriggerMode is the schema descriptor for trigger_mode field.
-	reportworkflowpolicyDescTriggerMode := reportworkflowpolicyFields[4].Descriptor()
+	reportworkflowpolicyDescTriggerMode := reportworkflowpolicyFields[5].Descriptor()
 	// reportworkflowpolicy.DefaultTriggerMode holds the default value on creation for the trigger_mode field.
 	reportworkflowpolicy.DefaultTriggerMode = reportworkflowpolicyDescTriggerMode.Default.(string)
 	// reportworkflowpolicy.TriggerModeValidator is a validator for the "trigger_mode" field. It is called by the builders before save.
 	reportworkflowpolicy.TriggerModeValidator = reportworkflowpolicyDescTriggerMode.Validators[0].(func(string) error)
 	// reportworkflowpolicyDescReportScenario is the schema descriptor for report_scenario field.
-	reportworkflowpolicyDescReportScenario := reportworkflowpolicyFields[5].Descriptor()
+	reportworkflowpolicyDescReportScenario := reportworkflowpolicyFields[6].Descriptor()
 	// reportworkflowpolicy.DefaultReportScenario holds the default value on creation for the report_scenario field.
 	reportworkflowpolicy.DefaultReportScenario = reportworkflowpolicyDescReportScenario.Default.(string)
 	// reportworkflowpolicy.ReportScenarioValidator is a validator for the "report_scenario" field. It is called by the builders before save.
 	reportworkflowpolicy.ReportScenarioValidator = reportworkflowpolicyDescReportScenario.Validators[0].(func(string) error)
 	// reportworkflowpolicyDescDiagnosisFollowUp is the schema descriptor for diagnosis_follow_up field.
-	reportworkflowpolicyDescDiagnosisFollowUp := reportworkflowpolicyFields[6].Descriptor()
+	reportworkflowpolicyDescDiagnosisFollowUp := reportworkflowpolicyFields[7].Descriptor()
 	// reportworkflowpolicy.DefaultDiagnosisFollowUp holds the default value on creation for the diagnosis_follow_up field.
 	reportworkflowpolicy.DefaultDiagnosisFollowUp = reportworkflowpolicyDescDiagnosisFollowUp.Default.(string)
 	// reportworkflowpolicy.DiagnosisFollowUpValidator is a validator for the "diagnosis_follow_up" field. It is called by the builders before save.
 	reportworkflowpolicy.DiagnosisFollowUpValidator = reportworkflowpolicyDescDiagnosisFollowUp.Validators[0].(func(string) error)
 	// reportworkflowpolicyDescEnabled is the schema descriptor for enabled field.
-	reportworkflowpolicyDescEnabled := reportworkflowpolicyFields[7].Descriptor()
+	reportworkflowpolicyDescEnabled := reportworkflowpolicyFields[8].Descriptor()
 	// reportworkflowpolicy.DefaultEnabled holds the default value on creation for the enabled field.
 	reportworkflowpolicy.DefaultEnabled = reportworkflowpolicyDescEnabled.Default.(bool)
 	// reportworkflowpolicyDescCreatedAt is the schema descriptor for created_at field.
-	reportworkflowpolicyDescCreatedAt := reportworkflowpolicyFields[10].Descriptor()
+	reportworkflowpolicyDescCreatedAt := reportworkflowpolicyFields[11].Descriptor()
 	// reportworkflowpolicy.DefaultCreatedAt holds the default value on creation for the created_at field.
 	reportworkflowpolicy.DefaultCreatedAt = reportworkflowpolicyDescCreatedAt.Default.(func() time.Time)
 	// reportworkflowpolicyDescUpdatedAt is the schema descriptor for updated_at field.
-	reportworkflowpolicyDescUpdatedAt := reportworkflowpolicyFields[11].Descriptor()
+	reportworkflowpolicyDescUpdatedAt := reportworkflowpolicyFields[12].Descriptor()
 	// reportworkflowpolicy.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	reportworkflowpolicy.DefaultUpdatedAt = reportworkflowpolicyDescUpdatedAt.Default.(func() time.Time)
 	// reportworkflowpolicy.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

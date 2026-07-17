@@ -20,6 +20,7 @@ type WriteRequest struct {
 	AlertSourceProfileID               domain.AlertSourceProfileID
 	GroupingPolicyID                   domain.GroupingPolicyID
 	ReportNotificationChannelProfileID domain.NotificationChannelProfileID
+	MaxFailedSubReports                int
 	TriggerMode                        domain.ReportWorkflowTriggerMode
 	ReportScenario                     domain.ReportWorkflowScenario
 	DiagnosisFollowUp                  domain.DiagnosisFollowUpMode
@@ -194,6 +195,7 @@ func policyFromWriteRequest(
 		req.AlertSourceProfileID,
 		req.GroupingPolicyID,
 		req.ReportNotificationChannelProfileID,
+		req.MaxFailedSubReports,
 		triggerMode,
 		reportScenario,
 		diagnosisFollowUp,
