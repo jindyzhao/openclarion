@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-07-16
+> Last updated: 2026-07-17
 > Author: jindyzhao
 > Status: private incubation
 
@@ -19,7 +19,7 @@ M0 Bootstrap  ->  M1 Control Plane  ->  M2 Report Loop  ->  M3 Frontend+Ops  -> 
 - [x] Docker Compose for PostgreSQL and Temporal
 - [x] OpenAPI 3.1 skeleton (`api/openapi.yaml` with healthz)
 - [x] oapi-codegen-exp generation chain verified
-- [ ] Ent and Atlas toolchain (deferred to M1: pinned at first import per
+- [x] Ent and Atlas toolchain (delivered in M1 under the
       DEPENDENCIES.md "first-import pin" rule)
 - [x] `make generate`, `make test`, `make lint`, `make pr`
 - [x] health endpoint compiles and returns 200
@@ -98,6 +98,10 @@ Webhook receives notification.
 - [x] Prometheus metrics endpoint
 - [x] HTTP structured error logging with request/trace correlation IDs
 - [x] access logs and broader cross-boundary correlation IDs
+- [x] request-scoped English and Simplified Chinese catalogs across the shell,
+      settings, dashboard, alert, report, and diagnosis surfaces, with typed
+      message keys and verbatim preservation of operator, assistant, provider,
+      query, and evidence content
 
 **Acceptance**: open browser -> view report list -> click into report detail
 with evidence traceability links.
@@ -228,12 +232,18 @@ for the V1 scope boundary.
 - [x] DiagnosisRoomWorkflow control-plane skeleton (Temporal Update, signals, queries, durable timers)
 - [x] per-turn ContainerProvider Activity boundary with strict diagnosis-turn
       output schema validation
-- [x] ChatSession, ChatTurn, and ChatSessionApproval Ent schemas + repository
-      boundary
+- [x] ChatSession, ChatTurn, ChatSessionApproval, and ChatSessionSummary Ent
+      schemas + repository boundary
 - [x] configurable `single` / `owner_and_leader` conclusion approval with
       immutable digest-bound records, distinct actors, and persisted quorum
       enforcement before close
 - [x] DiagnosisRoomWorkflow persists accepted user+assistant ChatTurn pairs
+- [x] lifecycle-end deterministic summary bound to the complete persisted
+      transcript without deleting source turns
+- [x] bounded transient semantic assistant snapshots without persisting preview
+      text or exposing raw model deltas to the browser
+- [x] fail-open bounded historical-report retrieval with persisted advisory
+      source references in workflow, REST, WebSocket, and frontend state
 - [x] bounded-turn enforcement at workflow Update boundary
 - [x] fixed session lifetime + idle timeout
 - [x] diagnosis room route (Next.js)
@@ -243,7 +253,7 @@ for the V1 scope boundary.
 - [x] exact room detail exposes a bounded sanitized lifecycle audit timeline
 - [x] close audit event captures the latest assistant conclusion snapshot
 - [x] authorized operator close remains distinct from conclusion confirmation
-- [x] final group notification on session close
+- [x] configured final group notification on session close
 - [x] live browser acceptance against a real backend/worker stack
       (`make diagnosis-live-browser-smoke` retained a local 2026-06-04
       create-room -> browser connect/state -> submit_turn -> turn_result
@@ -254,15 +264,22 @@ for the V1 scope boundary.
 
 **Acceptance**: authorized user opens diagnosis room -> short-conversation
 with sandboxed agent within turn and time limits -> chat persisted, audit
-logged, final notification sent.
+logged, configured final notification sent.
 
-**Explicitly Out-of-Scope (V1)**: lifecycle-end compression, multi-day
-sessions, arbitrary external approval policies, streaming partial responses.
+**Explicitly Out-of-Scope (V1 baseline)**: multi-day sessions, periodic
+active-session compression, arbitrary external approval policies, and
+browser-facing raw token/delta responses. Deterministic lifecycle-end summaries
+and bounded transient semantic assistant snapshots were delivered later without
+changing the bounded active-session contract.
 
 ## Future
 
 - [x] pgvector report corpus, report-generation retrieval, and bounded reindex command
-- [ ] diagnosis-room consumption of bounded historical report context
+- [x] diagnosis-room consumption of bounded historical report context: each
+      new-version turn receives fail-open advisory retrieval context with
+      bounded size, persisted source references, and REST/WebSocket/UI
+      traceability (`make diagnosis-room-workflow-test`,
+      `make diagnosis-chat-persistence-test`)
 - [ ] Kubernetes Job ContainerProvider
 - [x] DingTalk and Feishu IM providers
 - [x] NetBox CMDB provider
@@ -277,6 +294,9 @@ sessions, arbitrary external approval policies, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-17 | jindyzhao | Diagnosis-room controlled copy now uses request-scoped English and Simplified Chinese catalogs across the complete operator workflow while preserving operator, assistant, provider, query, and evidence content verbatim. |
+| 2026-07-17 | jindyzhao | Reconcile the M5 checklist with shipped lifecycle-end summaries, bounded semantic assistant previews, and advisory historical-report retrieval with persisted source references. |
+| 2026-07-17 | jindyzhao | Report workflow hardening now persists SubReport child lifecycle state, settles sibling failures before applying a bounded policy threshold, and exposes complete/partial FinalReport coverage through persistence, generated APIs, and the localized frontend. |
 | 2026-07-15 | jindyzhao | Diagnosis rooms now support an administer-authorized WebSocket close action that records the authenticated close actor without manufacturing conclusion approval, protects accepted Workflow Updates from idle timeout, and exposes a bounded sanitized immutable audit timeline only on exact room detail. |
 | 2026-07-14 | jindyzhao | Backend multi-tenant operations now provide a global tenant registry, owner/member administration, tenant-bound browser sessions and WebSocket tickets, fail-closed Ent query/mutation scoping, relation validation, tenant-propagated Temporal work and schedules, and a populated-database-compatible default-tenant migration. Frontend workspace selection remains a separate change. |
 | 2026-07-14 | jindyzhao | Diagnosis rooms now support configurable single-party or owner-plus-leader conclusion approval, with immutable digest-bound approvals, dedicated approval RBAC, persisted quorum enforcement before close, and WebSocket/REST/frontend projection. |
@@ -284,8 +304,7 @@ sessions, arbitrary external approval policies, streaming partial responses.
 | 2026-07-10 | jindyzhao | Alertmanager webhook lifecycle ingestion now applies resolved entries to matching profile-scoped `AlertEvent` natural keys, preserves immutable resolution timestamps under repeated or concurrent delivery, reports unmatched resolutions without synthesizing history, and keeps automatic diagnosis firing-only. |
 | 2026-07-10 | jindyzhao | Scheduled weekly/monthly reports were marked complete after re-review: persisted report workflow schedules already support UTC daily, weekly, and monthly calendar cadences through domain validation, generated API contracts, Ent persistence, frontend settings formatting, and Temporal Schedule calendar-spec registration. Retained live scheduled-trigger proof remains separate. |
 | 2026-07-10 | jindyzhao | NetBox CMDB provider landed locally: read-only NetBox 4.5.2+ device and virtual-machine lookups within the 4.x series enforce a single match, project contact assignments and topology into EvidenceSnapshots, retain only explicitly allowlisted scalar custom fields, support v2 Bearer and legacy v1 Token authentication, and use mutually exclusive fail-fast runtime configuration across all CMDB-enabled replay paths. |
-| 2026-07-16 | jindyzhao | Report workflow hardening now persists SubReport child lifecycle state, settles sibling failures before applying a bounded policy threshold, and exposes complete/partial FinalReport coverage through persistence, generated APIs, and the localized frontend. |
-| 2026-07-10 | jindyzhao | Generic CMDB runtime wiring landed locally: `cmd/openclarion` now validates optional HTTP CMDB environment settings and injects the provider into every production replay path that builds EvidenceSnapshots, including legacy HTTP/CLI triggers, profile-driven manual and scheduled replay, and Alertmanager automatic diagnosis. NetBox-specific API mapping remains separate future scope. |
+| 2026-07-10 | jindyzhao | Generic CMDB runtime wiring landed locally: `cmd/openclarion` validates optional HTTP CMDB environment settings and injects the provider into every production replay path that builds EvidenceSnapshots, including legacy HTTP/CLI triggers, profile-driven manual and scheduled replay, and Alertmanager automatic diagnosis. The same runtime selector now supports the separately implemented NetBox adapter described above. |
 | 2026-07-08 | jindyzhao | SMTP Email IM provider landed locally: profile-backed notification channels can now use `email` kind secrets with compact SMTP URLs for report-scoped plain-text delivery and channel tests. Legacy unbound delivery remains Webhook-only, and diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |
 | 2026-07-08 | jindyzhao | Slack incoming-webhook IM format landed locally: Webhook-backed notification delivery can now send Slack `text` payloads through legacy env format selection or profile-backed `slack` channel kinds. Diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |
 | 2026-07-08 | jindyzhao | DingTalk and Feishu IM provider formats landed locally: Webhook-backed notification delivery can now send DingTalk text robot payloads and Feishu/Lark custom-bot text payloads through legacy env format selection or profile-backed `dingtalk` / `feishu` channel kinds. These report-delivery channel kinds still keep diagnosis consultation and close delivery scoped to Enterprise WeChat. |

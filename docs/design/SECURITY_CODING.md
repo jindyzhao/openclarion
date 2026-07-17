@@ -18,8 +18,10 @@
 
 Agent runtimes (sandboxed containers) must not receive host privileges. The Go
 control plane owns sandbox creation, prompt injection, output capture, timeout,
-cleanup, session close handling, and final notification. Automatic conversation
-compression is out of scope for V1 short-conversation diagnosis.
+cleanup, session close handling, and final notification. Periodic semantic
+compression remains out of scope for bounded V1 conversations; the shipped
+lifecycle-end summary is deterministic, immutable, and preserves every source
+turn.
 
 ## Sandbox Credential and Privilege Rules
 

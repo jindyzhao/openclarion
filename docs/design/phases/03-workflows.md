@@ -10,10 +10,11 @@ notifications, retries, and failure marking.
 | Workflow | Purpose |
 |----------|---------|
 | DiagnosisWorkflow | process one evidence snapshot |
+| DiagnosisRoomWorkflow | own one tenant-bound interactive diagnosis session, accepted turns, approvals, timers, and terminal close |
 | ReportFanOutWorkflow | generate per-group subreports |
 | ReportBatchWorkflow | fan out subreports and fan in to a final report |
 | FinalReportWorkflow | reduce subreports and persist final report |
-| WeeklyReportWorkflow | future scheduled summary |
+| ReportPolicyScheduleLauncherWorkflow | launch a policy-bound replay from a Temporal Schedule fire time |
 
 ## Workflow Policies
 

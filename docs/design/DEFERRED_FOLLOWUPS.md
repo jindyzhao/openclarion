@@ -5,7 +5,7 @@
 > prevents deferred items from being silently lost and prevents past
 > discussions from being re-litigated without new information.
 
-> Last updated: 2026-07-14
+> Last updated: 2026-07-17
 
 ## How To Use This File
 
@@ -17,36 +17,16 @@
 
 ## Active Deferrals
 
-### D3: Lifecycle-End Conversation Compression (M5)
-
-| Field | Value |
-|-------|-------|
-| Status | open |
-| Decided | 2026-05-19 |
-| Reason | M5 V1 scope is short-conversation only. Bounded turns and fixed lifetime cap session size, so automatic compression is not needed for V1. |
-| Trigger | revisit when long-session product validation justifies multi-day rooms |
-| Target | post-V1 |
-
 ### D5: Streaming Token-Level Partial Responses (M5)
 
 | Field | Value |
 |-------|-------|
 | Status | open |
 | Decided | 2026-05-19 |
-| Reason | Turn-by-turn delivery is sufficient for short-conversation diagnosis. Streaming partial tokens adds significant complexity to the WebSocket proxy and workflow contract. |
-| Trigger | UX validation after V1 ships |
+| Updated | 2026-07-17 |
+| Reason | The shipped diagnosis path already projects model deltas into bounded, transient semantic `message` snapshots and renders them as a replaceable assistant draft without persisting preview text. What remains deferred is a browser-facing raw token/delta protocol, which would expose incomplete structured output and add retry, ordering, and compatibility cost without improving the durable turn contract. |
+| Trigger | UX evidence shows semantic draft snapshots are insufficient and that raw token-level rendering is required |
 | Target | post-V1 |
-
-### D7: pgvector / RAG Retrieval
-
-| Field | Value |
-|-------|-------|
-| Status | open |
-| Decided | 2026-05-19 |
-| Updated | 2026-07-14 |
-| Reason | The report path now has an optional pgvector corpus, OpenAI-compatible embeddings, bounded advisory historical context, traceability refs, and an idempotent reindex command. Diagnosis-room consumption remains intentionally separate so historical reports cannot be mistaken for current evidence or enter the sandbox before its prompt and provenance contract is reviewed. |
-| Trigger | close after diagnosis-room retrieval uses the same bounded model-scoped corpus with explicit advisory provenance and focused workflow coverage |
-| Target | post-V1 completion work |
 
 ### D8: Kubernetes Job ContainerProvider
 
@@ -93,6 +73,17 @@
 | Trigger | closed after M2/M5 handler growth did not materialize into adapter pain; reopen only if upstream generates a stable strict interface for the pinned OpenAPI 3.1 path, or if repeated handler request/response boilerplate is measured in review |
 | Target | closed by V1 API handler evidence |
 
+### D3: Lifecycle-End Conversation Compression (M5)
+
+| Field | Value |
+|-------|-------|
+| Status | closed |
+| Decided | 2026-05-19 |
+| Updated | 2026-07-14 |
+| Reason | A post-V1 deterministic lifecycle-end summary now reads the complete persisted transcript, stores one immutable versioned `ChatSessionSummary` bound to ordered source turns, preserves every `ChatTurn`, and exposes the bounded read model through workflow, WebSocket, REST, and frontend state. This does not introduce periodic semantic compression or unbounded active sessions. |
+| Trigger | closed after lifecycle-end summary persistence and projection landed; reopen only if active multi-day sessions require periodic semantic compression |
+| Target | landed post-V1 |
+
 ### D4: Leader-Tier RBAC and Approval Flows (M5)
 
 | Field | Value |
@@ -114,6 +105,17 @@
 | Reason | Original deferral assumed M0 would replace `TBD pinned at M0` placeholders for these modules. Post-M0 review (2026-05-22) replaced that policy with the `first-import pin` rule in DEPENDENCIES.md: a Go module enters `go.mod` only when production code first imports it, and is pinned to a concrete `module@version` at that moment. ADR-0012 was amended (2026-05-22) so the Temporal SDK pin and Update round-trip validation move from M0 to M1. The `forbidden-latest` CI gate keeps enforcing the no-`latest` rule throughout. **M1-PR1 (2026-05-22)** lands the Ent and Atlas pins: `entgo.io/ent v0.14.6` (direct require + `tool` directive in `go.mod`) and Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin). The Atlas wrapper redesign (2026-05-22) replaced the original Docker-socket plan with a host-launched ephemeral `postgres:18-alpine` on a per-invocation dedicated Docker network, with Atlas reaching the dev DB via a plain `postgres://` URL; no host Docker socket is mounted, and the `docker://...` dev-url form is not used. Atlas is **not** added to `go.mod` because it is invoked as a CLI via the pinned image rather than imported as a Go library; the pin lives in `Makefile` (`ATLAS_IMAGE`) and `docs/design/DEPENDENCIES.md`. **M1-PR3 (2026-05-25)** lands the Temporal Go SDK pin: `go.temporal.io/sdk v1.44.0` (direct require in `go.mod`), entering via the first-import rule when `internal/orchestrator/temporal/` production code first imports it. **M3 backend observability (2026-05-28)** lands OpenTelemetry Go direct pins through `internal/observability/tracing`: `go.opentelemetry.io/otel v1.44.0`, `go.opentelemetry.io/otel/sdk v1.44.0`, OTLP HTTP trace exporter `v1.44.0`, and `otelhttp v0.68.0`; this version family is above the `GO-2026-4985` fixed-in floor reported by `govulncheck`. |
 | Trigger | Closed by M3 OpenTelemetry HTTP tracing first import. |
 | Target | M3 (OpenTelemetry Go) |
+
+### D7: pgvector / RAG Retrieval
+
+| Field | Value |
+|-------|-------|
+| Status | closed |
+| Decided | 2026-05-19 |
+| Updated | 2026-07-17 |
+| Reason | The report path and diagnosis room now share the optional model-scoped pgvector corpus. Report prompts and new-version diagnosis turns consume bounded advisory historical context, fail open when optional retrieval is unavailable, and persist explicit source references that are projected through workflow, REST, WebSocket, and frontend state without treating history as current evidence. The idempotent reindex command covers existing accepted reports. |
+| Trigger | closed after report and diagnosis-room retrieval, provenance, and focused workflow coverage landed; reopen only for a new retrieval corpus or evidence-authority model |
+| Target | landed post-V1 |
 
 ### D9: Email IMProvider Implementation
 
@@ -139,6 +141,8 @@
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-17 | jindyzhao | Clarify D5 after reviewing the shipped streaming path: bounded semantic assistant snapshots are implemented end to end; only browser-facing raw token/delta delivery remains deferred. |
+| 2026-07-17 | jindyzhao | Close D3 and D7 after the immutable lifecycle-end summary and bounded diagnosis-room historical report retrieval landed with source preservation, advisory provenance, and focused workflow coverage. |
 | 2026-07-14 | jindyzhao | Update D7 after report-side pgvector retrieval landed; keep the deferral open only for diagnosis-room consumption and its provenance contract. |
 | 2026-07-14 | jindyzhao | Close D4 after configurable single-party and owner-plus-leader conclusion approval landed with digest-bound immutable approvals and persisted quorum enforcement. |
 | 2026-05-19 | jindyzhao | Initial set of deferrals: spike, Strict adapter, M5 long-session features, version pinning, future providers |

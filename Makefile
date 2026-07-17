@@ -595,8 +595,8 @@ sandbox-m4-evidence-packet-verify: ## Manual M4 evidence packet verification: PA
 diagnosis-room-policy-test: ## Run focused M5 short-conversation policy tests
 	@go test -race -count=1 ./internal/usecases/diagnosisroom
 
-diagnosis-room-workflow-test: ## Run focused M5 Temporal diagnosis room workflow/client and lifecycle activity tests
-	@go test -race -count=1 ./internal/orchestrator/temporal -run 'Test(DiagnosisRoom|RunDiagnosisTurn)'
+diagnosis-room-workflow-test: ## Run focused M5 Temporal diagnosis room workflow/client, tenant context, and lifecycle activity tests
+	@go test -race -count=1 ./internal/orchestrator/temporal -run 'Test(DiagnosisRoom|RunDiagnosisTurn|TenantContext)'
 
 diagnosis-auth-test: ## Run focused M5 AuthProvider/RBAC/WS ticket/relay tests
 	@go test -race -count=1 ./internal/usecases/diagnosisauth ./internal/usecases/ports
@@ -604,9 +604,9 @@ diagnosis-auth-test: ## Run focused M5 AuthProvider/RBAC/WS ticket/relay tests
 	@go test -race -count=1 ./internal/persistence/repository -run TestDiagnosisAuthTicketStore
 	@go test -race -count=1 ./internal/transport/http -run 'Test(IssueDiagnosisAuthSession|CheckDiagnosisAuth|IssueDiagnosisWSTicket|HandleDiagnosisWebSocket|DiagnosisWebSocketRelay)'
 
-diagnosis-chat-persistence-test: ## Run focused M5 ChatSession/ChatTurn persistence tests
+diagnosis-chat-persistence-test: ## Run focused M5 chat session, turn, approval, and summary persistence tests
 	@go test -race -count=1 ./internal/domain -run 'TestNewChatSession|TestChatSession_RecordTurnAndClose|TestNewChatTurn'
-	@go test -race -count=1 ./internal/persistence/repository -run 'TestDiagnosisRepository_(SaveChatSessionAndQuery|SaveChatSession_DuplicateKeys|SaveChatTurnAndList|ChatInvariantGuards)'
+	@go test -race -count=1 ./internal/persistence/repository -run 'TestDiagnosisRepository_(SaveChatSessionAndQuery|SaveChatSession_DuplicateKeys|SaveChatSessionSummaryAndFind|SaveChatSessionApprovalAndList|SaveChatTurnAndList|ChatInvariantGuards)'
 
 diagnosis-live-smoke-output-test: ## Run focused M5 live smoke proof validator tests
 	@go test -race -count=1 ./scripts/diagnosis_live_smoke_output ./scripts/diagnosis_live_convergence_smoke_output
