@@ -90,17 +90,17 @@ The detailed boundary lives in
 | Persistence | `FinalReport` row; notification delivery log |
 | Invariant | report and notification persistence are decoupled |
 
-## Stage S5: Optional Agent Sandbox Analysis (M4)
+## Stage S5: Candidate Agent Sandbox Analysis (M4 Exploration)
 
 | Aspect | Value |
 |--------|-------|
 | Authority | [phases/04-ai-integration.md](../phases/04-ai-integration.md), [adr/ADR-0005](../../adr/ADR-0005-ephemeral-container-security.md) |
 | Owner | Go control plane + ContainerProvider |
-| Trigger | snapshot meets configured criteria for tool-augmented analysis |
-| Success | sandbox returns structured JSON; enhanced report attached to FinalReport |
-| Failure | sandbox timeout or non-zero exit -> mark attempt failed, fall back to S3-only report; container always cleaned up |
-| Persistence | `SandboxRun` row; output JSON archived |
-| Invariant | sandbox interior is runtime-agnostic; control plane owns lifecycle |
+| Trigger | operator runs the manual M4 quality-evidence path against representative persisted snapshots |
+| Success | candidate sandbox output passes the production SubReport parser and enters retained direct-vs-sandbox quality review |
+| Failure | sandbox timeout, invalid output, or non-zero exit rejects that candidate attempt; the production S3/S4 path remains unchanged and the container is cleaned up |
+| Persistence | candidate SubReport rows and explicitly retained manual evidence artifacts; no production `SandboxRun` model exists |
+| Invariant | S5 is not part of the production report path until representative quality evidence and a recorded M4 proceed decision justify integration |
 
 ## Stage S6: Short-Conversation Interactive Diagnosis (M5, V1 Required)
 
@@ -108,11 +108,11 @@ The detailed boundary lives in
 |--------|-------|
 | Authority | [phases/05-interactive-diagnosis.md](../phases/05-interactive-diagnosis.md) |
 | Owner | Go control plane + AuthProvider + ContainerProvider + Temporal `DiagnosisRoomWorkflow` |
-| Trigger | authorized user opens diagnosis room from a FinalReport |
-| Success | bounded-turn conversation completes; chat persisted; final notification sent on close |
-| Failure | turn limit reached -> graceful close with notification; idle timeout -> graceful close; sandbox failure -> session terminated with explicit error turn; auth failure -> handshake refused |
-| Persistence | `ChatSession` and `ChatTurn` rows; audit log |
-| Invariant | turn count and session lifetime are enforced at workflow level; no client-side bypass |
+| Trigger | authorized operator creates or opens a room for an `EvidenceSnapshot`, directly or from alert/report review |
+| Success | bounded turns and evidence follow-ups persist; human-confirmed close satisfies the configured conclusion quorum; terminal close retains a source-bound summary and, when configured, a final notification outcome |
+| Failure | the turn cap rejects additional turns; idle/session timeout closes gracefully; an initial-turn failure closes the task as failed, while a later turn failure retains a sanitized room error without accepting a partial turn; auth failure refuses the request or handshake |
+| Persistence | `ChatSession`, `ChatTurn`, `ChatSessionApproval`, and `ChatSessionSummary` rows plus `DiagnosisTaskEvent` lifecycle and configured-notification audit |
+| Invariant | tenant identity, room authority, turn count, and session lifetime are enforced by backend/workflow boundaries; no client-side bypass |
 
 ## Closure Outcomes
 

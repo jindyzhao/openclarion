@@ -114,8 +114,11 @@ The short-conversation diagnosis room is a V1-required M5 milestone. It requires
 - sandbox lifecycle coordination
 - audit logging
 
-It does not include automatic conversation compression, long sessions, or
-streaming token-level partial responses in V1.
+The V1 baseline does not include long sessions, periodic active-session
+compression, or a browser-facing raw token/delta protocol. Post-V1 additions
+provide bounded transient semantic assistant snapshots and a deterministic
+lifecycle-end summary without persisting preview text, deleting source turns,
+or expanding the active-session context budget.
 
 The M5 route now lives at `/diagnosis-room`. The route page remains a thin App
 Router wrapper over `web/src/features/diagnosis-room/`, the rendered controls

@@ -35,13 +35,15 @@ authorization boundary stay separate from report fan-out/fan-in workflows. See
 | owner/admin room access plus configurable single or owner-and-leader conclusion approval | arbitrary quorum policies and external governance integration |
 | chat persistence, audit trail, and lifecycle-end deterministic compression | periodic semantic compression for unbounded long sessions |
 | basic unsafe-instruction filter (deny list) | adaptive policy / model-graded safety |
-| Temporal workflow with signals, updates, and queries | per-tenant workflow isolation |
+| tenant-bound Temporal workflow with signals, updates, and queries | dedicated Temporal namespace/task queue per tenant |
 | WS ticket-based authenticated handshake | distributed session state across regions |
 
-When the configured turn or time limit is reached, the workflow creates an
-immutable source-bound conversation summary, persists session closure metadata,
-and then runs the final notification step through the M2 IMProvider. Original
-ChatTurn rows remain complete.
+On every terminal close, including session/idle timeout and explicit operator
+close, the workflow creates or reuses an immutable source-bound conversation
+summary, persists session closure metadata, and then runs the final
+notification step through the M2 IMProvider when a close-notification profile
+is bound. Reaching the turn cap rejects additional turns but does not
+manufacture a close action. Original ChatTurn rows remain complete.
 
 ## Prerequisites
 
@@ -60,6 +62,8 @@ ChatTurn rows remain complete.
 - Temporal workflow that owns session lifecycle (Update + durable timer)
 - ChatSession, ChatTurn, ChatSessionApproval, and immutable versioned
   ChatSessionSummary Ent schemas
+- optional bounded historical-report retrieval with advisory source references
+- transient semantic assistant snapshots that never replace accepted output
 - bounded-turn enforcement at the workflow level
 - unsafe-instruction filter (deny-list, defense-in-depth)
 - audit logging for session lifecycle events
@@ -434,10 +438,12 @@ make diagnosis-chat-persistence-test
 ```
 
 The schema/repository boundary and Temporal workflow wiring are both present:
-`DiagnosisRoomWorkflow` creates/reuses the session and persists each accepted
-user+assistant turn pair. The WebSocket relay now feeds submit/query frames
-into this workflow, and lifecycle events are recorded in `DiagnosisTaskEvent`
-with stable idempotency keys.
+`DiagnosisRoomWorkflow` creates/reuses the session, persists each accepted
+user+assistant turn pair and its advisory retrieval references, enforces
+immutable conclusion approvals, and creates/reuses the source-bound terminal
+summary. The WebSocket relay feeds submit/query frames into this workflow, and
+lifecycle events are recorded in `DiagnosisTaskEvent` with stable idempotency
+keys.
 
 ### Context Budget
 
@@ -478,13 +484,20 @@ budget is enforced at the workflow/Activity boundary before mounting:
   assistant conclusion has the required distinct owner/leader approvals
 - an authorized operator can explicitly close an idle room without confirming
   its conclusion, with the close actor retained in lifecycle audit
-- session close triggers final group notification
+- session close triggers final group notification when a notification channel
+  profile is bound
 - exact room detail exposes a bounded sanitized projection of queryable audit
   events
+- terminal close retains an immutable source-bound summary without deleting
+  transcript turns
+- English and Simplified Chinese catalogs localize controlled interface copy
+  while preserving operator, assistant, query, provider, and evidence content
+  verbatim
 
 ## Out-of-Scope Confirmation
 
 - no periodic active-session compression for multi-day rooms
 - no arbitrary quorum policy or external approval-governance integration
 - no multi-day or multi-region session state
-- no streaming token-level partial responses (turn-by-turn is sufficient)
+- no browser-facing raw token/delta protocol; bounded transient semantic
+  `message` snapshots already provide a replaceable in-flight draft
