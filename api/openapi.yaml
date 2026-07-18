@@ -2787,6 +2787,8 @@ paths:
                         department: Platform
                         section: SRE
                         department_path: IT/Platform/SRE
+                        department_paths:
+                          - IT/Platform/SRE
                         department_external_ids:
                           - dep-2
                         active: true
@@ -3052,6 +3054,8 @@ paths:
                         department: Platform
                         section: SRE
                         department_path: IT/Platform/SRE
+                        department_paths:
+                          - IT/Platform/SRE
                         department_external_ids:
                           - dep-2
                         active: true
@@ -6242,6 +6246,8 @@ components:
                 department: Platform
                 section: SRE
                 department_path: IT/Platform/SRE
+                department_paths:
+                  - IT/Platform/SRE
                 department_external_ids:
                   - dep-2
                 active: true
@@ -6255,12 +6261,16 @@ components:
     RBACSubjectKind:
       type: string
       description: Local role assignment subject type.
+      examples:
+        - department
       enum:
         - user
         - department
     RBACScopeKind:
       type: string
       description: OpenClarion product resource family covered by a local role assignment.
+      examples:
+        - diagnosis_room
       enum:
         - global
         - diagnosis_room
@@ -6273,6 +6283,8 @@ components:
     RBACRole:
       type: string
       description: OpenClarion-local role.
+      examples:
+        - responder
       enum:
         - admin
         - operator
@@ -6282,6 +6294,8 @@ components:
     RBACPermission:
       type: string
       description: OpenClarion-local action-level permission.
+      examples:
+        - diagnosis_room.participate
       enum:
         - directory.read
         - directory.manage
@@ -6568,6 +6582,8 @@ components:
                 department: Platform
                 section: SRE
                 department_path: IT/Platform/SRE
+                department_paths:
+                  - IT/Platform/SRE
                 department_external_ids:
                   - dep-2
                 active: true
@@ -8305,6 +8321,9 @@ components:
     DiagnosisRoomWorkflowVisibility:
       type: object
       description: Sanitized Temporal execution metadata for a diagnosis-room workflow.
+      examples:
+        - status: running
+          task_queue: openclarion
       properties:
         status:
           type: string
@@ -8384,6 +8403,19 @@ components:
     DiagnosisRoomConversationSummary:
       type: object
       description: Immutable versioned conversation compression checkpoint bound to ordered ChatTurn rows by SHA-256.
+      examples:
+        - id: 9
+          version: 1
+          schema_version: diagnosis-conversation-summary.v1
+          source_first_sequence: 1
+          source_last_sequence: 4
+          source_turn_count: 4
+          source_digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          content:
+            schema_version: diagnosis-conversation-summary.v1
+            compression_method: deterministic-extractive
+            source_turn_count: 4
+          generated_at: "2026-06-18T02:19:00Z"
       properties:
         id:
           type: integer
@@ -8558,6 +8590,8 @@ components:
                 department: Platform
                 section: SRE
                 department_path: IT/Platform/SRE
+                department_paths:
+                  - IT/Platform/SRE
                 active: true
           items:
             $ref: "#/components/schemas/DiagnosisRoomParticipantDirectoryUser"
@@ -8570,12 +8604,22 @@ components:
         notification_timeline:
           type: array
           description: Sanitized outbound diagnosis-room notification delivery timeline.
+          examples:
+            - - event_kind: diagnosis_room.final_ready_notification_sent
+                provider_status: sent
+                occurred_at: "2026-06-18T02:21:00Z"
           items:
             $ref: "#/components/schemas/DiagnosisRoomNotificationTimelineEntry"
         audit_timeline:
           type: array
           maxItems: 500
           description: Sanitized lifecycle event sequence included only in the exact room detail response. Raw payloads, dedupe keys, model content, and provider metadata remain server-side.
+          examples:
+            - - id: 901
+                event_kind: diagnosis_room.turn_persisted
+                category: interaction
+                occurred_at: "2026-06-18T02:20:30Z"
+                recorded_at: "2026-06-18T02:20:31Z"
           items:
             $ref: "#/components/schemas/DiagnosisRoomAuditTimelineEntry"
         workflow_visibility:
@@ -10124,6 +10168,16 @@ components:
     DiagnosisRoomProgressSummary:
       type: object
       description: Latest non-final diagnosis-room AI progress linked to a report evidence snapshot.
+      examples:
+        - diagnosis_task_id: 41
+          event_kind: diagnosis_room.turn_persisted
+          status: in_progress
+          evidence_snapshot_id: 247
+          confidence: medium
+          requires_human_review: true
+          evidence_request_count: 1
+          occurred_at: "2026-06-18T02:19:30Z"
+          recorded_at: "2026-06-18T02:19:31Z"
       properties:
         diagnosis_task_id:
           type: integer
@@ -10222,6 +10276,15 @@ components:
     DiagnosisRoomConclusionSummary:
       type: object
       description: Latest available diagnosis-room conclusion linked to a report evidence snapshot.
+      examples:
+        - diagnosis_task_id: 41
+          session_id: diagnosis-room-41
+          chat_session_id: 17
+          event_kind: diagnosis_room.final_conclusion_ready
+          status: available
+          source: assistant
+          content: The checkout latency increase correlates with database saturation.
+          recorded_at: "2026-06-18T02:20:00Z"
       properties:
         diagnosis_task_id:
           type: integer
@@ -10499,6 +10562,10 @@ components:
     DiagnosisRoomNotificationTimelineEntry:
       type: object
       description: Sanitized outbound notification delivery retained from diagnosis-room lifecycle events.
+      examples:
+        - event_kind: diagnosis_room.final_ready_notification_sent
+          provider_status: sent
+          occurred_at: "2026-06-18T02:21:00Z"
       properties:
         event_kind:
           type: string
@@ -10552,6 +10619,8 @@ components:
       properties:
         event_kind:
           type: string
+          examples:
+            - diagnosis_room.final_ready_notification_sent
           enum:
             - diagnosis_room.assistant_turn_notification_sent
             - diagnosis_room.final_ready_notification_sent
@@ -10561,6 +10630,8 @@ components:
     DiagnosisNotificationRetryState:
       type: string
       description: Outcome of a diagnosis-room notification retry request.
+      examples:
+        - sent
       enum:
         - sent
         - already_delivered
