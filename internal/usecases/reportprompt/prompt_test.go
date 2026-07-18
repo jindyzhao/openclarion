@@ -142,12 +142,105 @@ func TestBuildSubReportRequest_RejectsInvalidInput(t *testing.T) {
 				Scenario: ScenarioSingleAlert,
 			},
 		},
+		{
+			name: "invalid snapshot status",
+			input: SubReportInput{
+				Snapshot: func() domain.EvidenceSnapshot {
+					snapshot := validSnapshot()
+					snapshot.Status = domain.SnapshotStatus("unknown")
+					return snapshot
+				}(),
+				Scenario: ScenarioSingleAlert,
+			},
+		},
+		{
+			name: "failed snapshot",
+			input: SubReportInput{
+				Snapshot: func() domain.EvidenceSnapshot {
+					snapshot := validSnapshot()
+					snapshot.Status = domain.SnapshotStatusFailed
+					return snapshot
+				}(),
+				Scenario: ScenarioSingleAlert,
+			},
+		},
+		{
+			name: "complete snapshot with missing fields",
+			input: SubReportInput{
+				Snapshot: func() domain.EvidenceSnapshot {
+					snapshot := validSnapshot()
+					snapshot.MissingFields = []string{"cmdb.matches.101"}
+					return snapshot
+				}(),
+				Scenario: ScenarioSingleAlert,
+			},
+		},
+		{
+			name: "partial snapshot without missing fields",
+			input: SubReportInput{
+				Snapshot: func() domain.EvidenceSnapshot {
+					snapshot := validSnapshot()
+					snapshot.Status = domain.SnapshotStatusPartial
+					return snapshot
+				}(),
+				Scenario: ScenarioSingleAlert,
+			},
+		},
+		{
+			name: "partial snapshot with untrimmed missing field",
+			input: SubReportInput{
+				Snapshot: func() domain.EvidenceSnapshot {
+					snapshot := validSnapshot()
+					snapshot.Status = domain.SnapshotStatusPartial
+					snapshot.MissingFields = []string{" cmdb.matches.101"}
+					return snapshot
+				}(),
+				Scenario: ScenarioSingleAlert,
+			},
+		},
+		{
+			name: "partial snapshot with duplicate missing field",
+			input: SubReportInput{
+				Snapshot: func() domain.EvidenceSnapshot {
+					snapshot := validSnapshot()
+					snapshot.Status = domain.SnapshotStatusPartial
+					snapshot.MissingFields = []string{"cmdb.matches.101", "cmdb.matches.101"}
+					return snapshot
+				}(),
+				Scenario: ScenarioSingleAlert,
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := BuildSubReportRequest(tc.input)
 			assertInvariant(t, err)
 		})
+	}
+}
+
+func TestBuildSubReportRequest_PreservesPartialSnapshotQuality(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Status = domain.SnapshotStatusPartial
+	snapshot.MissingFields = []string{"cmdb.matches.101"}
+
+	req, err := BuildSubReportRequest(SubReportInput{
+		Snapshot: snapshot,
+		Scenario: ScenarioSingleAlert,
+	})
+	if err != nil {
+		t.Fatalf("BuildSubReportRequest: %v", err)
+	}
+	userPrompt := req.Messages[1].Content
+	for _, required := range []string{
+		"Evidence snapshot status: partial",
+		`Missing evidence paths JSON: ["cmdb.matches.101"]`,
+		"explicitly state the missing coverage",
+		"never infer values for missing evidence paths",
+	} {
+		if !strings.Contains(userPrompt, required) {
+			t.Fatalf("partial snapshot prompt missing %q: %s", required, userPrompt)
+		}
 	}
 }
 
@@ -299,6 +392,10 @@ func assertSubReportRequestShape(t *testing.T, req ports.LLMRequest, snapshotID 
 	}
 	if !strings.Contains(req.Messages[1].Content, fmt.Sprintf("Evidence snapshot ref: snapshot:%d", snapshotID)) {
 		t.Fatalf("user prompt missing snapshot ref: %s", req.Messages[1].Content)
+	}
+	if !strings.Contains(req.Messages[1].Content, "Evidence snapshot status: complete") ||
+		!strings.Contains(req.Messages[1].Content, "Missing evidence paths JSON: []") {
+		t.Fatalf("user prompt missing snapshot quality metadata: %s", req.Messages[1].Content)
 	}
 	if !strings.Contains(req.Messages[1].Content, "Include the evidence snapshot ref in evidence_refs") {
 		t.Fatalf("user prompt does not require snapshot ref evidence_refs: %s", req.Messages[1].Content)

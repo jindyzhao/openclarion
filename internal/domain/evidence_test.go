@@ -48,6 +48,10 @@ func TestNewEvidenceSnapshot(t *testing.T) {
 		{name: "unknown status", groupID: 1, digest: "d", payload: payload, status: SnapshotStatus("weird")},
 		{name: "missing fields with status complete", groupID: 1, digest: "d", payload: payload, status: SnapshotStatusComplete, missingFields: []string{"x"}},
 		{name: "missing fields with status failed", groupID: 1, digest: "d", payload: payload, status: SnapshotStatusFailed, missingFields: []string{"x"}},
+		{name: "partial without missing fields", groupID: 1, digest: "d", payload: payload, status: SnapshotStatusPartial},
+		{name: "empty missing field", groupID: 1, digest: "d", payload: payload, status: SnapshotStatusPartial, missingFields: []string{""}},
+		{name: "untrimmed missing field", groupID: 1, digest: "d", payload: payload, status: SnapshotStatusPartial, missingFields: []string{" topology.owner"}},
+		{name: "duplicate missing field", groupID: 1, digest: "d", payload: payload, status: SnapshotStatusPartial, missingFields: []string{"topology.owner", "topology.owner"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -58,4 +62,12 @@ func TestNewEvidenceSnapshot(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("failed snapshot is not reportable", func(t *testing.T) {
+		t.Parallel()
+		err := ValidateEvidenceSnapshotReportability(SnapshotStatusFailed, nil)
+		if !errors.Is(err, ErrInvariantViolation) {
+			t.Fatalf("err = %v, want ErrInvariantViolation", err)
+		}
+	})
 }

@@ -44,6 +44,34 @@ func TestBuilderBuildsPrometheusProviderWithoutCredentials(t *testing.T) {
 	}
 }
 
+func TestProfileWrapperTagsPartialProviderResults(t *testing.T) {
+	profile := mustProviderProfile(t, domain.AlertSourceKindPrometheus, domain.AlertSourceAuthModeNone)
+	providerErr := errors.New("upstream page failed")
+	builder, err := NewBuilder(ProviderFactories{
+		domain.AlertSourceKindPrometheus: func(domain.AlertSourceProfile, Credentials) (ports.ActiveAlertProvider, error) {
+			return fakeMetricsProvider{
+				alerts: []ports.ActiveAlert{{Source: "prometheus"}},
+				err:    providerErr,
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewBuilder: %v", err)
+	}
+
+	provider, err := builder.Build(context.Background(), profile)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	alerts, err := provider.ListActiveAlerts(context.Background())
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("ListActiveAlerts error = %v, want provider cause", err)
+	}
+	if len(alerts) != 1 || alerts[0].AlertSourceProfileID != profile.ID {
+		t.Fatalf("partial alerts = %+v, want source profile %d", alerts, profile.ID)
+	}
+}
+
 func TestBuilderBuildsAlertmanagerProviderWithBearerCredentials(t *testing.T) {
 	profile := mustProviderProfile(t, domain.AlertSourceKindAlertmanager, domain.AlertSourceAuthModeBearer)
 	builder, err := NewBuilder(
@@ -201,6 +229,7 @@ func mustProviderProfile(
 
 type fakeMetricsProvider struct {
 	alerts []ports.ActiveAlert
+	err    error
 }
 
 type fakeAlertProvider struct{}
@@ -210,7 +239,7 @@ func (fakeAlertProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert,
 }
 
 func (p fakeMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
-	return append([]ports.ActiveAlert(nil), p.alerts...), nil
+	return append([]ports.ActiveAlert(nil), p.alerts...), p.err
 }
 
 func (fakeMetricsProvider) QueryMetric(context.Context, ports.MetricQueryRequest) (ports.MetricQueryResult, error) {

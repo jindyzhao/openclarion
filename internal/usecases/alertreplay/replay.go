@@ -336,6 +336,9 @@ func ReplayPersistedWindowForReport(
 		if req.CMDBProvider != nil {
 			expanded, xerr := snapshotEventsForCMDBLookup(ctx, factory, draft, eventsForGroup, expansionScope)
 			if xerr != nil {
+				if terminalErr := contextTermination(ctx, xerr); terminalErr != nil {
+					return result, terminalErr
+				}
 				result.Stats.Failed++
 				slog.WarnContext(ctx, "alertreplay: cmdb enrichment failed",
 					slog.String("group_key", draft.GroupKey),
@@ -346,19 +349,22 @@ func ReplayPersistedWindowForReport(
 			}
 			eventsForCMDB = expanded
 		}
-		cmdbMatches, cerr := lookupCMDBMatches(ctx, req.CMDBProvider, eventsForCMDB)
+		cmdb, cerr := lookupCMDBEnrichment(ctx, req.CMDBProvider, eventsForCMDB)
 		if cerr != nil {
-			result.Stats.Failed++
-			slog.WarnContext(ctx, "alertreplay: cmdb enrichment failed",
+			return result, cerr
+		}
+		if cmdb != nil && len(cmdb.FailedEventIDs) > 0 {
+			slog.WarnContext(ctx, "alertreplay: cmdb enrichment degraded",
 				slog.String("group_key", draft.GroupKey),
-				slog.Any("error", cerr),
+				slog.Int("failed_lookup_count", len(cmdb.FailedEventIDs)),
 			)
-			failures = append(failures, cerr)
-			continue
 		}
 
-		groupOutcome, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow, cmdbMatches, expansionScope)
+		groupOutcome, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow, cmdb, expansionScope)
 		if perr != nil {
+			if terminalErr := contextTermination(ctx, perr); terminalErr != nil {
+				return result, terminalErr
+			}
 			result.Stats.Failed++
 			slog.WarnContext(ctx, "alertreplay: per-group pipeline failed",
 				slog.String("group_key", draft.GroupKey),
@@ -443,7 +449,7 @@ func processGroup(
 	draft domain.AlertGroup,
 	eventsForGroup []domain.AlertEvent,
 	createdByWorkflow string,
-	cmdbMatches []evidencebuild.CMDBMatch,
+	cmdb *evidencebuild.CMDBEnrichment,
 	scope replayExpansionScope,
 ) (groupResult, error) {
 	var result groupResult
@@ -519,7 +525,7 @@ func processGroup(
 			Group:             snapshotGroup,
 			Events:            eventsForSnapshot,
 			CreatedByWorkflow: createdByWorkflow,
-			CMDBMatches:       cmdbMatches,
+			CMDB:              cmdb,
 		})
 		if berr != nil {
 			return fmt.Errorf("build snapshot: %w", berr)
@@ -592,11 +598,11 @@ func snapshotEventsForCMDBLookup(
 	return eventsForLookup, nil
 }
 
-func lookupCMDBMatches(
+func lookupCMDBEnrichment(
 	ctx context.Context,
 	provider ports.CMDBProvider,
 	events []domain.AlertEvent,
-) ([]evidencebuild.CMDBMatch, error) {
+) (*evidencebuild.CMDBEnrichment, error) {
 	if provider == nil {
 		return nil, nil
 	}
@@ -604,24 +610,50 @@ func lookupCMDBMatches(
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].ID < sorted[j].ID
 	})
-	matches := make([]evidencebuild.CMDBMatch, 0, len(sorted))
+	result := &evidencebuild.CMDBEnrichment{
+		Matches: make([]evidencebuild.CMDBMatch, 0, len(sorted)),
+	}
 	for i := range sorted {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		event := sorted[i]
-		result, err := provider.LookupResource(ctx, ports.CMDBLookupRequest{
+		lookup, err := provider.LookupResource(ctx, ports.CMDBLookupRequest{
 			Labels: cloneStringMap(event.Labels),
 		})
-		if err != nil {
-			return nil, fmt.Errorf("alertreplay: cmdb lookup for event %d: %w", event.ID, err)
+		if terminalErr := contextTermination(ctx, err); terminalErr != nil {
+			return nil, terminalErr
 		}
-		if !result.Found {
+		if err != nil {
+			result.FailedEventIDs = append(result.FailedEventIDs, event.ID)
 			continue
 		}
-		matches = append(matches, evidencebuild.CMDBMatch{
+		if !lookup.Found {
+			continue
+		}
+		if err := evidencebuild.ValidateCMDBResource(lookup.Resource); err != nil {
+			result.FailedEventIDs = append(result.FailedEventIDs, event.ID)
+			continue
+		}
+		result.Matches = append(result.Matches, evidencebuild.CMDBMatch{
 			EventID:  event.ID,
-			Resource: result.Resource,
+			Resource: lookup.Resource,
 		})
 	}
-	return matches, nil
+	return result, nil
+}
+
+func contextTermination(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

@@ -132,14 +132,14 @@ var _ ports.ActiveAlertProvider = sourceProfileProvider{}
 
 func (p sourceProfileProvider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, error) {
 	alerts, err := p.inner.ListActiveAlerts(ctx)
-	if err != nil || p.profileID == 0 || len(alerts) == 0 {
+	if p.profileID == 0 || len(alerts) == 0 {
 		return alerts, err
 	}
 	out := append([]ports.ActiveAlert(nil), alerts...)
 	for i := range out {
 		out[i].AlertSourceProfileID = p.profileID
 	}
-	return out, nil
+	return out, err
 }
 
 type sourceProfileMetricsProvider struct {

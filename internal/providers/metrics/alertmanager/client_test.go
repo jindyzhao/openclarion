@@ -384,6 +384,29 @@ func TestProviderListActiveAlertsRejectsBadResponses(t *testing.T) {
 	}
 }
 
+func TestProviderListActiveAlertsReturnsDecodedPrefixOnSemanticFailure(t *testing.T) {
+	body := `[
+		{"labels":{"alertname":"Valid"},"annotations":{},"startsAt":"2026-06-05T04:00:00Z","status":{"state":"active","silencedBy":[],"inhibitedBy":[],"mutedBy":[]}},
+		{"labels":{"alertname":"Invalid"},"annotations":{},"status":{"state":"active","silencedBy":[],"inhibitedBy":[],"mutedBy":[]}}
+	]`
+	srv := newAlertmanagerServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	})
+	provider, err := NewProvider(srv.URL)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	alerts, err := provider.ListActiveAlerts(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "missing startsAt") {
+		t.Fatalf("ListActiveAlerts error = %v, want missing startsAt", err)
+	}
+	if len(alerts) != 1 || alerts[0].Labels["alertname"] != "Valid" {
+		t.Fatalf("partial alerts = %+v, want decoded valid prefix", alerts)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

@@ -25,9 +25,17 @@ type Input struct {
 	Group             domain.AlertGroup
 	Events            []domain.AlertEvent
 	CreatedByWorkflow string // optional; empty allowed
-	// CMDBMatches is nil when no CMDB lookup was performed. A non-nil empty
-	// slice records that enrichment was attempted but no event matched.
-	CMDBMatches []CMDBMatch
+	// CMDB is nil when no CMDB lookup was performed. A non-nil value records
+	// the lookup outcome, including a successful lookup with no matches.
+	CMDB *CMDBEnrichment
+}
+
+// CMDBEnrichment is the deterministic, provider-neutral result of enriching
+// every event in a snapshot. FailedEventIDs contains lookup failures only;
+// a successful lookup with Found=false is not a failure.
+type CMDBEnrichment struct {
+	Matches        []CMDBMatch
+	FailedEventIDs []domain.AlertEventID
 }
 
 // CMDBMatch binds one provider-neutral CMDB resource to the event labels that
@@ -47,21 +55,22 @@ func BuildSnapshot(in Input) (domain.EvidenceSnapshot, error) {
 		return domain.EvidenceSnapshot{}, err
 	}
 
-	payload, err := buildPayload(in.Group, in.Events, in.CMDBMatches)
+	payload, err := buildPayload(in.Group, in.Events, in.CMDB)
 	if err != nil {
 		return domain.EvidenceSnapshot{}, fmt.Errorf("evidence build: payload construction: %w", err)
 	}
 
 	digest := computeDigest(payload)
-	provenance := buildProvenance(in.CMDBMatches != nil)
+	provenance := buildProvenance(in.CMDB)
+	status, missingFields := snapshotQuality(in.CMDB)
 
 	return domain.NewEvidenceSnapshot(
 		in.Group.ID,
 		digest,
 		payload,
 		provenance,
-		domain.SnapshotStatusComplete,
-		nil,
+		status,
+		missingFields,
 		in.CreatedByWorkflow,
 	)
 }
@@ -182,10 +191,41 @@ func validateInput(in Input) error {
 		}
 	}
 
-	if err := validateCMDBMatches(in.CMDBMatches, eventIDSet); err != nil {
+	if err := validateCMDBEnrichment(in.CMDB, eventIDSet); err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func validateCMDBEnrichment(cmdb *CMDBEnrichment, eventIDSet map[domain.AlertEventID]struct{}) error {
+	if cmdb == nil {
+		return nil
+	}
+	if err := validateCMDBMatches(cmdb.Matches, eventIDSet); err != nil {
+		return err
+	}
+
+	matched := make(map[domain.AlertEventID]struct{}, len(cmdb.Matches))
+	for i := range cmdb.Matches {
+		matched[cmdb.Matches[i].EventID] = struct{}{}
+	}
+	failed := make(map[domain.AlertEventID]struct{}, len(cmdb.FailedEventIDs))
+	for i, eventID := range cmdb.FailedEventIDs {
+		if eventID == 0 {
+			return fmt.Errorf("evidence build: cmdb failed_event_ids[%d] must be non-zero: %w", i, domain.ErrInvariantViolation)
+		}
+		if _, ok := eventIDSet[eventID]; !ok {
+			return fmt.Errorf("evidence build: cmdb failed event_id %d not found in events: %w", eventID, domain.ErrInvariantViolation)
+		}
+		if _, duplicate := failed[eventID]; duplicate {
+			return fmt.Errorf("evidence build: duplicate cmdb failed event_id %d: %w", eventID, domain.ErrInvariantViolation)
+		}
+		if _, hasMatch := matched[eventID]; hasMatch {
+			return fmt.Errorf("evidence build: cmdb event_id %d cannot be both matched and failed: %w", eventID, domain.ErrInvariantViolation)
+		}
+		failed[eventID] = struct{}{}
+	}
 	return nil
 }
 
@@ -265,6 +305,16 @@ func validateCMDBResource(resource ports.CMDBResource) error {
 	return nil
 }
 
+// ValidateCMDBResource verifies the provider-neutral projection before an
+// orchestrator accepts it as evidence. Provider contract violations can then
+// be represented as a partial lookup instead of invalidating the whole group.
+func ValidateCMDBResource(resource ports.CMDBResource) error {
+	if err := validateCMDBResource(resource); err != nil {
+		return fmt.Errorf("evidence build: cmdb resource: %w", err)
+	}
+	return nil
+}
+
 func requireTrimmedNonEmpty(field string, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s must be non-empty: %w", field, domain.ErrInvariantViolation)
@@ -329,7 +379,8 @@ type payloadEvent struct {
 }
 
 type payloadCMDB struct {
-	Matches []payloadCMDBMatch `json:"matches"`
+	Matches        []payloadCMDBMatch `json:"matches"`
+	FailedEventIDs []int64            `json:"failed_event_ids,omitempty"`
 }
 
 type payloadCMDBMatch struct {
@@ -361,7 +412,7 @@ type payloadCMDBTopologyLink struct {
 
 const timeFormat = "2006-01-02T15:04:05.999999Z07:00"
 
-func buildPayload(group domain.AlertGroup, events []domain.AlertEvent, cmdbMatches []CMDBMatch) ([]byte, error) {
+func buildPayload(group domain.AlertGroup, events []domain.AlertEvent, cmdb *CMDBEnrichment) ([]byte, error) {
 	// Sort events deterministically: (StartsAt asc, ID asc).
 	sorted := make([]domain.AlertEvent, len(events))
 	copy(sorted, events)
@@ -434,8 +485,11 @@ func buildPayload(group domain.AlertGroup, events []domain.AlertEvent, cmdbMatch
 		Group:         pg,
 		Events:        pe,
 	}
-	if cmdbMatches != nil {
-		p.CMDB = &payloadCMDB{Matches: buildPayloadCMDBMatches(cmdbMatches)}
+	if cmdb != nil {
+		p.CMDB = &payloadCMDB{
+			Matches:        buildPayloadCMDBMatches(cmdb.Matches),
+			FailedEventIDs: sortedEventIDs(cmdb.FailedEventIDs),
+		}
 	}
 
 	return json.Marshal(p)
@@ -525,7 +579,8 @@ func computeDigest(payload []byte) string {
 
 // provenancePayload is typed so that key order is stable by declaration.
 type provenancePayload struct {
-	Core provenanceCore `json:"openclarion.core"`
+	Core provenanceCore  `json:"openclarion.core"`
+	CMDB *provenanceCMDB `json:"cmdb,omitempty"`
 }
 
 type provenanceCore struct {
@@ -533,9 +588,15 @@ type provenanceCore struct {
 	Inputs []string `json:"inputs"`
 }
 
-func buildProvenance(includeCMDB bool) json.RawMessage {
+type provenanceCMDB struct {
+	Status         string  `json:"status"`
+	Error          string  `json:"error,omitempty"`
+	FailedEventIDs []int64 `json:"failed_event_ids,omitempty"`
+}
+
+func buildProvenance(cmdb *CMDBEnrichment) json.RawMessage {
 	inputs := []string{"alert_group", "alert_events"}
-	if includeCMDB {
+	if cmdb != nil {
 		inputs = append(inputs, "cmdb_lookup")
 	}
 	p := provenancePayload{
@@ -544,8 +605,37 @@ func buildProvenance(includeCMDB bool) json.RawMessage {
 			Inputs: inputs,
 		},
 	}
+	if cmdb != nil {
+		p.CMDB = &provenanceCMDB{Status: "ok"}
+		if len(cmdb.FailedEventIDs) > 0 {
+			p.CMDB.Status = "partial"
+			p.CMDB.Error = "lookup_failed"
+			p.CMDB.FailedEventIDs = sortedEventIDs(cmdb.FailedEventIDs)
+		}
+	}
 	b, _ := json.Marshal(p) // typed struct -- cannot fail
 	return b
+}
+
+func snapshotQuality(cmdb *CMDBEnrichment) (domain.SnapshotStatus, []string) {
+	if cmdb == nil || len(cmdb.FailedEventIDs) == 0 {
+		return domain.SnapshotStatusComplete, nil
+	}
+	failedEventIDs := sortedEventIDs(cmdb.FailedEventIDs)
+	missingFields := make([]string, len(failedEventIDs))
+	for i, eventID := range failedEventIDs {
+		missingFields[i] = fmt.Sprintf("cmdb.matches.%d", eventID)
+	}
+	return domain.SnapshotStatusPartial, missingFields
+}
+
+func sortedEventIDs(ids []domain.AlertEventID) []int64 {
+	out := make([]int64, len(ids))
+	for i, id := range ids {
+		out[i] = int64(id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // canonicalizeJSON re-serialises arbitrary JSON so that object keys are

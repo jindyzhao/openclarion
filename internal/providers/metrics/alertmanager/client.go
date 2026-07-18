@@ -195,13 +195,13 @@ func (p *Provider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, e
 	for _, encoded := range encodedAlerts {
 		alert, err := decodeAlert(encoded)
 		if err != nil {
-			return nil, err
+			return out, err
 		}
 		if !isUnsuppressedActiveAlert(alert.Status) {
 			continue
 		}
 		if alert.StartsAt.IsZero() {
-			return nil, fmt.Errorf("alertmanager: active alert missing startsAt")
+			return out, fmt.Errorf("alertmanager: active alert missing startsAt")
 		}
 		out = append(out, ports.ActiveAlert{
 			Source:      sourceName,

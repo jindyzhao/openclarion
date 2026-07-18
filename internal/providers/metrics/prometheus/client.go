@@ -323,7 +323,7 @@ func (p *Provider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, e
 			// Wrap for completeness rather than panicking, so a
 			// future field change surfaces as a clean error rather
 			// than a goroutine crash.
-			return nil, fmt.Errorf("prometheus: marshal alert raw payload: %w", err)
+			return out, fmt.Errorf("prometheus: marshal alert raw payload: %w", err)
 		}
 		out = append(out, ports.ActiveAlert{
 			Source:      sourceName,

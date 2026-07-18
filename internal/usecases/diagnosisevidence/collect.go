@@ -242,20 +242,21 @@ func (s *Service) collectActiveAlerts(
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	alerts, err := provider.ListActiveAlerts(callCtx)
+	item = plan.apply(item)
 	if err != nil {
-		item = plan.apply(item)
 		item.Status = StatusFailed
-		if callCtx.Err() != nil {
+		if callCtx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			item.ReasonCode = ReasonCollectionTimedOut
 			item.Message = "Active alert collection timed out."
 			return item
 		}
 		item.ReasonCode = ReasonProviderFailed
 		item.Message = "Active alert collection failed."
+		item.ObservedAlerts = len(alerts)
+		item.ActiveAlerts = cloneActiveAlerts(limitActiveAlerts(alerts, plan.limit))
 		return item
 	}
 
-	item = plan.apply(item)
 	item.Status = StatusCollected
 	item.ReasonCode = ReasonOK
 	item.Message = "Active alert collection succeeded."

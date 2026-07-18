@@ -89,6 +89,8 @@ type sandboxEvidenceEnvelope struct {
 	EvidenceSnapshotRef string          `json:"evidence_snapshot_ref"`
 	EvidenceDigest      string          `json:"evidence_digest"` // Persisted snapshot identity, created before the JSONB round trip.
 	PayloadSHA256       string          `json:"payload_sha256"`  // Checksum of the canonical bytes mounted for this invocation.
+	EvidenceStatus      string          `json:"evidence_status"`
+	MissingFields       []string        `json:"missing_fields"`
 	Scenario            string          `json:"scenario"`
 	GroupIndex          int             `json:"group_index"`
 	Payload             json.RawMessage `json:"payload"`
@@ -487,16 +489,25 @@ func buildSandboxEvidence(snapshot domain.EvidenceSnapshot, cfg config) (json.Ra
 	if _, err := hex.DecodeString(snapshot.Digest); err != nil {
 		return nil, fmt.Errorf("evidence snapshot %d digest must be a lowercase SHA-256 digest", snapshot.ID)
 	}
+	if err := domain.ValidateEvidenceSnapshotReportability(snapshot.Status, snapshot.MissingFields); err != nil {
+		return nil, fmt.Errorf("evidence snapshot %d quality: %w", snapshot.ID, err)
+	}
 	payload, err := canonicalizeSnapshotPayload(snapshot.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("evidence snapshot %d payload: %w", snapshot.ID, err)
 	}
+	missingFields := append([]string(nil), snapshot.MissingFields...)
+	if missingFields == nil {
+		missingFields = make([]string, 0)
+	}
 	envelope := sandboxEvidenceEnvelope{
-		Schema:              "openclarion.sandbox_m4.evidence.v1",
+		Schema:              "openclarion.sandbox_m4.evidence.v2",
 		EvidenceSnapshotID:  int64(snapshot.ID),
 		EvidenceSnapshotRef: snapshotRef(snapshot.ID),
 		EvidenceDigest:      snapshot.Digest,
 		PayloadSHA256:       sha256Hex(payload),
+		EvidenceStatus:      string(snapshot.Status),
+		MissingFields:       missingFields,
 		Scenario:            cfg.Scenario,
 		GroupIndex:          cfg.GroupIndex,
 		Payload:             payload,
