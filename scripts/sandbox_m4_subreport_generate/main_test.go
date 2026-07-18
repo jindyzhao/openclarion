@@ -66,8 +66,11 @@ func TestGenerateRunsSandboxAndPersistsSubReport(t *testing.T) {
 		t.Fatalf("unmarshal sandbox evidence: %v", err)
 	}
 	if envelope.EvidenceSnapshotRef != "snapshot:11" ||
+		envelope.Schema != "openclarion.sandbox_m4.evidence.v2" ||
 		envelope.EvidenceDigest != validSnapshot().Digest ||
 		envelope.PayloadSHA256 != sha256Hex(envelope.Payload) ||
+		envelope.EvidenceStatus != string(domain.SnapshotStatusComplete) ||
+		envelope.MissingFields == nil || len(envelope.MissingFields) != 0 ||
 		envelope.Scenario != string(reportprompt.ScenarioCascade) ||
 		envelope.GroupIndex != 2 ||
 		!bytes.Contains(envelope.Payload, []byte(`"alert:cpu"`)) {
@@ -83,6 +86,29 @@ func TestGenerateRunsSandboxAndPersistsSubReport(t *testing.T) {
 		saved.CreatedByWorkflow != toolName ||
 		!containsString(saved.EvidenceRefs, "snapshot:11") {
 		t.Fatalf("unexpected saved report: %+v", saved)
+	}
+}
+
+func TestGeneratePreservesPartialSnapshotQuality(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Status = domain.SnapshotStatusPartial
+	snapshot.MissingFields = []string{"cmdb.matches.20"}
+	store := &fakeStore{snapshot: snapshot, reports: map[string]domain.SubReport{}}
+	provider := &fakeProvider{output: validSandboxSubReport("snapshot:11")}
+
+	if _, err := generate(context.Background(), validConfig(), store, provider); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(provider.reqs) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(provider.reqs))
+	}
+	var envelope sandboxEvidenceEnvelope
+	if err := json.Unmarshal(provider.reqs[0].Evidence, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.EvidenceStatus != string(domain.SnapshotStatusPartial) ||
+		len(envelope.MissingFields) != 1 || envelope.MissingFields[0] != "cmdb.matches.20" {
+		t.Fatalf("snapshot quality = status %q missing %v, want partial", envelope.EvidenceStatus, envelope.MissingFields)
 	}
 }
 
@@ -188,6 +214,43 @@ func TestGenerateRejectsInvalidSnapshotDigestBeforeSandboxRun(t *testing.T) {
 	}
 	if len(provider.reqs) != 0 {
 		t.Fatalf("provider calls = %d, want 0", len(provider.reqs))
+	}
+}
+
+func TestGenerateRejectsInvalidSnapshotQualityBeforeSandboxRun(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*domain.EvidenceSnapshot)
+		want string
+	}{
+		{name: "invalid status", edit: func(snapshot *domain.EvidenceSnapshot) { snapshot.Status = "unknown" }, want: "cannot produce"},
+		{name: "failed status", edit: func(snapshot *domain.EvidenceSnapshot) { snapshot.Status = domain.SnapshotStatusFailed }, want: "cannot produce"},
+		{name: "complete with missing", edit: func(snapshot *domain.EvidenceSnapshot) { snapshot.MissingFields = []string{"cmdb.matches.20"} }, want: "requires partial"},
+		{name: "partial without missing", edit: func(snapshot *domain.EvidenceSnapshot) { snapshot.Status = domain.SnapshotStatusPartial }, want: "requires missing"},
+		{name: "untrimmed missing", edit: func(snapshot *domain.EvidenceSnapshot) {
+			snapshot.Status = domain.SnapshotStatusPartial
+			snapshot.MissingFields = []string{" cmdb.matches.20"}
+		}, want: "trimmed and non-empty"},
+		{name: "duplicate missing", edit: func(snapshot *domain.EvidenceSnapshot) {
+			snapshot.Status = domain.SnapshotStatusPartial
+			snapshot.MissingFields = []string{"cmdb.matches.20", "cmdb.matches.20"}
+		}, want: "duplicates"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot := validSnapshot()
+			tt.edit(&snapshot)
+			store := &fakeStore{snapshot: snapshot, reports: map[string]domain.SubReport{}}
+			provider := &fakeProvider{output: validSandboxSubReport("snapshot:11")}
+
+			_, err := generate(context.Background(), validConfig(), store, provider)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("generate error = %v, want %q", err, tt.want)
+			}
+			if len(provider.reqs) != 0 {
+				t.Fatalf("provider calls = %d, want 0", len(provider.reqs))
+			}
+		})
 	}
 }
 

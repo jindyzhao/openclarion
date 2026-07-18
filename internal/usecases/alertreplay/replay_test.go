@@ -67,6 +67,18 @@ func defaultRequest(start, end time.Time) alertreplay.Request {
 	}
 }
 
+type cmdbLookupFunc func(context.Context, ports.CMDBLookupRequest) (ports.CMDBLookupResult, error)
+
+func (f cmdbLookupFunc) LookupResource(ctx context.Context, req ports.CMDBLookupRequest) (ports.CMDBLookupResult, error) {
+	return f(ctx, req)
+}
+
+type activeAlertProviderFunc func(context.Context) ([]ports.ActiveAlert, error)
+
+func (f activeAlertProviderFunc) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, error) {
+	return f(ctx)
+}
+
 // countAlertEvents reads the alert_event row count via the Ent
 // client directly so the assertion targets ground truth rather than
 // the production code path under test.
@@ -425,7 +437,36 @@ func TestReplayWindow_IncludesCMDBEnrichmentInSnapshot(t *testing.T) {
 	}
 }
 
-func TestReplayWindow_CMDBErrorFailsGroupWithoutSnapshot(t *testing.T) {
+func TestReplayWindow_PartialProviderPullPersistsAlertsWithoutReporting(t *testing.T) {
+	resetDB(t)
+	ctx := tenancy.EnsureDefault(context.Background())
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	providerErr := errors.New("upstream page failed")
+	provider := activeAlertProviderFunc(func(context.Context) ([]ports.ActiveAlert, error) {
+		return seedAlerts("AlertA", 2, windowStart, 0, time.Minute, "warning"), providerErr
+	})
+
+	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, defaultRequest(windowStart, windowEnd))
+	if !errors.Is(err, alertingest.ErrIncompletePull) || !errors.Is(err, providerErr) {
+		t.Fatalf("ReplayWindow error = %v, want incomplete pull and provider cause", err)
+	}
+	if stats.Ingested != (alertingest.Stats{Total: 2, Saved: 2}) || stats.EventsLoaded != 0 || stats.GroupsBuilt != 0 {
+		t.Fatalf("stats = %+v, want persisted ingest and no replay stages", stats)
+	}
+	if got := countAlertEvents(ctx, t); got != 2 {
+		t.Fatalf("alert_event count = %d, want 2", got)
+	}
+	if got := countAlertGroups(ctx, t); got != 0 {
+		t.Fatalf("alert_group count = %d, want 0", got)
+	}
+	if got := countEvidenceSnapshots(ctx, t); got != 0 {
+		t.Fatalf("evidence_snapshot count = %d, want 0", got)
+	}
+}
+
+func TestReplayWindow_CMDBErrorPersistsPartialSnapshot(t *testing.T) {
 	resetDB(t)
 	ctx := tenancy.EnsureDefault(context.Background())
 
@@ -437,20 +478,188 @@ func TestReplayWindow_CMDBErrorFailsGroupWithoutSnapshot(t *testing.T) {
 	req.CMDBProvider = cmdbfake.NewError(errors.New("cmdb unavailable"))
 
 	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
-	if err == nil {
-		t.Fatal("ReplayWindow err = nil, want cmdb error")
+	if err != nil {
+		t.Fatalf("ReplayWindow: %v", err)
 	}
-	if !strings.Contains(err.Error(), "cmdb lookup for event") {
-		t.Fatalf("ReplayWindow err = %v, want cmdb lookup context", err)
-	}
-	if stats.EventsLoaded != 1 || stats.GroupsBuilt != 1 || stats.Failed != 1 || stats.SnapshotsSaved != 0 {
-		t.Fatalf("stats = %+v, want one failed group and no snapshots", stats)
+	if stats.EventsLoaded != 1 || stats.GroupsBuilt != 1 || stats.Failed != 0 || stats.SnapshotsSaved != 1 {
+		t.Fatalf("stats = %+v, want one degraded snapshot without a failed group", stats)
 	}
 	if got := countAlertEvents(ctx, t); got != 1 {
 		t.Fatalf("alert_event count = %d, want ingested event retained", got)
 	}
+	if got := countAlertGroups(ctx, t); got != 1 {
+		t.Fatalf("alert_group count = %d, want 1", got)
+	}
+	if got := countEvidenceSnapshots(ctx, t); got != 1 {
+		t.Fatalf("evidence_snapshot count = %d, want 1", got)
+	}
+
+	snapshot, err := integration.client.EvidenceSnapshot.Query().Only(ctx)
+	if err != nil {
+		t.Fatalf("load evidence snapshot: %v", err)
+	}
+	if snapshot.Status != string(domain.SnapshotStatusPartial) {
+		t.Fatalf("snapshot status = %q, want partial", snapshot.Status)
+	}
+	if len(snapshot.MissingFields) != 1 || !strings.HasPrefix(snapshot.MissingFields[0], "cmdb.matches.") {
+		t.Fatalf("snapshot missing fields = %v, want one cmdb match path", snapshot.MissingFields)
+	}
+	var payload struct {
+		CMDB struct {
+			Matches        []json.RawMessage `json:"matches"`
+			FailedEventIDs []int64           `json:"failed_event_ids"`
+		} `json:"cmdb"`
+	}
+	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal snapshot payload: %v", err)
+	}
+	if len(payload.CMDB.Matches) != 0 || len(payload.CMDB.FailedEventIDs) != 1 {
+		t.Fatalf("payload cmdb = %+v, want one failed event and no matches", payload.CMDB)
+	}
+}
+
+func TestReplayWindow_CMDBPartialFailureRetainsSuccessfulMatches(t *testing.T) {
+	resetDB(t)
+	ctx := tenancy.EnsureDefault(context.Background())
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	provider := fake.New(seedAlerts("AlertA", 2, windowStart, 0, time.Minute, "warning"))
+	req := defaultRequest(windowStart, windowEnd)
+	req.CMDBProvider = cmdbLookupFunc(func(_ context.Context, req ports.CMDBLookupRequest) (ports.CMDBLookupResult, error) {
+		if req.Labels["instance"] == "AlertA-0" {
+			return ports.CMDBLookupResult{}, errors.New("cmdb unavailable")
+		}
+		return ports.CMDBLookupResult{
+			Found: true,
+			Resource: ports.CMDBResource{
+				ID:         "service/checkout",
+				Kind:       "service",
+				Name:       "Checkout",
+				Attributes: map[string]string{"tier": "critical"},
+			},
+		}, nil
+	})
+
+	result, err := alertreplay.ReplayWindowForReport(ctx, provider, integration.factory, req)
+	if err != nil {
+		t.Fatalf("ReplayWindowForReport: %v", err)
+	}
+	if result.Stats.SnapshotsSaved != 1 || result.Stats.Failed != 0 || len(result.Snapshots) != 1 {
+		t.Fatalf("result = %+v, want one degraded report snapshot", result)
+	}
+
+	snapshot, err := integration.client.EvidenceSnapshot.Query().Only(ctx)
+	if err != nil {
+		t.Fatalf("load evidence snapshot: %v", err)
+	}
+	var payload struct {
+		Events []struct {
+			ID     int64             `json:"id"`
+			Labels map[string]string `json:"labels"`
+		} `json:"events"`
+		CMDB struct {
+			Matches []struct {
+				EventID int64 `json:"event_id"`
+			} `json:"matches"`
+			FailedEventIDs []int64 `json:"failed_event_ids"`
+		} `json:"cmdb"`
+	}
+	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal snapshot payload: %v", err)
+	}
+	eventIDs := make(map[string]int64, len(payload.Events))
+	for _, event := range payload.Events {
+		eventIDs[event.Labels["instance"]] = event.ID
+	}
+	if len(payload.CMDB.Matches) != 1 || payload.CMDB.Matches[0].EventID != eventIDs["AlertA-1"] {
+		t.Fatalf("cmdb matches = %+v, want successful AlertA-1 match", payload.CMDB.Matches)
+	}
+	if len(payload.CMDB.FailedEventIDs) != 1 || payload.CMDB.FailedEventIDs[0] != eventIDs["AlertA-0"] {
+		t.Fatalf("failed event ids = %v, want failed AlertA-0", payload.CMDB.FailedEventIDs)
+	}
+}
+
+func TestReplayWindow_InvalidCMDBProjectionPersistsPartialSnapshot(t *testing.T) {
+	resetDB(t)
+	ctx := tenancy.EnsureDefault(context.Background())
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	provider := fake.New(seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning"))
+	req := defaultRequest(windowStart, windowEnd)
+	req.CMDBProvider = cmdbfake.New(ports.CMDBLookupResult{
+		Found:    true,
+		Resource: ports.CMDBResource{Name: "missing stable identity"},
+	})
+
+	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
+	if err != nil {
+		t.Fatalf("ReplayWindow: %v", err)
+	}
+	if stats.SnapshotsSaved != 1 || stats.Failed != 0 {
+		t.Fatalf("stats = %+v, want one degraded snapshot", stats)
+	}
+	snapshot, err := integration.client.EvidenceSnapshot.Query().Only(ctx)
+	if err != nil {
+		t.Fatalf("load evidence snapshot: %v", err)
+	}
+	if snapshot.Status != string(domain.SnapshotStatusPartial) || len(snapshot.MissingFields) != 1 {
+		t.Fatalf("snapshot quality = status %q missing %v, want partial", snapshot.Status, snapshot.MissingFields)
+	}
+}
+
+func TestReplayWindow_CMDBLookupPropagatesRequestCancellation(t *testing.T) {
+	resetDB(t)
+	baseCtx := tenancy.EnsureDefault(context.Background())
+	ctx, cancel := context.WithCancel(baseCtx)
+	defer cancel()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	provider := fake.New(seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning"))
+	req := defaultRequest(windowStart, windowEnd)
+	req.CMDBProvider = cmdbLookupFunc(func(context.Context, ports.CMDBLookupRequest) (ports.CMDBLookupResult, error) {
+		cancel()
+		return ports.CMDBLookupResult{}, context.Canceled
+	})
+
+	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ReplayWindow error = %v, want context.Canceled", err)
+	}
+	if stats.EventsLoaded != 1 || stats.GroupsBuilt != 1 || stats.Failed != 0 || stats.SnapshotsSaved != 0 {
+		t.Fatalf("stats = %+v, want cancellation before the per-group transaction", stats)
+	}
+	if got := countAlertGroups(baseCtx, t); got != 0 {
+		t.Fatalf("alert_group count = %d, want 0", got)
+	}
+	if got := countEvidenceSnapshots(baseCtx, t); got != 0 {
+		t.Fatalf("evidence_snapshot count = %d, want 0", got)
+	}
+}
+
+func TestReplayWindow_CMDBLookupPropagatesProviderDeadline(t *testing.T) {
+	resetDB(t)
+	ctx := tenancy.EnsureDefault(context.Background())
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	provider := fake.New(seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning"))
+	req := defaultRequest(windowStart, windowEnd)
+	req.CMDBProvider = cmdbLookupFunc(func(context.Context, ports.CMDBLookupRequest) (ports.CMDBLookupResult, error) {
+		return ports.CMDBLookupResult{}, fmt.Errorf("provider timeout: %w", context.DeadlineExceeded)
+	})
+
+	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ReplayWindow error = %v, want context.DeadlineExceeded", err)
+	}
+	if stats.EventsLoaded != 1 || stats.GroupsBuilt != 1 || stats.Failed != 0 || stats.SnapshotsSaved != 0 {
+		t.Fatalf("stats = %+v, want deadline before the per-group transaction", stats)
+	}
 	if got := countAlertGroups(ctx, t); got != 0 {
-		t.Fatalf("alert_group count = %d, want no group transaction after cmdb failure", got)
+		t.Fatalf("alert_group count = %d, want 0", got)
 	}
 	if got := countEvidenceSnapshots(ctx, t); got != 0 {
 		t.Fatalf("evidence_snapshot count = %d, want 0", got)

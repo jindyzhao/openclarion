@@ -109,6 +109,13 @@ type MetricQueryResult struct {
 // "inactive", etc.) so the DTO never carries alerts the domain
 // model would reject. Consumers MAY assume every returned alert is
 // firing.
+//
+// Batch completeness: an implementation MAY return a non-empty alert slice
+// together with a non-nil error when it decoded only part of an upstream
+// response. Consumers must preserve those alerts but treat the pull cycle as
+// incomplete and retry it; returning nil with the error discards usable state.
+// Context cancellation and deadline errors are terminal exceptions: consumers
+// must discard any accompanying alerts and stop the operation.
 type ActiveAlertProvider interface {
 	ListActiveAlerts(ctx context.Context) ([]ActiveAlert, error)
 }

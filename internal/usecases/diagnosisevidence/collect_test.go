@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -479,6 +480,64 @@ func TestServiceCollectSanitizesProviderFailures(t *testing.T) {
 	}
 	if item.Message == provider.err.Error() {
 		t.Fatalf("provider error leaked through message: %q", item.Message)
+	}
+}
+
+func TestServiceCollectPreservesPartialActiveAlertsOnProviderFailure(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[7] = activeAlertsTemplate(7, true)
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindAlertmanager)
+	provider := &fakeMetricsProvider{
+		alerts: []ports.ActiveAlert{
+			{Source: "alertmanager", Labels: map[string]string{"alertname": "CPUHigh"}, RawPayload: json.RawMessage(`{"secret":"redacted"}`)},
+			{Source: "alertmanager", Labels: map[string]string{"alertname": "MemoryHigh"}},
+		},
+		err: errors.New("second upstream alert was malformed"),
+	}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID: 7,
+		Tool:       domain.DiagnosisToolKindActiveAlerts,
+		Reason:     "Need active alerts.",
+		Limit:      1,
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusFailed || item.ReasonCode != ReasonProviderFailed ||
+		item.ObservedAlerts != 2 || len(item.ActiveAlerts) != 1 ||
+		item.ActiveAlerts[0].Labels["alertname"] != "CPUHigh" || item.ActiveAlerts[0].RawPayload != nil {
+		t.Fatalf("partial item = %+v", item)
+	}
+}
+
+func TestServiceCollectDiscardsPartialAlertsOnProviderDeadline(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[7] = activeAlertsTemplate(7, true)
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindAlertmanager)
+	provider := &fakeMetricsProvider{
+		alerts: []ports.ActiveAlert{{Source: "alertmanager"}},
+		err:    fmt.Errorf("provider timeout: %w", context.DeadlineExceeded),
+	}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID: 7,
+		Tool:       domain.DiagnosisToolKindActiveAlerts,
+		Reason:     "Need active alerts.",
+		Limit:      1,
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusFailed || item.ReasonCode != ReasonCollectionTimedOut ||
+		item.ObservedAlerts != 0 || len(item.ActiveAlerts) != 0 {
+		t.Fatalf("deadline item = %+v, want failed without partial alerts", item)
 	}
 }
 

@@ -5,7 +5,7 @@
 > node has a concrete technical implementation path. Verdicts are classified
 > honestly — not everything is "proven".
 
-> Last updated: 2026-07-13
+> Last updated: 2026-07-18
 
 ## Verdict Scale
 
@@ -131,9 +131,9 @@ itself prove human-confirmed incident closure.
 ## Chain B: M4 Sandbox Agent Report Enhancement
 
 ```text
-Temporal workflow (from Chain A)
-  -> [B1] Workflow decides: invoke sandbox analysis
-  -> [B2] Activity: ContainerProvider.Run()
+Operator starts the manual M4 quality-evidence path
+  -> [B1] Generation bridge loads a persisted snapshot and invokes the candidate
+  -> [B2] Generation command: ContainerProvider.Run()
   -> [B3] docker create with volume mounts
   -> [B4] Security: non-root, resource limits, no-new-privileges
   -> [B5] Network: egress control
@@ -148,13 +148,13 @@ Temporal workflow (from Chain A)
 
 | Node | Operation | Implementation | Verdict |
 |------|-----------|----------------|---------|
-| B1 | Conditional branch | Temporal workflow `if` condition based on group criteria | proven |
+| B1 | Manual candidate trigger | `sandbox_m4_subreport_generate` loads one persisted snapshot and invokes the candidate through `ContainerProvider`; no production Temporal report branch exists before the M4 quality decision | proven-local |
 | B2 | Start container | `github.com/docker/docker/client` → `ContainerCreate()` + `ContainerStart()` | proven |
 | B3 | Mount evidence + config | readonly bind mounts for inputs; private writable output bind mount capped by `fsize` and Go read limit | proven |
 | B4 | Non-root + limits | `User = "nonroot"`, `Resources.Memory`, `NanoCPUs`, `SecurityOpt: ["no-new-privileges"]` | proven |
 | B5 | Egress control | Docker internal network + bundled dual-network exact-target HTTP/CONNECT proxy + provider-owned proxy environment | **proven-local** |
 | B6 | Agent loads config | Agent runtime reads `/workspace/agent_config/agent.yaml` at startup | proven |
-| B7 | Agent queries data | V1-proven direct HTTP to allowed endpoints (Prometheus, K8s); post-V1: MCP-over-Streamable-HTTP | proven |
+| B7 | Agent queries allowed data | Candidate network access is limited to explicit HTTP targets; the bundled report enhancer uses the configured LLM target, while separate helper contracts cover read-only Prometheus and topology lookups. Kubernetes data access is deferred | proven-local |
 | B8 | Agent writes output | Writes to `/workspace/out/output.json` on the only writable output mount | proven |
 | B9 | Go reads + validates | Read output file; enforce output cap with `fsize`/Go read limit and JSON Schema validate against SubReport schema; `make container-provider-output-cap-smoke` proves cap failure cleanup | proven |
 | B10 | Timeout + cleanup | `context.WithTimeout` -> `ContainerStop()` -> `ContainerRemove(force=true)`, plus `make container-provider-timeout-smoke` leak check | proven |

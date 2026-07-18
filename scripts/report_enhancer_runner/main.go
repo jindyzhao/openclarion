@@ -40,7 +40,7 @@ const (
 	defaultAgentConfigDir   = "/workspace/agent_config"
 	defaultOutputPath       = "/workspace/out/output.json"
 	defaultInstructionsFile = "instructions.md"
-	evidenceSchema          = "openclarion.sandbox_m4.evidence.v1"
+	evidenceSchema          = "openclarion.sandbox_m4.evidence.v2"
 	defaultLLMTimeout       = 90 * time.Second
 	maxLLMTimeout           = 5 * time.Minute
 	maxRunnerJSONBytes      = ports.MaxContainerOutputBytes
@@ -69,6 +69,8 @@ type evidenceEnvelope struct {
 	EvidenceSnapshotRef string          `json:"evidence_snapshot_ref"`
 	EvidenceDigest      string          `json:"evidence_digest"` // Persisted snapshot identity, created before the JSONB round trip.
 	PayloadSHA256       string          `json:"payload_sha256"`  // Checksum of the canonical bytes mounted for this invocation.
+	EvidenceStatus      string          `json:"evidence_status"`
+	MissingFields       []string        `json:"missing_fields"`
 	Scenario            string          `json:"scenario"`
 	GroupIndex          int             `json:"group_index"`
 	Payload             json.RawMessage `json:"payload"`
@@ -174,9 +176,11 @@ func run(ctx context.Context, paths runnerPaths, getenv func(string) string) err
 
 	request, err := reportprompt.BuildSubReportRequest(reportprompt.SubReportInput{
 		Snapshot: domain.EvidenceSnapshot{
-			ID:      domain.EvidenceSnapshotID(evidence.EvidenceSnapshotID),
-			Digest:  evidence.EvidenceDigest,
-			Payload: bytes.Clone(evidence.Payload),
+			ID:            domain.EvidenceSnapshotID(evidence.EvidenceSnapshotID),
+			Digest:        evidence.EvidenceDigest,
+			Payload:       bytes.Clone(evidence.Payload),
+			Status:        domain.SnapshotStatus(evidence.EvidenceStatus),
+			MissingFields: append([]string(nil), evidence.MissingFields...),
 		},
 		Scenario:   reportprompt.Scenario(evidence.Scenario),
 		GroupIndex: evidence.GroupIndex,
@@ -276,6 +280,13 @@ func validateEvidenceEnvelope(evidence evidenceEnvelope) error {
 	}
 	if got := sha256Hex(evidence.Payload); got != evidence.PayloadSHA256 {
 		return fmt.Errorf("payload_sha256 does not match the mounted payload")
+	}
+	if evidence.MissingFields == nil {
+		return errors.New("missing_fields must be a JSON array")
+	}
+	status := domain.SnapshotStatus(evidence.EvidenceStatus)
+	if err := domain.ValidateEvidenceSnapshotReportability(status, evidence.MissingFields); err != nil {
+		return fmt.Errorf("invalid evidence quality: %w", err)
 	}
 	if !reportprompt.Scenario(evidence.Scenario).Valid() {
 		return fmt.Errorf("scenario %q is unsupported", evidence.Scenario)

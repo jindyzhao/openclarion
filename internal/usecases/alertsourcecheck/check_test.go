@@ -3,6 +3,7 @@ package alertsourcecheck
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -239,6 +240,58 @@ func TestServiceSanitizesFactoryAndProviderErrors(t *testing.T) {
 				t.Fatalf("message leaked raw provider data: %q", result.Message)
 			}
 		})
+	}
+}
+
+func TestServicePreservesPartialAlertCountOnProviderFailure(t *testing.T) {
+	providerErr := errors.New("second upstream alert was malformed")
+	service := newTestServiceWithBuilder(t,
+		alertsourceprovider.ProviderFactories{
+			domain.AlertSourceKindAlertmanager: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+				return fakeMetricsProvider{
+					alerts: []ports.ActiveAlert{{Source: "alertmanager"}, {Source: "alertmanager"}},
+					err:    providerErr,
+				}, nil
+			},
+		}, nil,
+	)
+
+	result, err := service.TestAlertSourceConnection(
+		context.Background(),
+		mustProfile(t, 4, domain.AlertSourceKindAlertmanager, domain.AlertSourceAuthModeNone),
+	)
+	if err != nil {
+		t.Fatalf("TestAlertSourceConnection: %v", err)
+	}
+	if result.Status != StatusFailed || result.ReasonCode != ReasonUpstreamError || result.ObservedAlerts != 2 {
+		t.Fatalf("result = %+v", result)
+	}
+	if strings.Contains(result.Message, providerErr.Error()) {
+		t.Fatalf("result leaked provider error: %+v", result)
+	}
+}
+
+func TestServiceDiscardsPartialAlertCountOnProviderDeadline(t *testing.T) {
+	service := newTestServiceWithBuilder(t,
+		alertsourceprovider.ProviderFactories{
+			domain.AlertSourceKindAlertmanager: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+				return fakeMetricsProvider{
+					alerts: []ports.ActiveAlert{{Source: "alertmanager"}},
+					err:    fmt.Errorf("provider timeout: %w", context.DeadlineExceeded),
+				}, nil
+			},
+		}, nil,
+	)
+
+	result, err := service.TestAlertSourceConnection(
+		context.Background(),
+		mustProfile(t, 4, domain.AlertSourceKindAlertmanager, domain.AlertSourceAuthModeNone),
+	)
+	if err != nil {
+		t.Fatalf("TestAlertSourceConnection: %v", err)
+	}
+	if result.Status != StatusFailed || result.ReasonCode != ReasonUpstreamUnreachable || result.ObservedAlerts != 0 {
+		t.Fatalf("result = %+v, want timeout without partial count", result)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,12 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
+
+type activeAlertProviderFunc func(context.Context) ([]ports.ActiveAlert, error)
+
+func (f activeAlertProviderFunc) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, error) {
+	return f(ctx)
+}
 
 // firingSeed builds a deterministic batch of N firing-like
 // ActiveAlerts whose label sets differ (so the canonical fingerprint
@@ -131,6 +138,79 @@ func TestIngestOnce_DuplicateRunCountsAsDuplicate(t *testing.T) {
 	}
 	if got := countAlertEvents(ctx, t); got != n {
 		t.Errorf("alert_event row count after duplicate run = %d, want %d (a leaked save means tx did not roll back)", got, n)
+	}
+}
+
+func TestIngestOnce_PersistsPartialPullAndRetryConverges(t *testing.T) {
+	resetDB(t)
+	ctx := tenancy.EnsureDefault(context.Background())
+	fullBatch := firingSeed(3)
+	providerErr := errors.New("upstream page failed")
+	partialProvider := activeAlertProviderFunc(func(context.Context) ([]ports.ActiveAlert, error) {
+		return fullBatch[:2], providerErr
+	})
+
+	partial, err := alertingest.IngestOnce(ctx, partialProvider, integration.factory)
+	if !errors.Is(err, alertingest.ErrIncompletePull) || !errors.Is(err, providerErr) {
+		t.Fatalf("partial pull error = %v, want ErrIncompletePull and provider cause", err)
+	}
+	if partial != (alertingest.Stats{Total: 2, Saved: 2}) {
+		t.Fatalf("partial stats = %+v, want two saved alerts", partial)
+	}
+	if got := countAlertEvents(ctx, t); got != 2 {
+		t.Fatalf("alert_event count after partial pull = %d, want 2", got)
+	}
+
+	complete, err := alertingest.IngestOnce(ctx, fake.New(fullBatch), integration.factory)
+	if err != nil {
+		t.Fatalf("complete retry: %v", err)
+	}
+	if complete != (alertingest.Stats{Total: 3, Saved: 1, Duplicate: 2}) {
+		t.Fatalf("complete retry stats = %+v, want one saved and two duplicates", complete)
+	}
+	if got := countAlertEvents(ctx, t); got != 3 {
+		t.Fatalf("alert_event count after complete retry = %d, want 3", got)
+	}
+}
+
+func TestIngestOnce_CanceledPartialPullDoesNotPersist(t *testing.T) {
+	resetDB(t)
+	baseCtx := tenancy.EnsureDefault(context.Background())
+	ctx, cancel := context.WithCancel(baseCtx)
+	defer cancel()
+	provider := activeAlertProviderFunc(func(context.Context) ([]ports.ActiveAlert, error) {
+		cancel()
+		return firingSeed(1), context.Canceled
+	})
+
+	stats, err := alertingest.IngestOnce(ctx, provider, integration.factory)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("IngestOnce error = %v, want context.Canceled", err)
+	}
+	if stats != (alertingest.Stats{}) {
+		t.Fatalf("stats = %+v, want zero on canceled request", stats)
+	}
+	if got := countAlertEvents(baseCtx, t); got != 0 {
+		t.Fatalf("alert_event count = %d, want 0", got)
+	}
+}
+
+func TestIngestOnce_ProviderDeadlinePartialPullDoesNotPersist(t *testing.T) {
+	resetDB(t)
+	ctx := tenancy.EnsureDefault(context.Background())
+	provider := activeAlertProviderFunc(func(context.Context) ([]ports.ActiveAlert, error) {
+		return firingSeed(1), fmt.Errorf("provider timeout: %w", context.DeadlineExceeded)
+	})
+
+	stats, err := alertingest.IngestOnce(ctx, provider, integration.factory)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("IngestOnce error = %v, want context.DeadlineExceeded", err)
+	}
+	if stats != (alertingest.Stats{}) {
+		t.Fatalf("stats = %+v, want zero on provider deadline", stats)
+	}
+	if got := countAlertEvents(ctx, t); got != 0 {
+		t.Fatalf("alert_event count = %d, want 0", got)
 	}
 }
 

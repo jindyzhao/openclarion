@@ -591,11 +591,11 @@ func TestBuildSnapshot_ProvenanceAndStatus(t *testing.T) {
 
 func TestBuildSnapshot_IncludesCMDBMatchesWhenProvided(t *testing.T) {
 	in := validInput()
-	in.CMDBMatches = []CMDBMatch{
-		{
+	in.CMDB = &CMDBEnrichment{
+		Matches: []CMDBMatch{{
 			EventID:  in.Events[1].ID,
 			Resource: validCMDBResource(),
-		},
+		}},
 	}
 	snap, err := BuildSnapshot(in)
 	if err != nil {
@@ -630,6 +630,9 @@ func TestBuildSnapshot_IncludesCMDBMatchesWhenProvided(t *testing.T) {
 	if len(prov.Core.Inputs) != 3 || prov.Core.Inputs[2] != "cmdb_lookup" {
 		t.Fatalf("provenance inputs = %v, want cmdb_lookup appended", prov.Core.Inputs)
 	}
+	if prov.CMDB == nil || prov.CMDB.Status != "ok" {
+		t.Fatalf("cmdb provenance = %+v, want status=ok", prov.CMDB)
+	}
 }
 
 func TestBuildSnapshot_CMDBMatchesAffectDigestDeterministically(t *testing.T) {
@@ -640,9 +643,11 @@ func TestBuildSnapshot_CMDBMatchesAffectDigestDeterministically(t *testing.T) {
 	}
 
 	withCMDB := validInput()
-	withCMDB.CMDBMatches = []CMDBMatch{
-		{EventID: withCMDB.Events[1].ID, Resource: validCMDBResource()},
-		{EventID: withCMDB.Events[0].ID, Resource: validCMDBResource()},
+	withCMDB.CMDB = &CMDBEnrichment{
+		Matches: []CMDBMatch{
+			{EventID: withCMDB.Events[1].ID, Resource: validCMDBResource()},
+			{EventID: withCMDB.Events[0].ID, Resource: validCMDBResource()},
+		},
 	}
 	snap1, err := BuildSnapshot(withCMDB)
 	if err != nil {
@@ -650,9 +655,11 @@ func TestBuildSnapshot_CMDBMatchesAffectDigestDeterministically(t *testing.T) {
 	}
 
 	reordered := validInput()
-	reordered.CMDBMatches = []CMDBMatch{
-		{EventID: reordered.Events[0].ID, Resource: validCMDBResource()},
-		{EventID: reordered.Events[1].ID, Resource: validCMDBResource()},
+	reordered.CMDB = &CMDBEnrichment{
+		Matches: []CMDBMatch{
+			{EventID: reordered.Events[0].ID, Resource: validCMDBResource()},
+			{EventID: reordered.Events[1].ID, Resource: validCMDBResource()},
+		},
 	}
 	snap2, err := BuildSnapshot(reordered)
 	if err != nil {
@@ -672,7 +679,7 @@ func TestBuildSnapshot_CMDBMatchesAffectDigestDeterministically(t *testing.T) {
 
 func TestBuildSnapshot_EmptyCMDBMatchesRecordsLookupAttempt(t *testing.T) {
 	in := validInput()
-	in.CMDBMatches = []CMDBMatch{}
+	in.CMDB = &CMDBEnrichment{}
 	snap, err := BuildSnapshot(in)
 	if err != nil {
 		t.Fatalf("BuildSnapshot: %v", err)
@@ -693,9 +700,87 @@ func TestBuildSnapshot_EmptyCMDBMatchesRecordsLookupAttempt(t *testing.T) {
 	if len(prov.Core.Inputs) != 3 || prov.Core.Inputs[2] != "cmdb_lookup" {
 		t.Fatalf("provenance inputs = %v, want cmdb_lookup appended", prov.Core.Inputs)
 	}
+	if prov.CMDB == nil || prov.CMDB.Status != "ok" {
+		t.Fatalf("cmdb provenance = %+v, want status=ok", prov.CMDB)
+	}
 }
 
-func TestBuildSnapshot_InvalidCMDBMatches(t *testing.T) {
+func TestBuildSnapshot_PartialCMDBEnrichment(t *testing.T) {
+	in := validInput()
+	in.CMDB = &CMDBEnrichment{
+		Matches: []CMDBMatch{{
+			EventID:  in.Events[0].ID,
+			Resource: validCMDBResource(),
+		}},
+		FailedEventIDs: []domain.AlertEventID{in.Events[1].ID},
+	}
+
+	snap, err := BuildSnapshot(in)
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+	if snap.Status != domain.SnapshotStatusPartial {
+		t.Fatalf("status = %q, want partial", snap.Status)
+	}
+	if len(snap.MissingFields) != 1 || snap.MissingFields[0] != "cmdb.matches.20" {
+		t.Fatalf("missing fields = %v, want [cmdb.matches.20]", snap.MissingFields)
+	}
+
+	var payload snapshotPayload
+	if err := json.Unmarshal(snap.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.CMDB == nil || len(payload.CMDB.Matches) != 1 ||
+		len(payload.CMDB.FailedEventIDs) != 1 || payload.CMDB.FailedEventIDs[0] != 20 {
+		t.Fatalf("payload cmdb = %+v, want one match and failed event 20", payload.CMDB)
+	}
+
+	var provenance provenancePayload
+	if err := json.Unmarshal(snap.Provenance, &provenance); err != nil {
+		t.Fatalf("unmarshal provenance: %v", err)
+	}
+	if provenance.CMDB == nil || provenance.CMDB.Status != "partial" ||
+		provenance.CMDB.Error != "lookup_failed" ||
+		len(provenance.CMDB.FailedEventIDs) != 1 || provenance.CMDB.FailedEventIDs[0] != 20 {
+		t.Fatalf("cmdb provenance = %+v, want sanitized partial outcome", provenance.CMDB)
+	}
+
+	complete := validInput()
+	complete.CMDB = &CMDBEnrichment{}
+	completeSnap, err := BuildSnapshot(complete)
+	if err != nil {
+		t.Fatalf("complete BuildSnapshot: %v", err)
+	}
+	if completeSnap.Digest == snap.Digest {
+		t.Fatal("partial and complete CMDB outcomes must not share a digest")
+	}
+}
+
+func TestBuildSnapshot_PartialCMDBFailureOrderIsDeterministic(t *testing.T) {
+	first := validInput()
+	first.CMDB = &CMDBEnrichment{FailedEventIDs: []domain.AlertEventID{20, 10}}
+	firstSnap, err := BuildSnapshot(first)
+	if err != nil {
+		t.Fatalf("first BuildSnapshot: %v", err)
+	}
+
+	second := validInput()
+	second.CMDB = &CMDBEnrichment{FailedEventIDs: []domain.AlertEventID{10, 20}}
+	secondSnap, err := BuildSnapshot(second)
+	if err != nil {
+		t.Fatalf("second BuildSnapshot: %v", err)
+	}
+
+	if firstSnap.Digest != secondSnap.Digest || string(firstSnap.Payload) != string(secondSnap.Payload) ||
+		string(firstSnap.Provenance) != string(secondSnap.Provenance) {
+		t.Fatal("cmdb failure order changed deterministic snapshot output")
+	}
+	if len(firstSnap.MissingFields) != 2 || firstSnap.MissingFields[0] != "cmdb.matches.10" || firstSnap.MissingFields[1] != "cmdb.matches.20" {
+		t.Fatalf("missing fields = %v, want event-id order", firstSnap.MissingFields)
+	}
+}
+
+func TestBuildSnapshot_InvalidCMDBEnrichment(t *testing.T) {
 	tests := []struct {
 		name string
 		edit func(*Input)
@@ -704,16 +789,18 @@ func TestBuildSnapshot_InvalidCMDBMatches(t *testing.T) {
 		{
 			name: "unknown event",
 			edit: func(in *Input) {
-				in.CMDBMatches = []CMDBMatch{{EventID: 999, Resource: validCMDBResource()}}
+				in.CMDB = &CMDBEnrichment{Matches: []CMDBMatch{{EventID: 999, Resource: validCMDBResource()}}}
 			},
 			want: "not found in events",
 		},
 		{
 			name: "duplicate event",
 			edit: func(in *Input) {
-				in.CMDBMatches = []CMDBMatch{
-					{EventID: in.Events[0].ID, Resource: validCMDBResource()},
-					{EventID: in.Events[0].ID, Resource: validCMDBResource()},
+				in.CMDB = &CMDBEnrichment{
+					Matches: []CMDBMatch{
+						{EventID: in.Events[0].ID, Resource: validCMDBResource()},
+						{EventID: in.Events[0].ID, Resource: validCMDBResource()},
+					},
 				}
 			},
 			want: "duplicate cmdb match",
@@ -723,7 +810,7 @@ func TestBuildSnapshot_InvalidCMDBMatches(t *testing.T) {
 			edit: func(in *Input) {
 				resource := validCMDBResource()
 				resource.ID = ""
-				in.CMDBMatches = []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}
+				in.CMDB = &CMDBEnrichment{Matches: []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}}
 			},
 			want: "id must be non-empty",
 		},
@@ -732,7 +819,7 @@ func TestBuildSnapshot_InvalidCMDBMatches(t *testing.T) {
 			edit: func(in *Input) {
 				resource := validCMDBResource()
 				resource.Name = " Checkout "
-				in.CMDBMatches = []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}
+				in.CMDB = &CMDBEnrichment{Matches: []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}}
 			},
 			want: "name must not include leading or trailing whitespace",
 		},
@@ -741,7 +828,7 @@ func TestBuildSnapshot_InvalidCMDBMatches(t *testing.T) {
 			edit: func(in *Input) {
 				resource := validCMDBResource()
 				resource.Owners = []ports.CMDBOwner{{Role: "primary"}}
-				in.CMDBMatches = []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}
+				in.CMDB = &CMDBEnrichment{Matches: []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}}
 			},
 			want: "must include subject or team",
 		},
@@ -750,9 +837,40 @@ func TestBuildSnapshot_InvalidCMDBMatches(t *testing.T) {
 			edit: func(in *Input) {
 				resource := validCMDBResource()
 				resource.Attributes = map[string]string{"tier": ""}
-				in.CMDBMatches = []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}
+				in.CMDB = &CMDBEnrichment{Matches: []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}}
 			},
 			want: "attribute[tier] must be non-empty",
+		},
+		{
+			name: "zero failed event",
+			edit: func(in *Input) {
+				in.CMDB = &CMDBEnrichment{FailedEventIDs: []domain.AlertEventID{0}}
+			},
+			want: "must be non-zero",
+		},
+		{
+			name: "unknown failed event",
+			edit: func(in *Input) {
+				in.CMDB = &CMDBEnrichment{FailedEventIDs: []domain.AlertEventID{999}}
+			},
+			want: "not found in events",
+		},
+		{
+			name: "duplicate failed event",
+			edit: func(in *Input) {
+				in.CMDB = &CMDBEnrichment{FailedEventIDs: []domain.AlertEventID{in.Events[0].ID, in.Events[0].ID}}
+			},
+			want: "duplicate cmdb failed event",
+		},
+		{
+			name: "matched and failed event",
+			edit: func(in *Input) {
+				in.CMDB = &CMDBEnrichment{
+					Matches:        []CMDBMatch{{EventID: in.Events[0].ID, Resource: validCMDBResource()}},
+					FailedEventIDs: []domain.AlertEventID{in.Events[0].ID},
+				}
+			},
+			want: "cannot be both matched and failed",
 		},
 	}
 	for _, tt := range tests {

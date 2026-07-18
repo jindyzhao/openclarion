@@ -73,6 +73,10 @@ func BuildSubReportRequest(in SubReportInput) (ports.LLMRequest, error) {
 	if in.Snapshot.Digest == "" {
 		return ports.LLMRequest{}, fmt.Errorf("report prompt: snapshot digest must be non-empty: %w", domain.ErrInvariantViolation)
 	}
+	missingFields, err := validatedSnapshotMissingFields(in.Snapshot)
+	if err != nil {
+		return ports.LLMRequest{}, err
+	}
 	if in.GroupIndex < 0 {
 		return ports.LLMRequest{}, fmt.Errorf("report prompt: group index must be >= 0: %w", domain.ErrInvariantViolation)
 	}
@@ -80,6 +84,10 @@ func BuildSubReportRequest(in SubReportInput) (ports.LLMRequest, error) {
 		return ports.LLMRequest{}, fmt.Errorf("report prompt: scenario %q is unsupported: %w", in.Scenario, domain.ErrInvariantViolation)
 	}
 	payload, err := compactJSON("snapshot payload", in.Snapshot.Payload)
+	if err != nil {
+		return ports.LLMRequest{}, err
+	}
+	missingFieldsJSON, err := marshalCompact("snapshot missing fields", missingFields)
 	if err != nil {
 		return ports.LLMRequest{}, err
 	}
@@ -92,12 +100,19 @@ func BuildSubReportRequest(in SubReportInput) (ports.LLMRequest, error) {
 	return ports.LLMRequest{
 		Messages: []ports.LLMMessage{
 			{Role: ports.LLMRoleSystem, Content: subReportSystemPrompt},
-			{Role: ports.LLMRoleUser, Content: subReportUserPrompt(in, payload, historicalReports)},
+			{Role: ports.LLMRoleUser, Content: subReportUserPrompt(in, payload, missingFieldsJSON, historicalReports)},
 		},
 		OutputSchema:   reportdraft.SubReportSchema(),
 		OutputSchemaID: reportdraft.SubReportSchemaID,
 		IdempotencyKey: SubReportIdempotencyKey(in.Snapshot.ID, in.GroupIndex, in.Scenario),
 	}, nil
+}
+
+func validatedSnapshotMissingFields(snapshot domain.EvidenceSnapshot) ([]string, error) {
+	if err := domain.ValidateEvidenceSnapshotReportability(snapshot.Status, snapshot.MissingFields); err != nil {
+		return nil, fmt.Errorf("report prompt: snapshot quality: %w", err)
+	}
+	return append([]string{}, snapshot.MissingFields...), nil
 }
 
 // BuildFinalReportRequest returns a strict-JSON LLM request that
@@ -135,22 +150,24 @@ func SubReportIdempotencyKey(snapshotID domain.EvidenceSnapshotID, groupIndex in
 	return fmt.Sprintf("snapshot:%d/group:%d/scenario:%s/sub_report", snapshotID, groupIndex, scenario)
 }
 
-func subReportUserPrompt(in SubReportInput, payload, historicalReports string) string {
+func subReportUserPrompt(in SubReportInput, payload, missingFields, historicalReports string) string {
 	prompt := fmt.Sprintf(`Task: produce one SubReport as JSON for OpenClarion.
 Scenario: %s
 Scenario guidance: %s
 Evidence snapshot id: %d
 Evidence snapshot ref: snapshot:%d
 Evidence snapshot digest: %s
+Evidence snapshot status: %s
+Missing evidence paths JSON: %s
 Group index: %d
 
-Use only the evidence in this snapshot. Do not invent evidence IDs. Include the evidence snapshot ref in evidence_refs. If evidence is weak, set confidence to low and explain the uncertainty in the summary.
+Use only the evidence in this snapshot. Do not invent evidence IDs. Include the evidence snapshot ref in evidence_refs. If the snapshot status is partial, explicitly state the missing coverage and preserve uncertainty; never infer values for missing evidence paths. If evidence is weak, set confidence to low and explain the uncertainty in the summary.
 Return all required top-level fields: title, summary, severity, confidence, findings, recommended_actions, and evidence_refs.
 Every findings item must include label, detail, and evidence_id. Every findings[].evidence_id must appear verbatim in evidence_refs. A safe valid choice is to use the evidence snapshot ref snapshot:%d as each finding evidence_id and include snapshot:%d in evidence_refs.
 Every recommended_actions item must include label, detail, and priority. Use priority only as low, medium, or high.
 
 Evidence snapshot JSON:
-%s`, in.Scenario, scenarioGuidance(in.Scenario), in.Snapshot.ID, in.Snapshot.ID, in.Snapshot.Digest, in.GroupIndex, in.Snapshot.ID, in.Snapshot.ID, payload)
+%s`, in.Scenario, scenarioGuidance(in.Scenario), in.Snapshot.ID, in.Snapshot.ID, in.Snapshot.Digest, in.Snapshot.Status, missingFields, in.GroupIndex, in.Snapshot.ID, in.Snapshot.ID, payload)
 	if historicalReports == "" {
 		return prompt
 	}

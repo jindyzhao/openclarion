@@ -36,6 +36,13 @@ Prometheus and Alertmanager translate upstream payloads into the same
 kind-to-factory registry: every adapter supplies `ActiveAlertProvider`, while
 only Prometheus-compatible adapters supply `MetricQueryProvider`.
 
+Polling providers may return decoded alerts together with an error when an
+upstream batch is semantically incomplete. Ingestion persists that usable
+prefix idempotently, returns `alertingest.ErrIncompletePull`, and does not run
+grouping or report generation until a complete retry succeeds. Profile wrappers
+tag partial results with the same persisted source identity as complete pulls;
+request cancellation remains terminal and does not trigger partial writes.
+
 ## Generic HTTP CMDB Runtime Contract
 
 CMDB enrichment is disabled when all three runtime variables are absent. Set
@@ -99,8 +106,11 @@ A match returns one sanitized provider-neutral resource projection:
 Unknown fields, duplicate JSON keys, trailing JSON values, oversized responses,
 invalid resource projections, non-2xx statuses, and request failures are
 rejected. Redirects are not followed, and transport errors do not expose the
-configured request URL. A lookup failure fails only the affected replay group;
-provider I/O does not run inside the group write transaction.
+configured request URL. A lookup error or invalid provider projection degrades
+only that event's enrichment: replay persists a `partial` EvidenceSnapshot with
+deterministic `cmdb.matches.<event_id>` missing-field paths and continues the
+report pipeline. Request cancellation and deadline expiry still abort replay.
+Provider I/O does not run inside the group write transaction.
 
 ## NetBox CMDB Runtime Contract
 

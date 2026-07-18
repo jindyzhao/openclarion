@@ -245,13 +245,14 @@ func (s *Service) testActiveAlertListing(
 	alerts, err := provider.ListActiveAlerts(checkCtx)
 	if err != nil {
 		result.Status = StatusFailed
-		if checkCtx.Err() != nil {
+		if checkCtx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			result.ReasonCode = ReasonUpstreamUnreachable
 			result.Message = displayName + " alert listing timed out."
 			return result
 		}
 		result.ReasonCode = ReasonUpstreamError
 		result.Message = displayName + " alert listing failed."
+		result.ObservedAlerts = len(alerts)
 		return result
 	}
 

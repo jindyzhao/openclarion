@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportdraft"
 )
@@ -52,6 +53,8 @@ func TestRunUsesProductionPromptAndPublishesValidatedSubReport(t *testing.T) {
 		if len(request.Messages) != 2 ||
 			!strings.Contains(request.Messages[0].Content, "reviewed guidance") ||
 			!strings.Contains(request.Messages[1].Content, "Scenario: cascade") ||
+			!strings.Contains(request.Messages[1].Content, "Evidence snapshot status: complete") ||
+			!strings.Contains(request.Messages[1].Content, "Missing evidence paths JSON: []") ||
 			request.ResponseFormat.Type != string(ports.LLMOutputModeJSONSchema) ||
 			request.ResponseFormat.JSONSchema.Name != reportdraft.SubReportSchemaID ||
 			!request.ResponseFormat.JSONSchema.Strict || request.ResponseFormat.JSONSchema.Schema == nil {
@@ -85,6 +88,53 @@ func TestRunUsesProductionPromptAndPublishesValidatedSubReport(t *testing.T) {
 	}
 	if report.Title != "CPU saturation" || !containsString(report.EvidenceRefs, "snapshot:11") {
 		t.Fatalf("report = %+v", report)
+	}
+}
+
+func TestRunPreservesPartialEvidenceQuality(t *testing.T) {
+	var userPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if len(request.Messages) == 2 {
+			userPrompt = request.Messages[1].Content
+		}
+		writeCompletion(t, w, validSubReport("snapshot:11"))
+	}))
+	defer server.Close()
+
+	paths := writeRunnerFixture(t)
+	raw, err := os.ReadFile(paths.Evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope evidenceEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	envelope.EvidenceStatus = string(domain.SnapshotStatusPartial)
+	envelope.MissingFields = []string{"cmdb.matches.20"}
+	raw, err = json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Evidence, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	env := validRunnerEnv(server.URL + "/v1")
+	if err := run(context.Background(), paths, func(key string) string { return env[key] }); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(userPrompt, "Evidence snapshot status: partial") ||
+		!strings.Contains(userPrompt, `Missing evidence paths JSON: ["cmdb.matches.20"]`) {
+		t.Fatalf("partial evidence quality missing from prompt: %s", userPrompt)
 	}
 }
 
@@ -211,6 +261,49 @@ func TestRunRejectsPayloadChecksumMismatchBeforeProviderCall(t *testing.T) {
 	err = run(context.Background(), paths, func(key string) string { return env[key] })
 	if err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("run err = %v, want payload checksum mismatch", err)
+	}
+}
+
+func TestValidateEvidenceEnvelopeRejectsInvalidQuality(t *testing.T) {
+	base := evidenceEnvelope{
+		Schema:              evidenceSchema,
+		EvidenceSnapshotID:  11,
+		EvidenceSnapshotRef: "snapshot:11",
+		EvidenceDigest:      strings.Repeat("a", sha256.Size*2),
+		PayloadSHA256:       sha256Hex([]byte(`{}`)),
+		EvidenceStatus:      string(domain.SnapshotStatusComplete),
+		MissingFields:       []string{},
+		Scenario:            "cascade",
+		GroupIndex:          0,
+		Payload:             json.RawMessage(`{}`),
+	}
+	tests := []struct {
+		name string
+		edit func(*evidenceEnvelope)
+		want string
+	}{
+		{name: "invalid status", edit: func(in *evidenceEnvelope) { in.EvidenceStatus = "unknown" }, want: "cannot produce"},
+		{name: "failed status", edit: func(in *evidenceEnvelope) { in.EvidenceStatus = string(domain.SnapshotStatusFailed) }, want: "cannot produce"},
+		{name: "missing array absent", edit: func(in *evidenceEnvelope) { in.MissingFields = nil }, want: "must be a JSON array"},
+		{name: "complete with missing", edit: func(in *evidenceEnvelope) { in.MissingFields = []string{"cmdb.matches.20"} }, want: "requires partial"},
+		{name: "partial without missing", edit: func(in *evidenceEnvelope) { in.EvidenceStatus = string(domain.SnapshotStatusPartial) }, want: "requires missing_fields"},
+		{name: "untrimmed missing", edit: func(in *evidenceEnvelope) {
+			in.EvidenceStatus = string(domain.SnapshotStatusPartial)
+			in.MissingFields = []string{" cmdb.matches.20"}
+		}, want: "trimmed and non-empty"},
+		{name: "duplicate missing", edit: func(in *evidenceEnvelope) {
+			in.EvidenceStatus = string(domain.SnapshotStatusPartial)
+			in.MissingFields = []string{"cmdb.matches.20", "cmdb.matches.20"}
+		}, want: "duplicates"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := base
+			tt.edit(&input)
+			if err := validateEvidenceEnvelope(input); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("validateEvidenceEnvelope error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -365,6 +458,8 @@ func writeRunnerFixture(t *testing.T) runnerPaths {
 		EvidenceSnapshotRef: "snapshot:11",
 		EvidenceDigest:      hex.EncodeToString(digest[:]),
 		PayloadSHA256:       hex.EncodeToString(digest[:]),
+		EvidenceStatus:      string(domain.SnapshotStatusComplete),
+		MissingFields:       []string{},
 		Scenario:            "cascade",
 		GroupIndex:          2,
 		Payload:             payload,

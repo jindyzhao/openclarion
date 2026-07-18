@@ -16,6 +16,11 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
+// ErrIncompletePull marks a provider cycle that returned usable alerts and an
+// error. Callers must not continue to grouping or reporting for that cycle;
+// retrying is safe because AlertEvent persistence is idempotent.
+var ErrIncompletePull = errors.New("active alert pull incomplete")
+
 // Stats summarises one IngestOnce invocation.
 //
 //   - Total     is the number of alerts the provider returned (i.e.
@@ -44,8 +49,11 @@ type Stats struct {
 //
 // Error semantics:
 //
-//   - if provider.ListActiveAlerts fails, the function returns
-//     Stats{}, wrapped error; no per-alert work runs;
+//   - if provider.ListActiveAlerts returns no alerts and an error, the function
+//     returns Stats{} and the wrapped provider error;
+//   - if the provider returns alerts and an error, those partial results are
+//     persisted and the returned error wraps ErrIncompletePull. Callers must
+//     retry the cycle instead of grouping an incomplete provider view;
 //   - per-alert errors wrapping domain.ErrAlreadyExists are treated
 //     as a Duplicate (success). They MUST be propagated out of the
 //     WithinTx callback so the surrounding Postgres tx rolls back:
@@ -60,11 +68,35 @@ type Stats struct {
 // Concurrency: not safe for concurrent invocation against the same
 // UnitOfWorkFactory.
 func IngestOnce(ctx context.Context, provider ports.ActiveAlertProvider, factory ports.UnitOfWorkFactory) (Stats, error) {
-	alerts, err := provider.ListActiveAlerts(ctx)
-	if err != nil {
-		return Stats{}, fmt.Errorf("list active alerts: %w", err)
+	alerts, pullErr := provider.ListActiveAlerts(ctx)
+	if pullErr != nil {
+		if terminalErr := contextTermination(ctx, pullErr); terminalErr != nil {
+			return Stats{}, fmt.Errorf("list active alerts: %w", terminalErr)
+		}
+		if len(alerts) == 0 {
+			return Stats{}, fmt.Errorf("list active alerts: %w", pullErr)
+		}
 	}
-	return IngestAlerts(ctx, alerts, factory)
+
+	stats, ingestErr := IngestAlerts(ctx, alerts, factory)
+	if pullErr == nil {
+		return stats, ingestErr
+	}
+	incompleteErr := fmt.Errorf("%w: list active alerts: %w", ErrIncompletePull, pullErr)
+	return stats, errors.Join(incompleteErr, ingestErr)
+}
+
+func contextTermination(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 // IngestAlerts persists an already-materialized batch of active alerts through
