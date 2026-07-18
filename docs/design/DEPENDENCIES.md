@@ -81,6 +81,42 @@ reason metadata.
 go-license-allow: Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MIT,MPL-2.0; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency SPDX IDs for current runtime, tooling, and test dependency graph
 ```
 
+The pinned scanner reports every dependency package containing non-Go files.
+Current findings are Go assembly only: their source was checked for external
+dependency declarations, and each accepted file is bound to its package,
+module version, module-cache-relative path, and SHA-256. The gate captures
+scanner stderr, resolves the effective cache through `go env GOMODCACHE`,
+reports exact matches and Go module-download progress as informational audit
+evidence, and fails on unknown output, cache/path/content drift, or stale
+entries.
+
+```text
+go-license-non-go-allow: github.com/cespare/xxhash/v2|github.com/cespare/xxhash/v2@v2.3.0/xxhash_amd64.s|580c39fa974ecc91035f33cc258a4141cf52bc767d2f5283fb5b8609e4a856db; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly has no external dependency declarations
+go-license-non-go-allow: golang.org/x/sys/unix|golang.org/x/sys@v0.45.0/unix/asm_linux_amd64.s|14c826e5d2db337e49c32e0b5a66317b58da198874a0eb950c33aac571e9573c; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly references only Go runtime and syscall symbols
+go-license-non-go-allow: github.com/modern-go/reflect2|github.com/modern-go/reflect2@v1.0.3-0.20250322232337-35a7c28c31ee/reflect2_amd64.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+go-license-non-go-allow: github.com/modern-go/reflect2|github.com/modern-go/reflect2@v1.0.3-0.20250322232337-35a7c28c31ee/relfect2_mips64x.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+go-license-non-go-allow: github.com/modern-go/reflect2|github.com/modern-go/reflect2@v1.0.3-0.20250322232337-35a7c28c31ee/relfect2_mipsx.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+go-license-non-go-allow: github.com/modern-go/reflect2|github.com/modern-go/reflect2@v1.0.3-0.20250322232337-35a7c28c31ee/relfect2_ppc64x.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+go-license-non-go-allow: github.com/klauspost/compress/zstd|github.com/klauspost/compress@v1.18.5/zstd/fse_decoder_amd64.s|c4a1dfa1b108aa32f587b676523d09858c5ee5df9753d0067af5aee303e5df4b; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly has no external dependency declarations
+go-license-non-go-allow: github.com/klauspost/compress/zstd|github.com/klauspost/compress@v1.18.5/zstd/matchlen_amd64.s|f6983c33f36ef09e255c1d029158fa31adfaf6cbc56d264d3ff6431097cfbc0f; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly has no external dependency declarations
+go-license-non-go-allow: github.com/klauspost/compress/zstd|github.com/klauspost/compress@v1.18.5/zstd/seqdec_amd64.s|b3c4b4f8cc3224e2243824c767d6e6f2c61ca637a553104a581e69c4bdb7173f; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly has no external dependency declarations
+go-license-non-go-allow: github.com/klauspost/compress/huff0|github.com/klauspost/compress@v1.18.5/huff0/decompress_amd64.s|1be4b028f6a98b957cf7557629bbc3aaead44fccf0c60f796fdee608b8d7ee9e; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly has no external dependency declarations
+go-license-non-go-allow: github.com/klauspost/compress/internal/cpuinfo|github.com/klauspost/compress@v1.18.5/internal/cpuinfo/cpuinfo_amd64.s|9ea28b6d2e9e2210f12ef7d44af4716a3dc148c4e214f23f001271fd100547b9; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly includes only Go-generated and Go assembler headers
+go-license-non-go-allow: github.com/klauspost/compress/zstd/internal/xxhash|github.com/klauspost/compress@v1.18.5/zstd/internal/xxhash/xxhash_amd64.s|3796a9c399d49392c3ad83af1452099d24c1e6fb993941d8bd1735879f5edbc8; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly has no external dependency declarations
+go-license-non-go-allow: golang.org/x/crypto/internal/poly1305|golang.org/x/crypto@v0.51.0/internal/poly1305/sum_amd64.s|f8959555c2e70f460ba88bca1f37705d6c570c0f99f37650a907e9391a960446; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly has no external dependency declarations
+go-license-non-go-allow: github.com/bytedance/sonic/ast|github.com/bytedance/sonic@v1.15.0/ast/asm.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+go-license-non-go-allow: github.com/bytedance/sonic/internal/caching|github.com/bytedance/sonic@v1.15.0/internal/caching/asm.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+go-license-non-go-allow: github.com/bytedance/sonic/internal/rt|github.com/bytedance/sonic@v1.15.0/internal/rt/asm_amd64.s|d1e8288c8ff9c1bef49c63b02ca3661a3d1c53215a6c0236d6f9963244846d4d; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly references only Go-generated headers and runtime symbols
+go-license-non-go-allow: github.com/bytedance/sonic/loader/internal/iasm/x86_64|github.com/bytedance/sonic/loader@v0.5.0/internal/iasm/x86_64/asm.s|45bee858e09a1979cd5ca244008c79a3f40c7c61ef38d1c41f2313e69eab105e; owner: CI maintainers; reviewed: 2026-07-18; reason: audited comment-only compatibility assembly placeholder
+go-license-non-go-allow: github.com/cloudwego/base64x/internal/rt|github.com/cloudwego/base64x@v0.1.6/internal/rt/asm_amd64.s|37b7589c92cde17bf9f46844263da08b1e5fd483a8ad5f3d282bfb4c594364d6; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go assembly references only Go-generated headers and runtime symbols
+go-license-non-go-allow: github.com/klauspost/cpuid/v2|github.com/klauspost/cpuid/v2@v2.2.9/cpuid_amd64.s|163f645a202a3a7cc78d5a6e099edc02221f744e5e9227606eaf226c8c0a894b; owner: CI maintainers; reviewed: 2026-07-18; reason: audited package-local Go assembly executes CPU feature instructions without external dependencies
+go-license-non-go-allow: github.com/bytedance/sonic/internal/resolver|github.com/bytedance/sonic@v1.15.0/internal/resolver/asm.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+go-license-non-go-allow: github.com/bytedance/sonic/internal/jit|github.com/bytedance/sonic@v1.15.0/internal/jit/asm.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+go-license-non-go-allow: github.com/bytedance/sonic/internal/decoder/jitdec|github.com/bytedance/sonic@v1.15.0/internal/decoder/jitdec/asm.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+go-license-non-go-allow: github.com/bytedance/sonic/internal/decoder/jitdec|github.com/bytedance/sonic@v1.15.0/internal/decoder/jitdec/generic_regabi_amd64_test.s|cde705bcaeb30d380c8ff3053b7129449c63d4ccd675737d5b7330d977d839b6; owner: CI maintainers; reviewed: 2026-07-18; reason: audited Go test assembly calls only a Go-provided function pointer
+go-license-non-go-allow: github.com/bytedance/sonic/internal/optcaching|github.com/bytedance/sonic@v1.15.0/internal/optcaching/asm.s|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; owner: CI maintainers; reviewed: 2026-07-18; reason: audited empty compatibility assembly placeholder
+```
+
 GPL, AGPL, LGPL, unknown, or unclassified Go dependency licenses are not
 accepted by default. A future exception must be recorded here with a concrete
 owner, review date, and reason in the same change that introduces the

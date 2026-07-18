@@ -22,7 +22,7 @@ func TestOpenAPILintInvokesVacuumWithRegularInputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read vacuum args: %v", err)
 	}
-	want := "tool\ngithub.com/daveshanley/vacuum\nlint\n-r\ndocs/design/ci/vacuum/.vacuum.yaml\n--details\n--fail-severity\nerror\napi/openapi.yaml\n"
+	want := "tool\ngithub.com/daveshanley/vacuum\nlint\n-r\ndocs/design/ci/vacuum/.vacuum.yaml\n--details\n--fail-severity\nwarn\napi/openapi.yaml\n"
 	if got := string(raw); got != want {
 		t.Fatalf("vacuum args = %q, want %q", got, want)
 	}

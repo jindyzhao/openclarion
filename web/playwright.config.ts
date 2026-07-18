@@ -1,5 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// Playwright forces colors in its web servers and workers. Remove the
+// conflicting inherited opt-out before those child environments are created.
+delete process.env.NO_COLOR;
+
 const host = "127.0.0.1";
 const webPort = process.env.OPENCLARION_PLAYWRIGHT_WEB_PORT ?? "32100";
 const apiPort = process.env.OPENCLARION_PLAYWRIGHT_API_PORT ?? "38280";

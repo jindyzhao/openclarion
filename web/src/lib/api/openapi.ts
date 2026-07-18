@@ -1923,6 +1923,9 @@ export interface components {
              *         "department": "Platform",
              *         "section": "SRE",
              *         "department_path": "IT/Platform/SRE",
+             *         "department_paths": [
+             *           "IT/Platform/SRE"
+             *         ],
              *         "department_external_ids": [
              *           "dep-2"
              *         ],
@@ -1937,21 +1940,25 @@ export interface components {
         };
         /**
          * @description Local role assignment subject type.
+         * @example department
          * @enum {string}
          */
         RBACSubjectKind: "user" | "department";
         /**
          * @description OpenClarion product resource family covered by a local role assignment.
+         * @example diagnosis_room
          * @enum {string}
          */
         RBACScopeKind: "global" | "diagnosis_room" | "alert_source" | "grouping_policy" | "report_workflow" | "report_workflow_schedule" | "notification_channel" | "diagnosis_tool_template";
         /**
          * @description OpenClarion-local role.
+         * @example responder
          * @enum {string}
          */
         RBACRole: "admin" | "operator" | "leader" | "responder" | "viewer";
         /**
          * @description OpenClarion-local action-level permission.
+         * @example diagnosis_room.participate
          * @enum {string}
          */
         RBACPermission: "directory.read" | "directory.manage" | "rbac.manage" | "operations.read" | "diagnosis_room.read" | "diagnosis_room.participate" | "diagnosis_room.administer" | "diagnosis_room.approve" | "alert_source.read" | "alert_source.manage" | "grouping_policy.read" | "grouping_policy.manage" | "report_workflow.read" | "report_workflow.manage" | "notification_channel.read" | "notification_channel.manage" | "notification_channel.test" | "diagnosis_tool_template.read" | "diagnosis_tool_template.manage";
@@ -2121,6 +2128,9 @@ export interface components {
              *         "department": "Platform",
              *         "section": "SRE",
              *         "department_path": "IT/Platform/SRE",
+             *         "department_paths": [
+             *           "IT/Platform/SRE"
+             *         ],
              *         "department_external_ids": [
              *           "dep-2"
              *         ],
@@ -3328,7 +3338,13 @@ export interface components {
              */
             items: components["schemas"]["DiagnosisRoomSummary"][];
         };
-        /** @description Sanitized Temporal execution metadata for a diagnosis-room workflow. */
+        /**
+         * @description Sanitized Temporal execution metadata for a diagnosis-room workflow.
+         * @example {
+         *       "status": "running",
+         *       "task_queue": "openclarion"
+         *     }
+         */
         DiagnosisRoomWorkflowVisibility: {
             /**
              * @description Temporal workflow execution status, or not_found when visibility lookup could not find the stored execution.
@@ -3379,7 +3395,24 @@ export interface components {
             assistant_highlights?: string[];
             truncated_fields?: string[];
         };
-        /** @description Immutable versioned conversation compression checkpoint bound to ordered ChatTurn rows by SHA-256. */
+        /**
+         * @description Immutable versioned conversation compression checkpoint bound to ordered ChatTurn rows by SHA-256.
+         * @example {
+         *       "id": 9,
+         *       "version": 1,
+         *       "schema_version": "diagnosis-conversation-summary.v1",
+         *       "source_first_sequence": 1,
+         *       "source_last_sequence": 4,
+         *       "source_turn_count": 4,
+         *       "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         *       "content": {
+         *         "schema_version": "diagnosis-conversation-summary.v1",
+         *         "compression_method": "deterministic-extractive",
+         *         "source_turn_count": 4
+         *       },
+         *       "generated_at": "2026-06-18T02:19:00Z"
+         *     }
+         */
         DiagnosisRoomConversationSummary: {
             /** Format: int64 */
             id: number;
@@ -3520,6 +3553,9 @@ export interface components {
              *         "department": "Platform",
              *         "section": "SRE",
              *         "department_path": "IT/Platform/SRE",
+             *         "department_paths": [
+             *           "IT/Platform/SRE"
+             *         ],
              *         "active": true
              *       }
              *     ]
@@ -3528,9 +3564,29 @@ export interface components {
             latest_conclusion?: components["schemas"]["DiagnosisRoomConclusionSummary"];
             conversation_summary?: components["schemas"]["DiagnosisRoomConversationSummary"];
             latest_progress?: components["schemas"]["DiagnosisRoomProgressSummary"];
-            /** @description Sanitized outbound diagnosis-room notification delivery timeline. */
+            /**
+             * @description Sanitized outbound diagnosis-room notification delivery timeline.
+             * @example [
+             *       {
+             *         "event_kind": "diagnosis_room.final_ready_notification_sent",
+             *         "provider_status": "sent",
+             *         "occurred_at": "2026-06-18T02:21:00Z"
+             *       }
+             *     ]
+             */
             notification_timeline?: components["schemas"]["DiagnosisRoomNotificationTimelineEntry"][];
-            /** @description Sanitized lifecycle event sequence included only in the exact room detail response. Raw payloads, dedupe keys, model content, and provider metadata remain server-side. */
+            /**
+             * @description Sanitized lifecycle event sequence included only in the exact room detail response. Raw payloads, dedupe keys, model content, and provider metadata remain server-side.
+             * @example [
+             *       {
+             *         "id": 901,
+             *         "event_kind": "diagnosis_room.turn_persisted",
+             *         "category": "interaction",
+             *         "occurred_at": "2026-06-18T02:20:30Z",
+             *         "recorded_at": "2026-06-18T02:20:31Z"
+             *       }
+             *     ]
+             */
             audit_timeline?: components["schemas"]["DiagnosisRoomAuditTimelineEntry"][];
             workflow_visibility?: components["schemas"]["DiagnosisRoomWorkflowVisibility"];
             /**
@@ -4610,7 +4666,20 @@ export interface components {
             diagnosis_progress?: components["schemas"]["DiagnosisRoomProgressSummary"];
             diagnosis_room?: components["schemas"]["DiagnosisRoomSummary"];
         };
-        /** @description Latest non-final diagnosis-room AI progress linked to a report evidence snapshot. */
+        /**
+         * @description Latest non-final diagnosis-room AI progress linked to a report evidence snapshot.
+         * @example {
+         *       "diagnosis_task_id": 41,
+         *       "event_kind": "diagnosis_room.turn_persisted",
+         *       "status": "in_progress",
+         *       "evidence_snapshot_id": 247,
+         *       "confidence": "medium",
+         *       "requires_human_review": true,
+         *       "evidence_request_count": 1,
+         *       "occurred_at": "2026-06-18T02:19:30Z",
+         *       "recorded_at": "2026-06-18T02:19:31Z"
+         *     }
+         */
         DiagnosisRoomProgressSummary: {
             /** Format: int64 */
             diagnosis_task_id: number;
@@ -4652,7 +4721,19 @@ export interface components {
             /** Format: date-time */
             recorded_at: string;
         };
-        /** @description Latest available diagnosis-room conclusion linked to a report evidence snapshot. */
+        /**
+         * @description Latest available diagnosis-room conclusion linked to a report evidence snapshot.
+         * @example {
+         *       "diagnosis_task_id": 41,
+         *       "session_id": "diagnosis-room-41",
+         *       "chat_session_id": 17,
+         *       "event_kind": "diagnosis_room.final_conclusion_ready",
+         *       "status": "available",
+         *       "source": "assistant",
+         *       "content": "The checkout latency increase correlates with database saturation.",
+         *       "recorded_at": "2026-06-18T02:20:00Z"
+         *     }
+         */
         DiagnosisRoomConclusionSummary: {
             /** Format: int64 */
             diagnosis_task_id: number;
@@ -4775,7 +4856,14 @@ export interface components {
             /** Format: date-time */
             occurred_at: string;
         };
-        /** @description Sanitized outbound notification delivery retained from diagnosis-room lifecycle events. */
+        /**
+         * @description Sanitized outbound notification delivery retained from diagnosis-room lifecycle events.
+         * @example {
+         *       "event_kind": "diagnosis_room.final_ready_notification_sent",
+         *       "provider_status": "sent",
+         *       "occurred_at": "2026-06-18T02:21:00Z"
+         *     }
+         */
         DiagnosisRoomNotificationTimelineEntry: {
             event_kind: string;
             /** Format: int64 */
@@ -4803,11 +4891,15 @@ export interface components {
         };
         /** @description Request to retry the latest still-failed diagnosis-room notification of a specific lifecycle kind. */
         DiagnosisNotificationRetryRequest: {
-            /** @enum {string} */
+            /**
+             * @example diagnosis_room.final_ready_notification_sent
+             * @enum {string}
+             */
             event_kind: "diagnosis_room.assistant_turn_notification_sent" | "diagnosis_room.final_ready_notification_sent" | "diagnosis_room.close_notification_sent";
         };
         /**
          * @description Outcome of a diagnosis-room notification retry request.
+         * @example sent
          * @enum {string}
          */
         DiagnosisNotificationRetryState: "sent" | "already_delivered";

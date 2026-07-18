@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,6 +45,129 @@ go-license-allow: Apache-2.0, BSD-3-Clause, MIT; owner: CI maintainers; reviewed
 		if calls[index] != want {
 			t.Fatalf("calls[%d] = %q, want %q", index, calls[index], want)
 		}
+	}
+}
+
+func TestGoLicensesCheckClassifiesAuditedAssemblyAsInfo(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	assembly := []byte("#include \"textflag.h\"\n")
+	relativePath := "example.com/asm@v1.0.0/asm_amd64.s"
+	goLicensesWriteFile(t, root, "module-cache/"+relativePath, string(assembly), 0o644)
+	digest := sha256.Sum256(assembly)
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", fmt.Sprintf(`# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+go-license-non-go-allow: example.com/asm|%s|%x; owner: CI maintainers; reviewed: 2026-05-29; reason: audited Go assembly has no external dependency declarations
+`, relativePath, digest), 0o644)
+	toolStderr := fmt.Sprintf("go: downloading example.com/tool v1.2.3\nW0718 17:40:51.432546 123 library.go:101] \"example.com/asm\" contains non-Go code that can't be inspected for further dependencies:\n%s\n", filepath.Join(root, "module-cache", relativePath))
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "", "GO_LICENSES_FAKE_STDERR="+toolStderr)
+	if err != nil {
+		t.Fatalf("go licenses check failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "[go-licenses] INFO (1 hash-pinned assembly files audited)") {
+		t.Fatalf("output = %q, want audited assembly info", out)
+	}
+	if !strings.Contains(out, "[go-licenses] INFO (1 Go module downloads completed)") {
+		t.Fatalf("output = %q, want Go module download info", out)
+	}
+	if strings.Contains(out, "W0718") || strings.Contains(strings.ToLower(out), "warning") {
+		t.Fatalf("output retained warning-level tool noise: %q", out)
+	}
+}
+
+func TestGoLicensesCheckRejectsUnreviewedNonGoFile(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	relativePath := "example.com/asm@v1.0.0/asm_amd64.s"
+	goLicensesWriteFile(t, root, "module-cache/"+relativePath, "", 0o644)
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", `# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+`, 0o644)
+	toolStderr := fmt.Sprintf("W0718 17:40:51.432546 123 library.go:101] \"example.com/asm\" contains non-Go code that can't be inspected for further dependencies:\n%s\n", filepath.Join(root, "module-cache", relativePath))
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "", "GO_LICENSES_FAKE_STDERR="+toolStderr)
+	if err == nil {
+		t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "unreviewed non-Go dependency file") {
+		t.Fatalf("output = %q, want unreviewed non-Go file failure", out)
+	}
+}
+
+func TestGoLicensesCheckRejectsChangedAuditedAssembly(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	relativePath := "example.com/asm@v1.0.0/asm_amd64.s"
+	goLicensesWriteFile(t, root, "module-cache/"+relativePath, "changed\n", 0o644)
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", fmt.Sprintf(`# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+go-license-non-go-allow: example.com/asm|%s|%s; owner: CI maintainers; reviewed: 2026-05-29; reason: audited Go assembly has no external dependency declarations
+`, relativePath, strings.Repeat("0", 64)), 0o644)
+	toolStderr := fmt.Sprintf("W0718 17:40:51.432546 123 library.go:101] \"example.com/asm\" contains non-Go code that can't be inspected for further dependencies:\n%s\n", filepath.Join(root, "module-cache", relativePath))
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "", "GO_LICENSES_FAKE_STDERR="+toolStderr)
+	if err == nil {
+		t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "reviewed non-Go dependency content changed") {
+		t.Fatalf("output = %q, want content drift failure", out)
+	}
+}
+
+func TestGoLicensesCheckRejectsStaleAssemblyPolicy(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	relativePath := "example.com/asm@v1.0.0/asm_amd64.s"
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", fmt.Sprintf(`# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+go-license-non-go-allow: example.com/asm|%s|%s; owner: CI maintainers; reviewed: 2026-05-29; reason: audited Go assembly has no external dependency declarations
+`, relativePath, strings.Repeat("0", 64)), 0o644)
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "")
+	if err == nil {
+		t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "stale go-license-non-go-allow:") {
+		t.Fatalf("output = %q, want stale policy failure", out)
+	}
+}
+
+func TestGoLicensesCheckRejectsAssemblyOutsideConfiguredModuleCache(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	relativePath := "example.com/asm@v1.0.0/asm_amd64.s"
+	assembly := []byte("#include \"textflag.h\"\n")
+	goLicensesWriteFile(t, root, "outside/"+relativePath, string(assembly), 0o644)
+	digest := sha256.Sum256(assembly)
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", fmt.Sprintf(`# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+go-license-non-go-allow: example.com/asm|%s|%x; owner: CI maintainers; reviewed: 2026-05-29; reason: audited Go assembly has no external dependency declarations
+`, relativePath, digest), 0o644)
+	toolStderr := fmt.Sprintf("W0718 17:40:51.432546 123 library.go:101] \"example.com/asm\" contains non-Go code that can't be inspected for further dependencies:\n%s\n", filepath.Join(root, "outside", relativePath))
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "", "GO_LICENSES_FAKE_STDERR="+toolStderr)
+	if err == nil {
+		t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "outside the configured Go module cache") {
+		t.Fatalf("output = %q, want module-cache boundary failure", out)
+	}
+}
+
+func TestGoLicensesCheckRejectsUnexpectedSuccessfulToolStderr(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", `# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+`, 0o644)
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "", "GO_LICENSES_FAKE_STDERR=unexpected successful stderr\n")
+	if err == nil {
+		t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "unexpected tool stderr") {
+		t.Fatalf("output = %q, want unexpected stderr failure", out)
 	}
 }
 
@@ -273,10 +398,17 @@ func goLicensesScript(t *testing.T) string {
 func fakeGoLicensesGo() string {
 	return `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$*" == "env GOMODCACHE" ]]; then
+  printf '%s\n' "${GO_LICENSES_FAKE_GOMODCACHE:?}"
+  exit 0
+fi
 printf '%s|%s\n' "$PWD" "$*" >>"${GO_LICENSES_CALLS:?}"
 if [[ "${GO_LICENSES_FAKE_FAIL:-}" == "1" ]]; then
   echo "simulated go-licenses failure" >&2
   exit 42
+fi
+if [[ -n "${GO_LICENSES_FAKE_STDERR:-}" ]]; then
+  printf '%s' "$GO_LICENSES_FAKE_STDERR" >&2
 fi
 `
 }
@@ -292,7 +424,7 @@ func goLicensesWriteFile(t *testing.T, root, name, body string, mode os.FileMode
 	}
 }
 
-func runGoLicensesCheck(t *testing.T, root, callsPath, fakeFail string) (string, error) {
+func runGoLicensesCheck(t *testing.T, root, callsPath, fakeFail string, extraEnv ...string) (string, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -302,8 +434,10 @@ func runGoLicensesCheck(t *testing.T, root, callsPath, fakeFail string) (string,
 		"PATH="+filepath.Join(root, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"GO_LICENSES_CALLS="+callsPath,
 		"GO_LICENSES_FAKE_FAIL="+fakeFail,
+		"GO_LICENSES_FAKE_GOMODCACHE="+filepath.Join(root, "module-cache"),
 		"GO_LICENSES_REVIEW_TODAY=2026-05-30",
 	)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	raw, err := cmd.CombinedOutput()
 	return string(raw), err
 }

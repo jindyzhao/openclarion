@@ -52,4 +52,4 @@ for input in "$RULESET" "$SPEC"; do
   fi
 done
 
-go tool github.com/daveshanley/vacuum lint -r "$RULESET" --details --fail-severity error "$SPEC"
+go tool github.com/daveshanley/vacuum lint -r "$RULESET" --details --fail-severity warn "$SPEC"

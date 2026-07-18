@@ -154,22 +154,66 @@ ENT_PKG := ./internal/persistence/ent
 ENT_SCHEMA_URL := ent://internal/persistence/ent/schema
 MIGRATIONS_DIR := internal/persistence/migrations
 
+# The local PR bundle has one mutation-capable preflight followed by two
+# independent read/temporary-output lanes. The explicit sequential `ci` rule
+# remains visible to static governance checks; root tests prove this partition
+# stays identical to it.
+CI_PREFLIGHT_TARGETS := \
+	workflow-parity actionlint docs-hygiene forbidden adr-check links-check \
+	doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test \
+	file-mode-check file-mode-check-test \
+	manual-target-isolation comment-debt-check comment-debt-check-test \
+	deferred-followups-check deferred-followups-check-test pr-template-check \
+	pr-template-check-test issue-template-check issue-template-check-test \
+	go-toolchain-check go-toolchain-check-test shell-syntax-check \
+	yaml-syntax-check allowlist-discipline allowlist-discipline-test \
+	branch-protection-check branch-protection-check-test \
+	dependabot-policy-check dependabot-policy-check-test \
+	workflow-change-guard-test linear-history-check-test \
+	pr-file-count-check-test pr-impact-reference-check-test pr-budget-test \
+	repo-size-check repo-size-check-test generated-headers generate-fresh \
+	secrets-scan
+CI_BACKEND_TARGETS := \
+	operations-config-hygiene operations-config-hygiene-test govulncheck \
+	go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build \
+	diagnosis-agent-runtime-check sandbox-baseline-audit go-test go-coverage \
+	openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh \
+	atlas-drift
+CI_FRONTEND_TARGETS := markdownlint frontend-checks
+CI_TARGETS := $(CI_PREFLIGHT_TARGETS) $(CI_BACKEND_TARGETS) $(CI_FRONTEND_TARGETS)
+
+ifeq ($(CI_SERIAL_LANE),1)
+.NOTPARALLEL:
+endif
+
 # ---------------------------------------------------------------------------
 # Top-level entry points
 # ---------------------------------------------------------------------------
 
-.PHONY: help pr ci
+.PHONY: help pr ci ci-pr ci-backend-lane ci-frontend-lane
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*?## "; printf "Targets:\n" } \
 		/^[a-zA-Z][a-zA-Z0-9_-]+:.*?## / { printf "  %-22s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
-	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
+	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci-pr
+
+ci-pr: ## Run the full local CI bundle with two dependency-isolated lanes
+	@$(MAKE) CI_SERIAL_LANE=1 $(CI_PREFLIGHT_TARGETS)
+	@$(MAKE) -j2 CI_SERIAL_LANE=0 ci-backend-lane ci-frontend-lane
+	@echo ""
+	@echo "[ci] all gates passed."
+
+ci-backend-lane:
+	@$(MAKE) CI_SERIAL_LANE=1 $(CI_BACKEND_TARGETS)
+
+ci-frontend-lane:
+	@$(MAKE) CI_SERIAL_LANE=1 $(CI_FRONTEND_TARGETS)
 
 # Focused Go test targets remain granular workflow entrypoints. Their test sets
 # are strict subsets of go-test, so the local aggregate executes them once.
-ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test branch-protection-check branch-protection-check-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan operations-config-hygiene operations-config-hygiene-test govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build diagnosis-agent-runtime-check sandbox-baseline-audit go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Coverage-equivalent local CI bundle
+ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test branch-protection-check branch-protection-check-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan operations-config-hygiene operations-config-hygiene-test govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build diagnosis-agent-runtime-check sandbox-baseline-audit go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift markdownlint frontend-checks ## Coverage-equivalent sequential CI bundle
 	@echo ""
 	@echo "[ci] all gates passed."
 
