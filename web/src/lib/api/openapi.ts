@@ -3804,6 +3804,11 @@ export interface components {
              */
             configured: boolean;
             /**
+             * @description Whether the running backend can issue bounded diagnosis browser sessions. This reports wiring readiness only and does not expose signing material.
+             * @example true
+             */
+            session_issuance_ready: boolean;
+            /**
              * @description Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
              * @example ldap
              * @enum {string}

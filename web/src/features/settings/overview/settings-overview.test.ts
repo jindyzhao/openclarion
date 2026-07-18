@@ -587,8 +587,16 @@ describe("settings overview diagnosis auth status", () => {
       diagnosisAuthProbeModeFromBackendStatus({
         configured: true,
         mode: "ldap",
+        session_issuance_ready: true,
       }),
     ).toBe("session");
+    expect(
+      diagnosisAuthProbeModeFromBackendStatus({
+        configured: true,
+        mode: "ldap",
+        session_issuance_ready: false,
+      }),
+    ).toBe("ldap");
   });
 
   it("uses bearer probes for static backends", () => {
@@ -596,6 +604,7 @@ describe("settings overview diagnosis auth status", () => {
       diagnosisAuthProbeModeFromBackendStatus({
         configured: true,
         mode: "static",
+        session_issuance_ready: true,
       }),
     ).toBe("bearer");
   });
@@ -605,8 +614,16 @@ describe("settings overview diagnosis auth status", () => {
       diagnosisAuthProbeModeFromBackendStatus({
         configured: true,
         mode: "oidc",
+        session_issuance_ready: true,
       }),
     ).toBe("session");
+    expect(
+      diagnosisAuthProbeModeFromBackendStatus({
+        configured: true,
+        mode: "oidc",
+        session_issuance_ready: false,
+      }),
+    ).toBeNull();
   });
 
   it("prefers browser-session probes when OIDC is layered onto another auth provider", () => {
@@ -614,16 +631,34 @@ describe("settings overview diagnosis auth status", () => {
       diagnosisAuthProbeModeFromBackendStatus({
         configured: true,
         mode: "ldap",
+        session_issuance_ready: true,
         supported_modes: ["ldap", "oidc"],
       }),
     ).toBe("session");
     expect(
       diagnosisAuthProbeModeFromBackendStatus({
         configured: true,
+        mode: "ldap",
+        session_issuance_ready: false,
+        supported_modes: ["ldap", "oidc"],
+      }),
+    ).toBe("ldap");
+    expect(
+      diagnosisAuthProbeModeFromBackendStatus({
+        configured: true,
         mode: "static",
+        session_issuance_ready: true,
         supported_modes: ["static", "oidc"],
       }),
     ).toBe("session");
+    expect(
+      diagnosisAuthProbeModeFromBackendStatus({
+        configured: true,
+        mode: "static",
+        session_issuance_ready: false,
+        supported_modes: ["static", "oidc"],
+      }),
+    ).toBe("bearer");
   });
 
   it("uses browser-session probes for OIDC and does not guess when backend auth is missing or unnamed", () => {
@@ -631,18 +666,21 @@ describe("settings overview diagnosis auth status", () => {
       diagnosisAuthProbeModeFromBackendStatus({
         configured: true,
         mode: "oidc",
+        session_issuance_ready: true,
       }),
     ).toBe("session");
     expect(
       diagnosisAuthProbeModeFromBackendStatus({
         configured: false,
         mode: "none",
+        session_issuance_ready: false,
       }),
     ).toBeNull();
     expect(
       diagnosisAuthProbeModeFromBackendStatus({
         configured: true,
         mode: "unknown",
+        session_issuance_ready: false,
       }),
     ).toBeNull();
     expect(diagnosisAuthProbeModeFromBackendStatus(null)).toBeNull();
@@ -1109,6 +1147,7 @@ describe("settings overview diagnosis auth status", () => {
         {
           configured: true,
           mode: "oidc",
+          session_issuance_ready: true,
           oidc_bff: {
             browser_session_signing_key_configured: true,
             client_auth_method: "client_secret_basic",
@@ -1140,6 +1179,39 @@ describe("settings overview diagnosis auth status", () => {
         {
           configured: true,
           mode: "oidc",
+          session_issuance_ready: false,
+          oidc_bff: {
+            browser_session_signing_key_configured: true,
+            client_auth_method: "client_secret_basic",
+            client_id_configured: true,
+            client_secret_configured: true,
+            configured: true,
+            issuer_configured: true,
+            missing: [],
+            pkce_enabled: true,
+            redirect_url_configured: true,
+            scopes_include_openid: true,
+            state_signing_key_configured: true,
+            status: "ready",
+          },
+          supported_modes: ["oidc"],
+        },
+        false,
+      ),
+    ).toEqual({
+      detail:
+        "The running backend cannot issue the OpenClarion browser session required for IAM OIDC sign-in. Configure the backend session issuer before accepting browser-session rollout proof.",
+      label: "IAM browser sign-in blocked",
+      status: "blocked",
+      value: "Backend session issuer missing",
+    });
+
+    expect(
+      settingsOIDCBFFSetupReadiness(
+        {
+          configured: true,
+          mode: "oidc",
+          session_issuance_ready: true,
           oidc_bff: {
             browser_session_signing_key_configured: false,
             client_auth_method: "client_secret_basic",
@@ -1171,6 +1243,7 @@ describe("settings overview diagnosis auth status", () => {
         {
           configured: true,
           mode: "oidc",
+          session_issuance_ready: true,
           supported_modes: ["oidc"],
         },
         false,
@@ -1186,6 +1259,7 @@ describe("settings overview diagnosis auth status", () => {
         {
           configured: true,
           mode: "ldap",
+          session_issuance_ready: true,
           supported_modes: ["ldap"],
         },
         false,
@@ -1198,6 +1272,7 @@ describe("settings overview diagnosis auth status", () => {
       {
         configured: true,
         mode: "oidc",
+        session_issuance_ready: true,
         oidc_bff: {
           browser_session_signing_key_configured: false,
           client_auth_method: "auto",

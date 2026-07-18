@@ -126,6 +126,7 @@ export type DiagnosisAutoBrowserSessionConnectionStatus =
 export type DiagnosisAuthBackendStatusSnapshot = {
   configured: boolean;
   mode: DiagnosisAuthBackendMode;
+  sessionIssuanceReady?: boolean;
   supportedModes?: DiagnosisAuthBackendMode[];
 };
 
@@ -1223,6 +1224,7 @@ function diagnosisAuthBackendCheckSubjectChangedDetail(
 type DiagnosisAuthBackendModeIssue =
   | { kind: "not_configured" }
   | { kind: "unknown" }
+  | { kind: "session_unavailable" }
   | { kind: "wecom_migrated" }
   | {
       fallback: DiagnosisAuthBackendMode;
@@ -1250,6 +1252,9 @@ function diagnosisAuthBackendModeIssue(
     return { kind: "wecom_migrated" };
   }
   if (mode === "session") {
+    if (backendStatus.sessionIssuanceReady === false) {
+      return { kind: "session_unavailable" };
+    }
     if (supportedModes.includes("ldap") || supportedModes.includes("oidc")) {
       return null;
     }
@@ -1296,6 +1301,8 @@ function diagnosisAuthBackendModeBlockReason(
       return t("backend.notConfigured");
     case "unknown":
       return t("backend.unknownMode");
+    case "session_unavailable":
+      return t("backend.sessionUnavailable");
     case "wecom_migrated":
       return t("input.weComMigratedDetail");
     case "session_mismatch":

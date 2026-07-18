@@ -137,11 +137,12 @@ func (s *Server) GetDiagnosisAuthStatus(w http.ResponseWriter, r *http.Request) 
 	roleMapping := diagnosisAuthRoleMappingStatus(s.diagnosis.authProvider)
 	transportPolicy := diagnosisAuthTransportPolicyStatus(s.diagnosis.authProvider)
 	writeJSON(r.Context(), w, s.logger, http.StatusOK, api.DiagnosisAuthStatusResponse{
-		Configured:      s.diagnosis.authProvider != nil,
-		Mode:            s.diagnosis.authStatusMode(),
-		SupportedModes:  diagnosisAuthSupportedModes(s.diagnosis.authSupportedModes()),
-		RoleMapping:     roleMapping,
-		TransportPolicy: transportPolicy,
+		Configured:           s.diagnosis.authProvider != nil,
+		SessionIssuanceReady: s.diagnosis.sessionIssuer != nil,
+		Mode:                 s.diagnosis.authStatusMode(),
+		SupportedModes:       diagnosisAuthSupportedModes(s.diagnosis.authSupportedModes()),
+		RoleMapping:          roleMapping,
+		TransportPolicy:      transportPolicy,
 	})
 }
 

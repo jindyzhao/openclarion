@@ -125,12 +125,16 @@ Router wrapper over `web/src/features/diagnosis-room/`, the rendered controls
 use the standardized Ant Design console layer, and ticket issuance goes through
 a same-origin Next.js route handler at `/api/diagnosis/ws-ticket`. The browser
 may hold operator LDAP Basic credentials or a static bearer token only in
-transient form/action state. Standard browser authentication uses the same-origin
-IAM OIDC BFF callback to exchange the provider code and stores the resulting
-OpenClarion session token only in an HttpOnly cookie. Enterprise WeChat browser
+transient form/action state. The same-origin session route can exchange either
+fallback for a bounded OpenClarion session without retaining the upstream
+credential. Standard browser authentication uses the IAM OIDC BFF callback to
+exchange the provider code and stores the resulting OpenClarion session token
+only in an HttpOnly cookie. Enterprise WeChat browser
 login is an upstream IAM concern; OpenClarion does not call Enterprise WeChat
 OAuth APIs for normal login. The React surface can check and clear the session,
-but it never reads the bearer value. For all modes, the browser
+but it never reads the bearer value. Fallback sign-in remains disabled until
+the backend status reports that bounded session issuance is wired. For all
+modes, the browser
 sends only the derived same-origin request, and the route forwards only the
 required `Authorization` header plus generated-contract JSON body to the Go
 API. The non-OpenAPI WebSocket frame handling stays local to the

@@ -69,6 +69,36 @@ func TestCheckAcceptsStaticConfig(t *testing.T) {
 	}
 }
 
+func TestCheckRejectsInvalidSessionSigningKeyForFallbackAuth(t *testing.T) {
+	tests := map[string]map[string]string{
+		"static": {
+			diagnosisAuthModeEnv:          "static",
+			diagnosisStaticBearerTokenEnv: "static-token",
+			diagnosisStaticSubjectEnv:     "operator-1",
+			diagnosisStaticRolesEnv:       "admin",
+			diagnosisSessionSigningKeyEnv: "short",
+		},
+		"ldap": {
+			diagnosisAuthModeEnv:          "ldap",
+			diagnosisLDAPURLEnv:           "ldaps://ldap.example.test:636",
+			diagnosisLDAPBaseDNEnv:        "dc=example,dc=test",
+			diagnosisLDAPDefaultRolesEnv:  "owner",
+			diagnosisSessionSigningKeyEnv: "short",
+		},
+	}
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := check(mapGetenv(values))
+			if err == nil {
+				t.Fatal("check succeeded")
+			}
+			if !strings.Contains(err.Error(), "diagnosis session signing key") {
+				t.Fatalf("error = %q, want session signing key context", err)
+			}
+		})
+	}
+}
+
 func TestCheckAcceptsStandardOIDCConfig(t *testing.T) {
 	err := check(mapGetenv(map[string]string{
 		standardOIDCIssuerEnv:   "https://iam.example.test",

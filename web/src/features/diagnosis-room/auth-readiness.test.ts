@@ -632,6 +632,17 @@ describe("diagnosis auth backend readiness", () => {
       { disabled: true, label: "LDAP fallback", value: "ldap" },
       { disabled: true, label: "Dev bearer", value: "bearer" },
     ]);
+    expect(
+      diagnosisAuthModeOptions({
+        configured: true,
+        mode: "ldap",
+        sessionIssuanceReady: false,
+      }),
+    ).toEqual([
+      { disabled: true, label: "IAM session", value: "session" },
+      { disabled: false, label: "LDAP fallback", value: "ldap" },
+      { disabled: true, label: "Dev bearer", value: "bearer" },
+    ]);
   });
 
   it("summarizes mixed backend auth modes for status displays", () => {
@@ -682,6 +693,13 @@ describe("diagnosis auth backend readiness", () => {
         supportedModes: ["ldap", "wecom"],
       }),
     ).toBe("session");
+    expect(
+      diagnosisAuthCoercedMode("session", {
+        configured: true,
+        mode: "ldap",
+        sessionIssuanceReady: false,
+      }),
+    ).toBe("ldap");
     expect(
       diagnosisAuthCoercedMode("ldap", { configured: false, mode: "none" }),
     ).toBe("ldap");

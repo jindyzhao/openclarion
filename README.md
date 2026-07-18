@@ -145,11 +145,26 @@ pinned PostgreSQL/pgvector and Temporal services, applies committed Atlas
 migrations, and validates runtime prerequisites. Replace `local-product-check`
 with `local-product` to start the API/worker and Next.js console.
 
+The complete console requires
+`OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY` with at least 32 private bytes. OIDC
+uses the normal IAM callback; isolated LDAP and static-auth runs expose a
+mode-specific sign-in form and exchange those transient credentials for the same
+short-lived HttpOnly browser session. Upstream credentials are not retained in
+browser storage.
+
 The launcher uses a dedicated Compose database by default. When
 `OPENCLARION_LOCAL_USE_CONFIGURED_DATABASE=1`, Atlas still runs in a container;
 a loopback database URL therefore requires either supported host networking or
 a separate container-reachable `OPENCLARION_LOCAL_ATLAS_DATABASE_URL`. See
 `.env.example` for both overrides.
+
+On the first run against the isolated database, set
+`OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS` to the authenticated operator
+subject. After that operator creates at least one enabled global admin RBAC
+assignment in the active default workspace, remove the bootstrap setting;
+subsequent preflights verify that persisted administrator before reporting the
+product ready. The launcher does not inspect RBAC state in a configured
+external database.
 
 Compose dependencies remain available after the launcher exits; stop them with:
 

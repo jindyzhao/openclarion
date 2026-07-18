@@ -8014,42 +8014,54 @@ func TestIssueDiagnosisAuthSessionRejectsUnconfiguredSessionIssuer(t *testing.T)
 
 func TestGetDiagnosisAuthStatusReturnsNonSensitiveProviderMode(t *testing.T) {
 	tests := []struct {
-		name          string
-		providerName  string
-		configure     bool
-		wantMode      string
-		wantReady     bool
-		wantSupported []api.DiagnosisAuthStatusResponseSupportedModesItem
+		name                     string
+		providerName             string
+		configure                bool
+		configureIssuer          bool
+		wantMode                 string
+		wantConfigured           bool
+		wantSessionIssuanceReady bool
+		wantSupported            []api.DiagnosisAuthStatusResponseSupportedModesItem
 	}{
 		{
-			name:          "not configured",
-			wantMode:      string(api.DiagnosisAuthStatusResponseModeNone),
-			wantReady:     false,
-			wantSupported: nil,
+			name:           "not configured",
+			wantMode:       string(api.DiagnosisAuthStatusResponseModeNone),
+			wantConfigured: false,
+			wantSupported:  nil,
 		},
 		{
-			name:          "ldap",
-			providerName:  "ldap",
-			configure:     true,
-			wantMode:      string(api.DiagnosisAuthStatusResponseModeLdap),
-			wantReady:     true,
-			wantSupported: []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemLdap},
+			name:           "ldap",
+			providerName:   "ldap",
+			configure:      true,
+			wantMode:       string(api.DiagnosisAuthStatusResponseModeLdap),
+			wantConfigured: true,
+			wantSupported:  []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemLdap},
 		},
 		{
-			name:          "static",
-			providerName:  "static",
-			configure:     true,
-			wantMode:      string(api.DiagnosisAuthStatusResponseModeStatic),
-			wantReady:     true,
-			wantSupported: []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemStatic},
+			name:                     "ldap with session issuance",
+			providerName:             "ldap",
+			configure:                true,
+			configureIssuer:          true,
+			wantMode:                 string(api.DiagnosisAuthStatusResponseModeLdap),
+			wantConfigured:           true,
+			wantSessionIssuanceReady: true,
+			wantSupported:            []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemLdap},
 		},
 		{
-			name:          "unknown",
-			providerName:  "custom-provider",
-			configure:     true,
-			wantMode:      string(api.DiagnosisAuthStatusResponseModeUnknown),
-			wantReady:     true,
-			wantSupported: []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemUnknown},
+			name:           "static",
+			providerName:   "static",
+			configure:      true,
+			wantMode:       string(api.DiagnosisAuthStatusResponseModeStatic),
+			wantConfigured: true,
+			wantSupported:  []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemStatic},
+		},
+		{
+			name:           "unknown",
+			providerName:   "custom-provider",
+			configure:      true,
+			wantMode:       string(api.DiagnosisAuthStatusResponseModeUnknown),
+			wantConfigured: true,
+			wantSupported:  []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemUnknown},
 		},
 	}
 	for _, tc := range tests {
@@ -8068,6 +8080,12 @@ func TestGetDiagnosisAuthStatusReturnsNonSensitiveProviderMode(t *testing.T) {
 					tc.providerName,
 				))
 			}
+			if tc.configureIssuer {
+				opts = append(opts, WithDiagnosisAuthSessionIssuer(newHTTPTestDiagnosisSessionIssuer(
+					t,
+					time.Date(2026, 7, 18, 4, 0, 0, 0, time.UTC),
+				)))
+			}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/auth/status", nil)
 
@@ -8080,8 +8098,11 @@ func TestGetDiagnosisAuthStatusReturnsNonSensitiveProviderMode(t *testing.T) {
 			if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 				t.Fatalf("decode body: %v", err)
 			}
-			if body.Configured != tc.wantReady {
-				t.Fatalf("configured = %v, want %v", body.Configured, tc.wantReady)
+			if body.Configured != tc.wantConfigured {
+				t.Fatalf("configured = %v, want %v", body.Configured, tc.wantConfigured)
+			}
+			if body.SessionIssuanceReady != tc.wantSessionIssuanceReady {
+				t.Fatalf("session_issuance_ready = %v, want %v", body.SessionIssuanceReady, tc.wantSessionIssuanceReady)
 			}
 			if body.Mode != tc.wantMode {
 				t.Fatalf("mode = %q, want %q", body.Mode, tc.wantMode)

@@ -21,7 +21,7 @@ export function normalizedDiagnosisAuthorization(
   if (
     username === "" ||
     password === "" ||
-    /[\u0000\s]/.test(username) ||
+    /[:\u0000\s]/.test(username) ||
     /[\u0000\r\n]/.test(password)
   ) {
     return null;

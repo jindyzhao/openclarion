@@ -99,10 +99,20 @@ database_url_uses_loopback_host() {
   [[ "$url" =~ ^postgres(ql)?://([^/@[:space:]]+@)?(localhost|127\.[0-9]+\.[0-9]+\.[0-9]+|\[::1\])([:/?]|$) ]]
 }
 
+csv_has_value() {
+  local compact="${1//,/}"
+  compact="${compact//[[:space:]]/}"
+  [[ -n "$compact" ]]
+}
+
 [[ -n "$env_file" ]] || fail "set OPENCLARION_LOCAL_PRODUCT_ENV_FILE or pass --env-file"
 openclarion_capture_exported_env_overrides
 openclarion_load_private_env_file "local-product" "$ROOT_DIR" "$env_file" || exit $?
 openclarion_restore_exported_env_overrides
+
+session_signing_key="${OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY:-}"
+[[ -n "${session_signing_key//[[:space:]]/}" ]] || \
+  fail "OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY is required for the complete browser console"
 
 for tool in curl docker go npm setsid; do
   command -v "$tool" >/dev/null 2>&1 || fail "required tool not found in PATH: $tool"
@@ -222,6 +232,20 @@ echo "[local-product] applying committed database migrations..." >&2
 OPENCLARION_ATLAS_DATABASE_URL="$atlas_database_url" \
 OPENCLARION_ATLAS_DOCKER_NETWORK="$atlas_network" \
   bash scripts/apply_atlas_migrations.sh
+
+if [[ "$OPENCLARION_LOCAL_USE_CONFIGURED_DATABASE" == "0" ]] && \
+  ! csv_has_value "${OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS:-}"; then
+  if ! rbac_admin_count="$("${compose[@]}" exec -T postgres \
+    psql -U openclarion -d "$OPENCLARION_LOCAL_DATABASE_NAME" \
+    -v ON_ERROR_STOP=1 -Atc \
+    "SELECT COUNT(*) FROM rbac_assignments AS assignment JOIN tenants AS tenant ON tenant.id = assignment.tenant_id WHERE assignment.enabled AND assignment.role = 'admin' AND assignment.scope_kind = 'global' AND assignment.scope_key = '' AND tenant.key = 'default' AND tenant.status = 'active'")"; then
+    fail "could not inspect enabled global admin RBAC assignments in the active default workspace"
+  fi
+  [[ "$rbac_admin_count" =~ ^[0-9]+$ ]] || \
+    fail "could not inspect enabled global admin RBAC assignments in the active default workspace"
+  [[ "$rbac_admin_count" != "0" ]] || \
+    fail "active default workspace has no enabled global admin RBAC assignments; set OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS to the authenticated operator subject for initial setup"
+fi
 
 if [[ -n "$check_only" ]]; then
   echo "[local-product] OK - non-Kubernetes local product prerequisites are ready." >&2

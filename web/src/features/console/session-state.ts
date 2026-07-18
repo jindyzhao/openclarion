@@ -1,12 +1,26 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import type { ApiResult } from "@/lib/api/client";
-import type { DiagnosisBrowserSessionStatus } from "@/features/diagnosis-room/transport";
+import type {
+  DiagnosisAuthStatus,
+  DiagnosisBrowserSessionStatus,
+} from "@/features/diagnosis-room/transport";
 
 export const consoleBrowserSessionQueryKey = [
   "console",
   "browser-session",
 ] as const;
+
+export type ConsoleSessionLoginMode =
+  | "ldap"
+  | "oidc"
+  | "static"
+  | "unavailable";
+
+export type ConsoleSessionRefreshFailure = {
+  error?: string;
+  source: "auth-status" | "browser-session";
+};
 
 export function consoleBrowserSessionResult(
   status: DiagnosisBrowserSessionStatus,
@@ -14,29 +28,76 @@ export function consoleBrowserSessionResult(
   return { data: status, ok: true };
 }
 
-export function isConsoleBrowserSessionQueryKey(
-  queryKey: readonly unknown[],
-): boolean {
-  return (
-    queryKey.length === consoleBrowserSessionQueryKey.length &&
-    queryKey.every(
-      (value, index) => value === consoleBrowserSessionQueryKey[index],
-    )
-  );
-}
-
 export async function clearConsoleQueryCacheAfterSignOut(
   queryClient: QueryClient,
 ) {
   await queryClient.cancelQueries();
-  queryClient.removeQueries({
-    predicate: (query) =>
-      !isConsoleBrowserSessionQueryKey(query.queryKey),
-  });
+  queryClient.clear();
   queryClient.setQueryData(
     consoleBrowserSessionQueryKey,
     consoleBrowserSessionResult({ authenticated: false }),
   );
+}
+
+export async function replaceConsoleQueryCacheAfterAuthentication(
+  queryClient: QueryClient,
+  session: Extract<DiagnosisBrowserSessionStatus, { authenticated: true }>,
+) {
+  await queryClient.cancelQueries();
+  queryClient.clear();
+  queryClient.setQueryData(
+    consoleBrowserSessionQueryKey,
+    consoleBrowserSessionResult(session),
+  );
+}
+
+export function consoleSessionLoginMode(
+  status: DiagnosisAuthStatus | undefined,
+): ConsoleSessionLoginMode {
+  if (
+    status === undefined ||
+    !status.configured ||
+    !status.session_issuance_ready
+  ) {
+    return "unavailable";
+  }
+  const oidcReady =
+    status.oidc_bff === undefined || status.oidc_bff.status === "ready";
+  const modes = [status.mode, ...(status.supported_modes ?? [])];
+  for (const mode of modes) {
+    if (mode === "oidc" && oidcReady) {
+      return mode;
+    }
+    if (mode === "ldap" || mode === "static") {
+      return mode;
+    }
+  }
+  return "unavailable";
+}
+
+export function consoleSessionRefreshFailure(
+  browserSession: ApiResult<DiagnosisBrowserSessionStatus> | undefined,
+  authStatus: ApiResult<DiagnosisAuthStatus> | undefined,
+): ConsoleSessionRefreshFailure | null {
+  if (browserSession === undefined) {
+    return { source: "browser-session" };
+  }
+  if (!browserSession.ok) {
+    return {
+      error: browserSession.error.message,
+      source: "browser-session",
+    };
+  }
+  if (browserSession.data.authenticated) {
+    return null;
+  }
+  if (authStatus === undefined) {
+    return { source: "auth-status" };
+  }
+  if (!authStatus.ok) {
+    return { error: authStatus.error.message, source: "auth-status" };
+  }
+  return null;
 }
 
 export function consoleSessionReturnTo(

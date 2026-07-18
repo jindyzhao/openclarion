@@ -3404,10 +3404,12 @@ paths:
                   value:
                     configured: true
                     mode: ldap
+                    session_issuance_ready: true
                 not-configured:
                   value:
                     configured: false
                     mode: none
+                    session_issuance_ready: false
   /api/v1/diagnosis/wecom/app-callback:
     get:
       operationId: verifyDiagnosisWeComAppCallback
@@ -9003,6 +9005,11 @@ components:
           description: Whether diagnosis auth is wired in the running backend.
           examples:
             - true
+        session_issuance_ready:
+          type: boolean
+          description: Whether the running backend can issue bounded diagnosis browser sessions. This reports wiring readiness only and does not expose signing material.
+          examples:
+            - true
         mode:
           type: string
           description: Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
@@ -9032,6 +9039,7 @@ components:
           $ref: "#/components/schemas/DiagnosisAuthTransportPolicyStatus"
       required:
         - configured
+        - session_issuance_ready
         - mode
     DiagnosisAuthTransportPolicyStatus:
       type: object

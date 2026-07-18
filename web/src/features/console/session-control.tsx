@@ -16,42 +16,68 @@ import {
   Avatar,
   Button,
   Dropdown,
+  Form,
+  Input,
+  Modal,
   Space,
   Tooltip,
   Typography,
 } from "antd";
 import type { MenuProps } from "antd";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
+import {
+  normalizedDiagnosisAuthorization,
+  type DiagnosisAuthorization,
+} from "@/features/diagnosis-room/authorization";
 import { diagnosisOIDCLoginHref } from "@/features/diagnosis-room/oidc-login";
+import { createDiagnosisBrowserSession } from "@/features/diagnosis-room/transport";
 import { useClientReady } from "@/lib/react/use-client-ready";
 
 import {
   consoleSessionLoginErrorKey,
+  consoleSessionLoginMode,
   consoleSessionModeLabel,
+  consoleSessionRefreshFailure,
   consoleSessionReturnTo,
   consoleSessionRolesLabel,
+  replaceConsoleQueryCacheAfterAuthentication,
 } from "./session-state";
 import {
   useAccessibleTenantsQuery,
   useClearConsoleBrowserSession,
+  useConsoleAuthStatusQuery,
   useConsoleBrowserSessionQuery,
   useSwitchConsoleTenant,
 } from "./use-browser-session";
 
+type ConsoleSignInFormValues = {
+  bearerToken?: string;
+  ldapPassword?: string;
+  ldapUsername?: string;
+};
+
 export function ConsoleSessionControl() {
   const { message } = AntdApp.useApp();
+  const commonT = useTranslations("Common");
   const t = useTranslations("Session");
+  const [signInForm] = Form.useForm<ConsoleSignInFormValues>();
+  const queryClient = useQueryClient();
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const clientReady = useClientReady();
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [signInPending, setSignInPending] = useState(false);
   const browserSessionQuery = useConsoleBrowserSessionQuery();
   const clearBrowserSessionMutation = useClearConsoleBrowserSession();
   const authenticated =
     browserSessionQuery.data?.ok === true &&
     browserSessionQuery.data.data.authenticated;
+  const authStatusQuery = useConsoleAuthStatusQuery(!authenticated);
   const accessibleTenantsQuery = useAccessibleTenantsQuery(authenticated);
   const switchTenantMutation = useSwitchConsoleTenant();
   const loginHref = useMemo(
@@ -68,12 +94,107 @@ export function ConsoleSessionControl() {
   const loginError = loginErrorKey === null ? "" : t(loginErrorKey);
 
   async function refreshSession() {
-    const refreshed = await browserSessionQuery.refetch();
-    if (refreshed.data?.ok === false) {
-      message.error(refreshed.data.error.message);
+    const refreshedSession = await browserSessionQuery.refetch();
+    if (refreshedSession.error !== null) {
+      message.error(
+        t("unavailable", {
+          error:
+            refreshedSession.error instanceof Error
+              ? refreshedSession.error.message
+              : commonT("requestFailed"),
+        }),
+      );
+      return;
+    }
+    const refreshedAuthStatus =
+      refreshedSession.data?.ok === true &&
+      !refreshedSession.data.data.authenticated
+        ? await authStatusQuery.refetch()
+        : undefined;
+    if (
+      refreshedAuthStatus !== undefined &&
+      refreshedAuthStatus.error !== null
+    ) {
+      message.error(
+        t("authStatusUnavailable", {
+          error:
+            refreshedAuthStatus.error instanceof Error
+              ? refreshedAuthStatus.error.message
+              : commonT("requestFailed"),
+        }),
+      );
+      return;
+    }
+    const failure = consoleSessionRefreshFailure(
+      refreshedSession.data,
+      refreshedAuthStatus?.data,
+    );
+    if (failure !== null) {
+      const error = failure.error ?? commonT("requestFailed");
+      message.error(
+        failure.source === "auth-status"
+          ? t("authStatusUnavailable", { error })
+          : t("unavailable", { error }),
+      );
       return;
     }
     message.success(t("refreshed"));
+  }
+
+  function closeSignIn() {
+    if (signInPending) {
+      return;
+    }
+    signInForm.resetFields();
+    setSignInOpen(false);
+  }
+
+  async function signIn(values: ConsoleSignInFormValues) {
+    const status = authStatusQuery.data;
+    const loginMode = consoleSessionLoginMode(
+      status?.ok === true ? status.data : undefined,
+    );
+    let authorization: DiagnosisAuthorization | null = null;
+    if (loginMode === "ldap") {
+      authorization = normalizedDiagnosisAuthorization({
+        mode: "basic",
+        password: values.ldapPassword ?? "",
+        username: values.ldapUsername ?? "",
+      });
+    }
+    if (loginMode === "static") {
+      authorization = normalizedDiagnosisAuthorization({
+        mode: "bearer",
+        token: values.bearerToken ?? "",
+      });
+    }
+    if (authorization === null) {
+      message.error(t("credentialsInvalid"));
+      return;
+    }
+
+    setSignInPending(true);
+    try {
+      const result = await createDiagnosisBrowserSession(authorization);
+      if (!result.ok) {
+        message.error(t("signInFailed", { error: result.error.message }));
+        return;
+      }
+      if (!result.data.authenticated) {
+        message.error(t("sessionNotReturned"));
+        return;
+      }
+      await replaceConsoleQueryCacheAfterAuthentication(
+        queryClient,
+        result.data,
+      );
+      signInForm.resetFields();
+      setSignInOpen(false);
+      router.refresh();
+      message.success(t("signedIn", { subject: result.data.subject }));
+    } finally {
+      setSignInPending(false);
+    }
   }
 
   function signOut() {
@@ -255,41 +376,152 @@ export function ConsoleSessionControl() {
       : browserSessionQuery.error instanceof Error
         ? browserSessionQuery.error.message
         : "";
+  const authStatusError =
+    authStatusQuery.data?.ok === false
+      ? authStatusQuery.data.error.message
+      : authStatusQuery.error instanceof Error
+        ? authStatusQuery.error.message
+        : "";
+  const loginMode = consoleSessionLoginMode(
+    authStatusQuery.data?.ok === true
+      ? authStatusQuery.data.data
+      : undefined,
+  );
+  const signInHint =
+    loginMode === "ldap"
+      ? t("signInHints.ldap")
+      : loginMode === "static"
+        ? t("signInHints.static")
+        : loginMode === "oidc"
+          ? t("signInHints.oidc")
+          : t("signInHints.unavailable");
   const statusDetail =
     sessionStatusError === ""
-      ? loginError
+      ? loginError === ""
+        ? authStatusError === ""
+          ? ""
+          : t("authStatusUnavailable", { error: authStatusError })
+        : loginError
       : t("unavailable", { error: sessionStatusError });
+  const fallbackSignIn = loginMode === "ldap" || loginMode === "static";
+  const signInDisabled =
+    loginMode === "unavailable" || authStatusQuery.isPending;
 
   return (
-    <Space className="app-console-session-anonymous" size={2}>
-      <Tooltip
+    <>
+      <Space className="app-console-session-anonymous" size={2}>
+        <Tooltip title={statusDetail === "" ? signInHint : statusDetail}>
+          <Button
+            aria-label={t("signInLabel")}
+            disabled={signInDisabled}
+            href={loginMode === "oidc" ? loginHref : undefined}
+            icon={
+              statusDetail === "" && !signInDisabled ? (
+                <LoginOutlined />
+              ) : (
+                <WarningOutlined />
+              )
+            }
+            loading={authStatusQuery.isPending}
+            onClick={
+              fallbackSignIn ? () => setSignInOpen(true) : undefined
+            }
+            type="primary"
+          >
+            <span className="app-console-session-sign-in-label">
+              {t("signIn")}
+            </span>
+          </Button>
+        </Tooltip>
+        {sessionStatusError === "" && authStatusError === "" ? null : (
+          <Tooltip title={t("retry")}>
+            <Button
+              aria-label={t("retry")}
+              icon={<ReloadOutlined />}
+              loading={
+                browserSessionQuery.isFetching || authStatusQuery.isFetching
+              }
+              onClick={() => void refreshSession()}
+              type="text"
+            />
+          </Tooltip>
+        )}
+      </Space>
+      <Modal
+        cancelButtonProps={{ disabled: signInPending }}
+        cancelText={t("cancel")}
+        destroyOnHidden
+        maskClosable={!signInPending}
+        okButtonProps={{ loading: signInPending }}
+        okText={t("signIn")}
+        onCancel={closeSignIn}
+        onOk={() => signInForm.submit()}
+        open={signInOpen && fallbackSignIn}
         title={
-          statusDetail === ""
-            ? t("signInHint")
-            : statusDetail
+          loginMode === "ldap"
+            ? t("ldapSignInTitle")
+            : t("staticSignInTitle")
         }
       >
-        <Button
-          aria-label={t("signInLabel")}
-          href={loginHref}
-          icon={statusDetail === "" ? <LoginOutlined /> : <WarningOutlined />}
-          type="primary"
+        <Form<ConsoleSignInFormValues>
+          form={signInForm}
+          layout="vertical"
+          onFinish={(values) => void signIn(values)}
+          preserve={false}
         >
-          <span className="app-console-session-sign-in-label">{t("signIn")}</span>
-        </Button>
-      </Tooltip>
-      {sessionStatusError === "" ? null : (
-        <Tooltip title={t("retry")}>
-          <Button
-            aria-label={t("retry")}
-            icon={<ReloadOutlined />}
-            loading={browserSessionQuery.isFetching}
-            onClick={() => void refreshSession()}
-            type="text"
-          />
-        </Tooltip>
-      )}
-    </Space>
+          {loginMode === "ldap" ? (
+            <>
+              <Form.Item
+                label={t("ldapUsername")}
+                name="ldapUsername"
+                rules={[
+                  { required: true, whitespace: true },
+                  { max: 256 },
+                  {
+                    pattern: /^[^\s:]+$/,
+                    message: t("ldapUsernameInvalid"),
+                  },
+                ]}
+              >
+                <Input autoComplete="username" disabled={signInPending} />
+              </Form.Item>
+              <Form.Item
+                label={t("ldapPassword")}
+                name="ldapPassword"
+                rules={[
+                  { required: true },
+                  { max: 4096 },
+                  {
+                    pattern: /^[^\u0000\r\n]+$/,
+                    message: t("ldapPasswordInvalid"),
+                  },
+                ]}
+              >
+                <Input.Password
+                  autoComplete="current-password"
+                  disabled={signInPending}
+                />
+              </Form.Item>
+            </>
+          ) : (
+            <Form.Item
+              label={t("bearerToken")}
+              name="bearerToken"
+              rules={[
+                { required: true, whitespace: true },
+                { max: 4096 },
+                {
+                  pattern: /^\S+$/,
+                  message: t("bearerTokenInvalid"),
+                },
+              ]}
+            >
+              <Input.Password autoComplete="off" disabled={signInPending} />
+            </Form.Item>
+          )}
+        </Form>
+      </Modal>
+    </>
   );
 }
 
