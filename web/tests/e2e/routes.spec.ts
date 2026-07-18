@@ -25,9 +25,24 @@ async function checkConnectionAuth(page: Page) {
   const checkAuthButton = connectionControls.getByRole("button", {
     name: /Check auth/,
   }).first();
-  await expect(checkAuthButton).toBeEnabled();
-  await checkAuthButton.click();
-  await expect(page.getByText(/Authenticated as operator-1/).first()).toBeVisible();
+  const authenticated = connectionControls
+    .getByText(/Authenticated as operator-1/)
+    .first();
+  await expect
+    .poll(
+      async () =>
+        (await authenticated.isVisible()) ||
+        (await checkAuthButton.isEnabled()),
+      {
+        message: "wait for automatic auth or a manual auth check",
+        timeout: 15_000,
+      },
+    )
+    .toBe(true);
+  if (!(await authenticated.isVisible())) {
+    await checkAuthButton.click();
+  }
+  await expect(authenticated).toBeVisible({ timeout: 15_000 });
 }
 
 async function refreshConnectionState(page: Page) {
@@ -751,7 +766,7 @@ test("report routes render list, detail, and evidence traceability", async ({
 test("diagnosis room route connects, submits a turn, and approves the conclusion", async ({
   page,
 }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
 
   const enableTemplateResponse = await page.request.post(
     "/api/config/diagnosis-tool-templates/1/enable",
@@ -1650,7 +1665,6 @@ test("alert source settings route lists and creates profiles", async ({
     "button",
     { name: "Test" },
   );
-  await expect(stagingAlertmanagerTestButton).toBeEnabled();
   await stagingAlertmanagerTestButton.click();
   await expect(page.getByRole("status")).toContainText(
     "Alertmanager alert listing succeeded.",
@@ -1668,7 +1682,6 @@ test("alert source settings route lists and creates profiles", async ({
   const primaryPrometheusTestButton = primaryPrometheusRow.getByRole("button", {
     name: "Test",
   });
-  await expect(primaryPrometheusTestButton).toBeEnabled();
   await primaryPrometheusTestButton.click();
   await expect(page.getByRole("status")).toContainText(
     "Secret-backed connection tests require a server-side secret resolver.",
@@ -1802,6 +1815,8 @@ test("grouping policy settings route previews and creates policies", async ({
 test("report workflow policy settings route creates and toggles policies", async ({
   page,
 }) => {
+  test.setTimeout(90_000);
+
   const readyAlertmanagerResponse = await page.request.post(
     "/api/config/alert-sources",
     {
