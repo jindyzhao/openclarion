@@ -15,6 +15,7 @@ describe("diagnosis auth status route", () => {
         Response.json({
           configured: true,
           mode: "ldap",
+          session_issuance_ready: true,
           supported_modes: ["ldap"],
           transport_policy: { security: "start_tls" },
         }),
@@ -36,6 +37,7 @@ describe("diagnosis auth status route", () => {
     await expect(response.json()).resolves.toEqual({
       configured: true,
       mode: "ldap",
+      session_issuance_ready: true,
       supported_modes: ["ldap"],
       transport_policy: { security: "start_tls" },
     });
@@ -61,6 +63,7 @@ describe("diagnosis auth status route", () => {
       Response.json({
         configured: true,
         mode: "ldap",
+        session_issuance_ready: true,
         role_mapping: {
           admin_mapping_count: 1,
           configured: true,
@@ -83,6 +86,7 @@ describe("diagnosis auth status route", () => {
     await expect(response.json()).resolves.toEqual({
       configured: true,
       mode: "ldap",
+      session_issuance_ready: true,
       role_mapping: {
         admin_mapping_count: 1,
         configured: true,
@@ -98,27 +102,37 @@ describe("diagnosis auth status route", () => {
     for (const body of [
       {
         configured: true,
+        mode: "ldap",
+        supported_modes: ["ldap"],
+      },
+      {
+        configured: true,
         mode: "desktop",
+        session_issuance_ready: true,
         supported_modes: ["oidc"],
       },
       {
         configured: true,
         mode: "oidc",
+        session_issuance_ready: true,
         supported_modes: ["oidc", "desktop"],
       },
       {
         configured: true,
         mode: "oidc",
+        session_issuance_ready: true,
         supported_modes: ["none"],
       },
       {
         configured: true,
         mode: "oidc",
+        session_issuance_ready: true,
         oidc_bff: { status: "ready" },
       },
       {
         configured: true,
         mode: "oidc",
+        session_issuance_ready: true,
         role_mapping: {
           admin_mapping_count: -1,
           configured: true,
@@ -130,6 +144,7 @@ describe("diagnosis auth status route", () => {
       {
         configured: true,
         mode: "oidc",
+        session_issuance_ready: true,
         role_mapping: {
           admin_mapping_count: 0,
           configured: true,
@@ -141,6 +156,7 @@ describe("diagnosis auth status route", () => {
       {
         configured: true,
         mode: "ldap",
+        session_issuance_ready: true,
         supported_modes: ["ldap"],
         transport_policy: { security: "plain" },
       },
@@ -161,6 +177,7 @@ describe("diagnosis auth status route", () => {
       Response.json({
         configured: true,
         mode: "oidc",
+        session_issuance_ready: true,
         supported_modes: ["oidc"],
       }),
     );
@@ -171,6 +188,7 @@ describe("diagnosis auth status route", () => {
     await expect(response.json()).resolves.toEqual({
       configured: true,
       mode: "oidc",
+      session_issuance_ready: true,
       oidc_bff: {
         browser_session_signing_key_configured: false,
         client_auth_method: "auto",

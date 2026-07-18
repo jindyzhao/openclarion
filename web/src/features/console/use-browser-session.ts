@@ -9,15 +9,18 @@ import { useRouter } from "next/navigation";
 
 import {
   clearDiagnosisBrowserSession,
+  fetchDiagnosisAuthStatus,
   fetchAccessibleTenants,
   fetchDiagnosisBrowserSession,
   switchDiagnosisBrowserTenant,
   type DiagnosisBrowserSessionStatus,
 } from "@/features/diagnosis-room/transport";
+import { diagnosisRoomAuthStatusQueryKey } from "@/features/diagnosis-room/cache";
 
 import {
   clearConsoleQueryCacheAfterSignOut,
   consoleBrowserSessionQueryKey,
+  replaceConsoleQueryCacheAfterAuthentication,
 } from "./session-state";
 
 export const accessibleTenantsQueryKey = ["console", "tenants"] as const;
@@ -41,6 +44,16 @@ export function useAccessibleTenantsQuery(enabled: boolean) {
     enabled,
     queryKey: accessibleTenantsQueryKey,
     queryFn: fetchAccessibleTenants,
+    retry: false,
+    staleTime: 30_000,
+  });
+}
+
+export function useConsoleAuthStatusQuery(enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryKey: diagnosisRoomAuthStatusQueryKey,
+    queryFn: fetchDiagnosisAuthStatus,
     retry: false,
     staleTime: 30_000,
   });
@@ -72,12 +85,7 @@ export function useSwitchConsoleTenant() {
       return result.data;
     },
     onSuccess: async (session) => {
-      await queryClient.cancelQueries();
-      queryClient.removeQueries();
-      queryClient.setQueryData(
-        consoleBrowserSessionQueryKey,
-        { data: session, ok: true },
-      );
+      await replaceConsoleQueryCacheAfterAuthentication(queryClient, session);
       router.refresh();
     },
   });

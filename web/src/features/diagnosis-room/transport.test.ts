@@ -670,6 +670,7 @@ describe("fetchDiagnosisAuthStatus", () => {
         JSON.stringify({
           configured: true,
           mode: "ldap",
+          session_issuance_ready: true,
           supported_modes: ["ldap", "oidc"],
         }),
         {
@@ -688,6 +689,7 @@ describe("fetchDiagnosisAuthStatus", () => {
         data: {
           configured: true,
           mode: "ldap",
+          session_issuance_ready: true,
           supported_modes: ["ldap", "oidc"],
         },
       });
@@ -817,6 +819,43 @@ describe("diagnosis browser session transport", () => {
       const request = calls[0]?.[1];
       expect((request?.headers as Headers).get("authorization")).toBe(
         `Basic ${btoa("operator-1:ldap-password")}`,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("creates a browser session from a static bearer credential", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetcher = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          authenticated: true,
+          checked_at: "2026-07-18T04:00:00Z",
+          mode: "static",
+          role_authorized: true,
+          roles: ["admin"],
+          subject: "operator-1",
+          tenant_id: 1,
+          tenant_key: "default",
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      ),
+    );
+    globalThis.fetch = fetcher as unknown as typeof fetch;
+
+    try {
+      const result = await createDiagnosisBrowserSession({
+        mode: "bearer",
+        token: "static-token",
+      });
+
+      expect(result.ok).toBe(true);
+      const calls = fetcher.mock.calls as unknown as Array<
+        [RequestInfo | URL, RequestInit | undefined]
+      >;
+      expect((calls[0]?.[1]?.headers as Headers).get("authorization")).toBe(
+        "Bearer static-token",
       );
     } finally {
       globalThis.fetch = originalFetch;

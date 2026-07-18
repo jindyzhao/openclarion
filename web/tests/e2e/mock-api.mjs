@@ -1445,6 +1445,7 @@ const server = createServer((request, response) => {
       writeJSON(response, 200, {
         configured: true,
         mode: "ldap",
+        session_issuance_ready: true,
         role_mapping: {
           admin_mapping_count: 0,
           configured: true,

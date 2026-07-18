@@ -101,8 +101,13 @@ export function normalizedDiagnosisAuthStatusResponse(
     return null;
   }
   const configured = value.configured;
+  const sessionIssuanceReady = value.session_issuance_ready;
   const mode = value.mode;
-  if (typeof configured !== "boolean" || !isDiagnosisAuthStatusMode(mode)) {
+  if (
+    typeof configured !== "boolean" ||
+    typeof sessionIssuanceReady !== "boolean" ||
+    !isDiagnosisAuthStatusMode(mode)
+  ) {
     return null;
   }
   const supportedModes = normalizedOptionalArray(
@@ -127,6 +132,7 @@ export function normalizedDiagnosisAuthStatusResponse(
   return {
     configured,
     mode,
+    session_issuance_ready: sessionIssuanceReady,
     ...(supportedModes === undefined
       ? {}
       : { supported_modes: supportedModes }),

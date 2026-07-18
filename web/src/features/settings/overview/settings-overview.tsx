@@ -1355,6 +1355,7 @@ function DiagnosisAuthProbePanel({
       };
       if (
         authorization.mode === "basic" &&
+        backendStatus.status?.session_issuance_ready === true &&
         diagnosisAuthProbeResultAuthorized(success)
       ) {
         const session = await createDiagnosisBrowserSession(authorization);
@@ -3003,24 +3004,20 @@ function authProbeBackendAlertType(
 export function diagnosisAuthProbeModeFromBackendStatus(
   status: DiagnosisAuthStatus | null,
 ): DiagnosisAuthMode | null {
-  const supportedModes = status?.supported_modes ?? [];
-  if (supportedModes.includes("oidc") || supportedModes.includes("ldap")) {
+  const supportedModes = diagnosisAuthBackendStatusModes(status);
+  if (
+    status?.session_issuance_ready === true &&
+    (supportedModes.includes("oidc") || supportedModes.includes("ldap"))
+  ) {
     return "session";
+  }
+  if (supportedModes.includes("ldap")) {
+    return "ldap";
   }
   if (supportedModes.includes("static")) {
     return "bearer";
   }
-  switch (status?.mode) {
-    case "ldap":
-    case "oidc":
-      return "session";
-    case "static":
-      return "bearer";
-    case "none":
-    case "unknown":
-    case undefined:
-      return null;
-  }
+  return null;
 }
 
 function diagnosisAuthBackendStatusSnapshot(
@@ -3032,6 +3029,7 @@ function diagnosisAuthBackendStatusSnapshot(
   return {
     configured: status.configured,
     mode: status.mode,
+    sessionIssuanceReady: status.session_issuance_ready,
     supportedModes: status.supported_modes,
   };
 }
@@ -3166,6 +3164,14 @@ export function settingsOIDCBFFSetupReadiness(
     diagnosisAuthBackendStatusModes(status).includes("oidc");
   if (!oidcAdvertised) {
     return undefined;
+  }
+  if (!status.session_issuance_ready) {
+    return {
+      detail: t("settings.oidcSessionIssuerMissingDetail"),
+      label: t("settings.oidcBlockedLabel"),
+      status: "blocked",
+      value: t("settings.oidcSessionIssuerMissingValue"),
+    };
   }
   const readiness = status.oidc_bff;
   if (readiness === undefined) {

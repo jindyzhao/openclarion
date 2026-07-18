@@ -1042,6 +1042,7 @@ function diagnosisAuthBackendStatusSnapshot(
   return {
     configured: result.data.configured,
     mode: result.data.mode,
+    sessionIssuanceReady: result.data.session_issuance_ready,
     supportedModes: result.data.supported_modes,
   };
 }

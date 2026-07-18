@@ -80,6 +80,90 @@ func TestRunLocalProductCheckUsesIsolatedComposeDatabaseAndBoundedWaits(t *testi
 	if _, err := os.Stat(filepath.Join(fixture.captureDir, "npm.env")); !os.IsNotExist(err) {
 		t.Fatalf("check-only started npm unexpectedly: %v", err)
 	}
+	if strings.Contains(dockerArgs, "SELECT COUNT(*) FROM rbac_assignments AS assignment") {
+		t.Fatalf("configured bootstrap subject should skip the global admin query:\n%s", dockerArgs)
+	}
+}
+
+func TestRunLocalProductRequiresRBACBootstrapWithoutPersistedGlobalAdmin(t *testing.T) {
+	tests := []struct {
+		name      string
+		bootstrap string
+	}{
+		{name: "empty", bootstrap: ""},
+		{name: "whitespace and commas", bootstrap: " , \t, "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newLocalProductFixture(t)
+			output, err := fixture.command(t, []string{
+				"OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS=" + tt.bootstrap,
+				"OPENCLARION_TEST_RBAC_ASSIGNMENT_COUNT=0",
+			}, "--check-only").CombinedOutput()
+			if err == nil {
+				t.Fatalf("database without a global admin passed without RBAC bootstrap:\n%s", output)
+			}
+			want := "active default workspace has no enabled global admin RBAC assignments; set OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS to the authenticated operator subject for initial setup"
+			if !strings.Contains(string(output), want) {
+				t.Fatalf("output = %q, want %q", output, want)
+			}
+			events := fixture.readCapture(t, "events")
+			if atlasIndex, rbacIndex := strings.Index(events, "atlas\n"), strings.Index(events, "rbac-check\n"); atlasIndex < 0 || rbacIndex < 0 || atlasIndex > rbacIndex {
+				t.Fatalf("RBAC readiness must be inspected after Atlas apply:\n%s", events)
+			}
+		})
+	}
+}
+
+func TestRunLocalProductAcceptsPersistedGlobalAdminWithoutBootstrap(t *testing.T) {
+	fixture := newLocalProductFixture(t)
+	fixture.runWithEnvironment(t, []string{
+		"OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS=",
+		"OPENCLARION_TEST_RBAC_ASSIGNMENT_COUNT=2",
+	}, "--check-only")
+
+	events := fixture.readCapture(t, "events")
+	if !strings.Contains(events, "rbac-check\n") {
+		t.Fatalf("persisted global admins were not inspected:\n%s", events)
+	}
+	dockerArgs := fixture.readCapture(t, "docker.args")
+	for _, want := range []string{
+		"JOIN tenants AS tenant ON tenant.id = assignment.tenant_id",
+		"tenant.key = 'default'",
+		"tenant.status = 'active'",
+	} {
+		if !strings.Contains(dockerArgs, want) {
+			t.Fatalf("RBAC readiness query missing %q:\n%s", want, dockerArgs)
+		}
+	}
+}
+
+func TestRunLocalProductFailsClosedWhenRBACAssignmentInspectionIsMalformed(t *testing.T) {
+	fixture := newLocalProductFixture(t)
+	output, err := fixture.command(t, []string{
+		"OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS=",
+		"OPENCLARION_TEST_RBAC_ASSIGNMENT_COUNT=not-a-count",
+	}, "--check-only").CombinedOutput()
+	if err == nil {
+		t.Fatalf("malformed RBAC assignment result passed unexpectedly:\n%s", output)
+	}
+	if want := "could not inspect enabled global admin RBAC assignments in the active default workspace"; !strings.Contains(string(output), want) {
+		t.Fatalf("output = %q, want %q", output, want)
+	}
+}
+
+func TestRunLocalProductFailsClosedWhenRBACAssignmentInspectionFails(t *testing.T) {
+	fixture := newLocalProductFixture(t)
+	output, err := fixture.command(t, []string{
+		"OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS=",
+		"OPENCLARION_TEST_RBAC_QUERY_FAIL=1",
+	}, "--check-only").CombinedOutput()
+	if err == nil {
+		t.Fatalf("failed RBAC assignment query passed unexpectedly:\n%s", output)
+	}
+	if want := "could not inspect enabled global admin RBAC assignments in the active default workspace"; !strings.Contains(string(output), want) {
+		t.Fatalf("output = %q, want %q", output, want)
+	}
 }
 
 func TestRunLocalProductRejectsBridgeAtlasForLoopbackDatabase(t *testing.T) {
@@ -126,6 +210,17 @@ func TestRunLocalProductValidatesPrerequisitesBeforeMigrations(t *testing.T) {
 		}
 		fixture.requireNoCapture(t, "atlas.env")
 	})
+
+	t.Run("browser session signing key", func(t *testing.T) {
+		fixture := newLocalProductFixture(t)
+		output, err := fixture.command(t, []string{
+			"OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY=",
+		}, "--check-only").CombinedOutput()
+		if err == nil || !strings.Contains(string(output), "OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY is required") {
+			t.Fatalf("browser session prerequisite result: err=%v output=%s", err, output)
+		}
+		fixture.requireNoCapture(t, "atlas.env")
+	})
 }
 
 func TestRunLocalProductStopsFrontendProcessGroup(t *testing.T) {
@@ -164,6 +259,7 @@ func TestRunLocalProductStartsFrontendWithMatchingPublicURLs(t *testing.T) {
 		"public=http://127.0.0.1:32101",
 		"backend_secret_present=",
 		"oidc_secret_present=x",
+		"session_secret_present=x",
 		"args=run dev -- --hostname 127.0.0.1 --port 3300",
 	} {
 		if !strings.Contains(npm, want) {
@@ -280,6 +376,13 @@ if [ "$*" = "compose version --short" ]; then
   exit 0
 fi
 case "$*" in
+  *"SELECT COUNT(*) FROM rbac_assignments AS assignment JOIN tenants AS tenant ON tenant.id = assignment.tenant_id WHERE assignment.enabled AND assignment.role = 'admin' AND assignment.scope_kind = 'global' AND assignment.scope_key = '' AND tenant.key = 'default' AND tenant.status = 'active'"*)
+    printf 'rbac-check\n' >>"$OPENCLARION_TEST_CAPTURE_DIR/events"
+    if [ "${OPENCLARION_TEST_RBAC_QUERY_FAIL:-}" = "1" ]; then
+      exit 17
+    fi
+    printf '%s\n' "${OPENCLARION_TEST_RBAC_ASSIGNMENT_COUNT:-1}"
+    ;;
   *"SELECT 1 FROM pg_database"*) printf '1\n' ;;
 esac
 `, 0o755)
@@ -293,6 +396,7 @@ set -eu
   printf 'public=%s\n' "${NEXT_PUBLIC_OPENCLARION_API_PUBLIC_BASE_URL:-}"
   printf 'backend_secret_present=%s\n' "${OPENCLARION_LLM_API_KEY+x}"
   printf 'oidc_secret_present=%s\n' "${OIDC_CLIENT_SECRET+x}"
+  printf 'session_secret_present=%s\n' "${OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY+x}"
   printf 'args=%s\n' "$*"
 } >"$HOME/npm.env"
 sleep 60 &
@@ -342,6 +446,8 @@ sleep 1
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED='llm.example.test:443'",
 		"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS='http://existing.test'",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT='config/agents'",
+		"OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS='fixture-admin'",
+		"OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY='fixture-session-signing-key-32-bytes'",
 		"OPENCLARION_LLM_API_KEY='backend-only-private-value'",
 		"OIDC_CLIENT_SECRET='frontend-private-value'",
 		"DATABASE_URL='postgres://operator:stale-private-value@stale.test/stale'",

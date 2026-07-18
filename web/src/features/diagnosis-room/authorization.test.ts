@@ -44,6 +44,13 @@ describe("diagnosis authorization", () => {
     expect(
       diagnosisAuthorizationHeader({
         mode: "basic",
+        username: "operator:admin",
+        password: "ldap-password",
+      }),
+    ).toBeNull();
+    expect(
+      diagnosisAuthorizationHeader({
+        mode: "basic",
         username: "operator-1",
         password: "ldap\npassword",
       }),

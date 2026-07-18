@@ -80,6 +80,9 @@ func main() {
 }
 
 func check(getenv getenvFunc) error {
+	if err := validateOptionalSessionSigningKey(getenv); err != nil {
+		return err
+	}
 	mode := strings.ToLower(strings.TrimSpace(getenv(diagnosisAuthModeEnv)))
 	if mode == "" {
 		mode = inferDiagnosisAuthMode(getenv)
@@ -92,6 +95,14 @@ func check(getenv getenvFunc) error {
 		return err
 	}
 	return validateOptionalIAMIntegration(getenv)
+}
+
+func validateOptionalSessionSigningKey(getenv getenvFunc) error {
+	key := getenv(diagnosisSessionSigningKeyEnv)
+	if strings.TrimSpace(key) == "" {
+		return nil
+	}
+	return validateSigningKey(key, "diagnosis session signing key")
 }
 
 func inferDiagnosisAuthMode(getenv getenvFunc) string {
