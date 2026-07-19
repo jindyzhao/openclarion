@@ -32,6 +32,9 @@ ok  	github.com/openclarion/openclarion/scripts/report_live_smoke_output	0.01s	c
 	if !strings.Contains(out, "[go-coverage] OK (3 packages, min 40.0%)") {
 		t.Fatalf("output = %q, want OK with 3 checked packages", out)
 	}
+	if strings.Contains(out, "coverage:") {
+		t.Fatalf("output = %q, successful package details must stay suppressed", out)
+	}
 
 	calls := readGoCoverageCalls(t, root)
 	for _, excluded := range []string{
