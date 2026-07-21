@@ -130,6 +130,7 @@ const turnOutputSchemaJSON = `{
     },
     "evidence_request": {
       "type": "object",
+      "description": "A backend-executable evidence collection request copied from a server-provided evidence_request_example; operational response steps and validation criteria do not belong here.",
       "additionalProperties": false,
       "required": ["tool", "reason"],
       "properties": {
@@ -253,6 +254,7 @@ const turnOutputSchemaJSON = `{
     },
     "recommended_actions": {
       "type": "array",
+      "description": "Operator response steps and their validation criteria; this field does not execute backend evidence tools.",
       "maxItems": 10,
       "items": {
         "type": "string",
@@ -262,6 +264,7 @@ const turnOutputSchemaJSON = `{
     },
     "evidence_requests": {
       "type": "array",
+      "description": "Backend-executable collection requests. Populate only when server-owned evidence contains a matching openclarion_available_diagnosis_tools evidence_request_example, then copy that example exactly and change only reason.",
       "maxItems": 5,
       "items": {
         "$ref": "#/$defs/evidence_request"

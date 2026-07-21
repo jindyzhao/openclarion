@@ -592,6 +592,15 @@ func TestTurnOutputStructuredSchemaUsesPortableProviderSubset(t *testing.T) {
 			t.Fatalf("local V1 schema lost validation keyword %s", keyword)
 		}
 	}
+	for _, guidance := range []string{
+		"Operator response steps and their validation criteria",
+		"Backend-executable collection requests",
+		"server-provided evidence_request_example",
+	} {
+		if !strings.Contains(string(structured), guidance) {
+			t.Fatalf("structured schema lost guidance %q", guidance)
+		}
+	}
 }
 
 func assertSchemaKeywordsAbsent(t *testing.T, value any, forbidden map[string]struct{}) {

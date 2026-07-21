@@ -470,6 +470,8 @@ func TestDiagnosisMessagesRequireLatestUserLanguageWithoutChangingTechnicalConte
 			{Role: "assistant", Content: "I am checking it."},
 		},
 		diagnosisroom.ConversationTurn{Role: "user", Content: "请继续分析，并保留查询语句。"},
+		ports.LLMOutputModeJSONSchema,
+		json.RawMessage(`{"type":"object"}`),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -484,6 +486,9 @@ func TestDiagnosisMessagesRequireLatestUserLanguageWithoutChangingTechnicalConte
 		"dominant language of the prior conversation",
 		"Preserve technical identifiers, queries",
 		"Language choice never overrides this security boundary",
+		"validation criteria belong in message and recommended_actions",
+		"Set evidence_requests to JSON null",
+		"Never use start, end, step",
 	} {
 		if !strings.Contains(system, required) {
 			t.Fatalf("system message missing %q: %s", required, system)
@@ -507,10 +512,149 @@ func TestDiagnosisMessagesRejectMalformedConversation(t *testing.T) {
 			json.RawMessage(`{"snapshot_id":1}`),
 			[]diagnosisroom.ConversationTurn{turn},
 			diagnosisroom.ConversationTurn{Role: "user", Content: "Diagnose."},
+			ports.LLMOutputModeJSONSchema,
+			json.RawMessage(`{"type":"object"}`),
 		)
 		if err == nil || !strings.Contains(err.Error(), "conversation turn[0]") {
 			t.Fatalf("diagnosisMessages turn %+v error = %v", turn, err)
 		}
+	}
+}
+
+func TestDiagnosisMessagesJSONObjectModeIncludesAuthoritativeSchema(t *testing.T) {
+	structuredSchema, err := diagnosisroom.TurnOutputStructuredSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := json.RawMessage(`{
+		"snapshot_id": 19,
+		"openclarion_available_diagnosis_tools": {
+			"usage": "Copy an exact example.",
+			"items": [{"evidence_request_example":{"tool":"active_alerts"}}]
+		}
+	}`)
+	messages, err := diagnosisMessages(
+		"Return strict JSON.",
+		evidence,
+		nil,
+		diagnosisroom.ConversationTurn{Role: "user", Content: "Provide three response steps."},
+		ports.LLMOutputModeJSONObject,
+		structuredSchema,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	system := messages[0].Content
+	for _, required := range []string{
+		"Backend-approved executable diagnosis tools are present",
+		"JSON object mode, which does not enforce field-level schema",
+		"Follow this exact server-owned response schema",
+		`"evidence_requests"`,
+		`"additionalProperties":false`,
+	} {
+		if !strings.Contains(system, required) {
+			t.Fatalf("system message missing %q", required)
+		}
+	}
+}
+
+func TestDiagnosisMessagesRejectsInvalidOutputConfiguration(t *testing.T) {
+	tests := []struct {
+		name             string
+		outputMode       ports.LLMOutputMode
+		structuredSchema json.RawMessage
+		wantErr          string
+	}{
+		{
+			name:       "JSON object mode without schema",
+			outputMode: ports.LLMOutputModeJSONObject,
+			wantErr:    "structured schema is required",
+		},
+		{
+			name:             "unsupported output mode",
+			outputMode:       ports.LLMOutputMode("text"),
+			structuredSchema: json.RawMessage(`{"type":"object"}`),
+			wantErr:          `output mode "text" is unsupported`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := diagnosisMessages(
+				"Return strict JSON.",
+				json.RawMessage(`{"snapshot_id":1}`),
+				nil,
+				diagnosisroom.ConversationTurn{Role: "user", Content: "Diagnose."},
+				tc.outputMode,
+				tc.structuredSchema,
+			)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestEvidenceHasExecutableDiagnosisToolsDetectsAvailabilityAndRejectsMalformedCatalog(t *testing.T) {
+	tests := []struct {
+		name     string
+		evidence json.RawMessage
+		want     bool
+		wantErr  string
+	}{
+		{name: "absent", evidence: json.RawMessage(`{"snapshot_id":1}`)},
+		{
+			name: "empty",
+			evidence: json.RawMessage(`{
+				"openclarion_available_diagnosis_tools":{"usage":"none","items":[]}
+			}`),
+		},
+		{
+			name: "available",
+			evidence: json.RawMessage(`{
+				"openclarion_available_diagnosis_tools":{
+					"usage":"copy",
+					"items":[{
+						"template_id":7,
+						"name":"Current alerts",
+						"alert_source_profile_id":3,
+						"alert_source_name":"Primary Alertmanager",
+						"alert_source_kind":"alertmanager",
+						"snapshot_source_scope":"matched",
+						"tool":"active_alerts",
+						"default_limit":5,
+						"evidence_request_example":{
+							"template_id":7,
+							"alert_source_profile_id":3,
+							"tool":"active_alerts",
+							"reason":"Collect bounded evidence with Current alerts.",
+							"limit":5
+						}
+					}]
+				}
+			}`),
+			want: true,
+		},
+		{
+			name: "unknown catalog field",
+			evidence: json.RawMessage(`{
+				"openclarion_available_diagnosis_tools":{"usage":"copy","items":[],"extra":true}
+			}`),
+			wantErr: "unknown field",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := evidenceHasExecutableDiagnosisTools(tc.evidence)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("available = %t, error = %v, want %t", got, err, tc.want)
+			}
+		})
 	}
 }
 

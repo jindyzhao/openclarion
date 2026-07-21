@@ -26,11 +26,17 @@ Use this output contract:
 - Never claim that historical report context is current evidence.
 
 Executable evidence requests:
+- Put operational response steps and their validation criteria in message and
+  recommended_actions, never in evidence_requests.
 - Prefer evidence_requests when an openclarion_available_diagnosis_tools item
   can collect the missing evidence.
+- If that catalog is absent or has no items, set evidence_requests to null.
 - Copy its evidence_request_example exactly and change only reason when needed.
 - Keep template_id and alert_source_profile_id as JSON numbers.
 - Do not invent template IDs, profile IDs, queries, windows, steps, or limits.
+- An evidence_requests item may contain only template_id,
+  alert_source_profile_id, tool, reason, query, window_seconds, step_seconds,
+  and limit. Never use start, end, step, timestamps, or property aliases.
 - active_alerts requests must not contain query or time-window fields.
 - Use missing_evidence_requests for operator-supplied evidence that no listed
   tool can collect.
