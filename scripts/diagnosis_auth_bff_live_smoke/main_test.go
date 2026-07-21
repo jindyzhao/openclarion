@@ -41,6 +41,8 @@ func TestRunWritesSanitizedLDAPBFFSessionProof(t *testing.T) {
 					"role_authorized": true,
 					"roles":           []string{"owner"},
 					"subject":         "operator-1",
+					"tenant_id":       int64(1),
+					"tenant_key":      "default",
 				})
 			case http.MethodGet:
 				cookie, err := r.Cookie(diagnosisSessionCookieName)
@@ -60,6 +62,8 @@ func TestRunWritesSanitizedLDAPBFFSessionProof(t *testing.T) {
 					"role_authorized": true,
 					"roles":           []string{"owner"},
 					"subject":         "operator-1",
+					"tenant_id":       int64(1),
+					"tenant_key":      "default",
 				})
 			case http.MethodDelete:
 				cookie, err := r.Cookie(diagnosisSessionCookieName)
@@ -127,6 +131,8 @@ func TestRunWritesSanitizedLDAPBFFSessionProof(t *testing.T) {
 		out.Issue.Mode != "ldap" ||
 		!out.Issue.RoleAuthorized ||
 		out.Issue.RoleCount != 1 ||
+		out.Issue.TenantID != 1 ||
+		out.Issue.TenantKey != "default" ||
 		!out.Issue.SessionCookie ||
 		!out.Issue.SessionCookieAttrs.HTTPOnly ||
 		out.Issue.SessionCookieAttrs.SameSite != "lax" ||
@@ -137,7 +143,9 @@ func TestRunWritesSanitizedLDAPBFFSessionProof(t *testing.T) {
 	if out.Check.HTTPStatus != http.StatusOK ||
 		out.Check.Subject != out.Issue.Subject ||
 		out.Check.Mode != out.Issue.Mode ||
-		out.Check.RoleCount != out.Issue.RoleCount {
+		out.Check.RoleCount != out.Issue.RoleCount ||
+		out.Check.TenantID != out.Issue.TenantID ||
+		out.Check.TenantKey != out.Issue.TenantKey {
 		t.Fatalf("check proof = %+v", out.Check)
 	}
 	if out.Clear.HTTPStatus != http.StatusNoContent ||
@@ -182,6 +190,8 @@ func TestRunWritesSanitizedBearerBFFSessionProof(t *testing.T) {
 					"role_authorized": true,
 					"roles":           []string{"owner", "admin"},
 					"subject":         "operator-oidc",
+					"tenant_id":       int64(2),
+					"tenant_key":      "platform",
 				})
 			case http.MethodGet:
 				cookie, err := r.Cookie(diagnosisSessionCookieName)
@@ -201,6 +211,8 @@ func TestRunWritesSanitizedBearerBFFSessionProof(t *testing.T) {
 					"role_authorized": true,
 					"roles":           []string{"admin", "owner"},
 					"subject":         "operator-oidc",
+					"tenant_id":       int64(2),
+					"tenant_key":      "platform",
 				})
 			case http.MethodDelete:
 				cookie, err := r.Cookie(diagnosisSessionCookieName)
@@ -265,6 +277,8 @@ func TestRunWritesSanitizedBearerBFFSessionProof(t *testing.T) {
 		out.Issue.Mode != "oidc" ||
 		!out.Issue.RoleAuthorized ||
 		out.Issue.RoleCount != 2 ||
+		out.Issue.TenantID != 2 ||
+		out.Issue.TenantKey != "platform" ||
 		!out.Issue.SessionCookie ||
 		!out.Issue.SessionCookieAttrs.HTTPOnly ||
 		out.Issue.SessionCookieAttrs.SameSite != "lax" ||
@@ -275,7 +289,9 @@ func TestRunWritesSanitizedBearerBFFSessionProof(t *testing.T) {
 	if out.Check.HTTPStatus != http.StatusOK ||
 		out.Check.Subject != out.Issue.Subject ||
 		out.Check.Mode != out.Issue.Mode ||
-		out.Check.RoleCount != out.Issue.RoleCount {
+		out.Check.RoleCount != out.Issue.RoleCount ||
+		out.Check.TenantID != out.Issue.TenantID ||
+		out.Check.TenantKey != out.Issue.TenantKey {
 		t.Fatalf("check proof = %+v", out.Check)
 	}
 	if out.Clear.HTTPStatus != http.StatusNoContent ||
@@ -425,6 +441,91 @@ func TestValidateProofRejectsAuthenticatedPostClearProof(t *testing.T) {
 	}
 }
 
+func TestValidateProofRejectsChangedTenantBinding(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*proof)
+	}{
+		{
+			name: "tenant id",
+			mutate: func(out *proof) {
+				out.Check.TenantID = 2
+			},
+		},
+		{
+			name: "tenant key",
+			mutate: func(out *proof) {
+				out.Check.TenantKey = "platform"
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			valid := validBFFAuthProofFixture()
+			tc.mutate(&valid)
+			valid.Evidence = bffAuthEvidence(valid)
+			err := validateProof(valid)
+			if err == nil {
+				t.Fatal("validateProof succeeded; want tenant binding failure")
+			}
+			if !strings.Contains(err.Error(), "must match issued session principal") {
+				t.Fatalf("error = %v, want tenant binding mismatch", err)
+			}
+		})
+	}
+}
+
+func TestValidateProofRejectsInvalidTenantBinding(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*proof)
+		wantErr string
+	}{
+		{
+			name: "issue tenant id",
+			mutate: func(out *proof) {
+				out.Issue.TenantID = 0
+			},
+			wantErr: "issue tenant binding is invalid",
+		},
+		{
+			name: "issue tenant key",
+			mutate: func(out *proof) {
+				out.Issue.TenantKey = "Default"
+			},
+			wantErr: "issue tenant binding is invalid",
+		},
+		{
+			name: "check tenant id",
+			mutate: func(out *proof) {
+				out.Check.TenantID = 0
+			},
+			wantErr: "check tenant binding is invalid",
+		},
+		{
+			name: "check tenant key",
+			mutate: func(out *proof) {
+				out.Check.TenantKey = "default "
+			},
+			wantErr: "check tenant binding is invalid",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			valid := validBFFAuthProofFixture()
+			tc.mutate(&valid)
+			valid.Evidence = bffAuthEvidence(valid)
+			err := validateProof(valid)
+			if err == nil {
+				t.Fatal("validateProof succeeded; want invalid tenant binding failure")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want substring %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func validBFFAuthProofFixture() proof {
 	out := proof{
 		Passed:    true,
@@ -442,6 +543,8 @@ func validBFFAuthProofFixture() proof {
 			CheckedAt:      "2026-06-22T11:59:00Z",
 			RoleAuthorized: true,
 			RoleCount:      1,
+			TenantID:       1,
+			TenantKey:      "default",
 			SessionCookie:  true,
 			SessionCookieAttrs: cookieProof{
 				HTTPOnly: true,
@@ -458,6 +561,8 @@ func validBFFAuthProofFixture() proof {
 			CheckedAt:      "2026-06-22T11:59:30Z",
 			RoleAuthorized: true,
 			RoleCount:      1,
+			TenantID:       1,
+			TenantKey:      "default",
 		},
 		Clear: clearProof{
 			HTTPStatus:           http.StatusNoContent,
