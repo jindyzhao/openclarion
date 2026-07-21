@@ -26,6 +26,15 @@ func TestPRCIRunsPreflightBeforeConcurrentLanes(t *testing.T) {
 			t.Fatalf("%s not produced: %v", name, err)
 		}
 	}
+	for _, name := range []string{"backend.makeflags", "frontend.makeflags"} {
+		raw, err := os.ReadFile(filepath.Join(root, name)) // #nosec G304 -- test reads its own fixture output.
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if !makeflagsEnableLineOutputSync(string(raw)) {
+			t.Fatalf("%s = %q, want line-level output synchronization", name, raw)
+		}
+	}
 }
 
 func TestPRCIPropagatesLaneFailure(t *testing.T) {
@@ -85,6 +94,7 @@ fixture-preflight:
 
 fixture-backend:
 	@test -f preflight.done
+	@printf '%%s\n' "$(MAKEFLAGS)" > backend.makeflags
 	@touch backend.started
 	@for ((attempt = 0; attempt < 50; attempt++)); do test -f frontend.started && break; sleep 0.1; done
 	@test -f frontend.started
@@ -92,6 +102,7 @@ fixture-backend:
 
 fixture-frontend:
 	@test -f preflight.done
+	@printf '%%s\n' "$(MAKEFLAGS)" > frontend.makeflags
 	@touch frontend.started
 	@for ((attempt = 0; attempt < 50; attempt++)); do test -f backend.started && break; sleep 0.1; done
 	@test -f backend.started
@@ -101,6 +112,15 @@ fixture-frontend:
 		t.Fatalf("write fixture Makefile: %v", err)
 	}
 	return root
+}
+
+func makeflagsEnableLineOutputSync(raw string) bool {
+	for _, flag := range strings.Fields(raw) {
+		if flag == "-Oline" || flag == "--output-sync=line" {
+			return true
+		}
+	}
+	return false
 }
 
 func runPRParallelFixture(t *testing.T, root string) (string, error) {

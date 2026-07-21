@@ -201,7 +201,7 @@ pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 
 ci-pr: ## Run the full local CI bundle with two dependency-isolated lanes
 	@$(MAKE) CI_SERIAL_LANE=1 $(CI_PREFLIGHT_TARGETS)
-	@$(MAKE) -j2 CI_SERIAL_LANE=0 ci-backend-lane ci-frontend-lane
+	@$(MAKE) -j2 --output-sync=line CI_SERIAL_LANE=0 ci-backend-lane ci-frontend-lane
 	@echo ""
 	@echo "[ci] all gates passed."
 

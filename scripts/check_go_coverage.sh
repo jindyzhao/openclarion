@@ -66,7 +66,10 @@ for pkg in "${serialized_packages[@]}"; do
 done
 
 output="$(printf '%s\n' "${outputs[@]}")"
-printf '%s\n' "$output"
+
+# Successful package output is intentionally summarized below. Test failures are
+# emitted by run_coverage, while replaying every success line makes parallel CI
+# logs noisy and can overwhelm constrained log consumers.
 
 failures=()
 checked=0
