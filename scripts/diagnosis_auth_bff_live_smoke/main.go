@@ -18,7 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/tenancy"
 )
 
 const (
@@ -68,6 +70,8 @@ type sessionProof struct {
 	CheckedAt          string      `json:"checked_at"`
 	RoleAuthorized     bool        `json:"role_authorized"`
 	RoleCount          int         `json:"role_count"`
+	TenantID           int64       `json:"tenant_id"`
+	TenantKey          string      `json:"tenant_key"`
 	SessionCookie      bool        `json:"session_cookie_present"`
 	SessionCookieAttrs cookieProof `json:"session_cookie_attrs"`
 }
@@ -87,6 +91,8 @@ type checkProof struct {
 	CheckedAt      string   `json:"checked_at"`
 	RoleAuthorized bool     `json:"role_authorized"`
 	RoleCount      int      `json:"role_count"`
+	TenantID       int64    `json:"tenant_id"`
+	TenantKey      string   `json:"tenant_key"`
 }
 
 type clearProof struct {
@@ -112,6 +118,8 @@ type sessionStatusResponse struct {
 	RoleAuthorized bool      `json:"role_authorized,omitempty"`
 	Roles          []string  `json:"roles,omitempty"`
 	Subject        string    `json:"subject,omitempty"`
+	TenantID       int64     `json:"tenant_id,omitempty"`
+	TenantKey      string    `json:"tenant_key,omitempty"`
 }
 
 func main() {
@@ -288,6 +296,8 @@ func issueBrowserSession(ctx context.Context, client *http.Client, cfg config) (
 		CheckedAt:          body.CheckedAt.UTC().Format(time.RFC3339Nano),
 		RoleAuthorized:     body.RoleAuthorized,
 		RoleCount:          len(body.Roles),
+		TenantID:           body.TenantID,
+		TenantKey:          body.TenantKey,
 		SessionCookie:      true,
 		SessionCookieAttrs: cookieProofFromCookie(sessionCookie),
 	}, sessionCookie, nil
@@ -323,6 +333,8 @@ func checkBrowserSession(ctx context.Context, client *http.Client, cfg config, s
 		CheckedAt:      body.CheckedAt.UTC().Format(time.RFC3339Nano),
 		RoleAuthorized: body.RoleAuthorized,
 		RoleCount:      len(body.Roles),
+		TenantID:       body.TenantID,
+		TenantKey:      body.TenantKey,
 	}, nil
 }
 
@@ -500,6 +512,9 @@ func validateIssueProof(issue sessionProof) error {
 	if err := validateCheckedAt(issue.CheckedAt); err != nil {
 		return fmt.Errorf("issue.checked_at is invalid: %w", err)
 	}
+	if err := validateTenantBinding(issue.TenantID, issue.TenantKey); err != nil {
+		return fmt.Errorf("issue tenant binding is invalid: %w", err)
+	}
 	return nil
 }
 
@@ -513,9 +528,14 @@ func validateCheckProof(check checkProof, issue sessionProof) error {
 	if err := validateCheckedAt(check.CheckedAt); err != nil {
 		return fmt.Errorf("check.checked_at is invalid: %w", err)
 	}
+	if err := validateTenantBinding(check.TenantID, check.TenantKey); err != nil {
+		return fmt.Errorf("check tenant binding is invalid: %w", err)
+	}
 	if check.Subject != issue.Subject ||
 		check.Mode != issue.Mode ||
-		!slices.Equal(sortedStrings(check.Roles), sortedStrings(issue.Roles)) {
+		!slices.Equal(sortedStrings(check.Roles), sortedStrings(issue.Roles)) ||
+		check.TenantID != issue.TenantID ||
+		check.TenantKey != issue.TenantKey {
 		return fmt.Errorf("check proof must match issued session principal")
 	}
 	return nil
@@ -565,6 +585,13 @@ func validatePrincipal(subject, mode string, roles []string, roleAuthorized bool
 		if role != "owner" && role != "admin" {
 			return fmt.Errorf("roles contains unsupported role")
 		}
+	}
+	return nil
+}
+
+func validateTenantBinding(tenantID int64, tenantKey string) error {
+	if _, err := tenancy.NewIdentity(domain.TenantID(tenantID), tenantKey); err != nil {
+		return err
 	}
 	return nil
 }
@@ -698,11 +725,13 @@ func bffAuthEvidence(out proof) string {
 	roles := append([]string(nil), out.Issue.Roles...)
 	slices.Sort(roles)
 	return fmt.Sprintf(
-		"diagnosis_auth_bff_session success:%s:%s:%s:%s",
+		"diagnosis_auth_bff_session success:%s:%s:%s:%s:tenant:%d:%s",
 		out.Issue.Mode,
 		out.Issue.Subject,
 		strings.Join(roles, ","),
 		out.Issue.SessionCookieAttrs.SameSite,
+		out.Issue.TenantID,
+		out.Issue.TenantKey,
 	)
 }
 
